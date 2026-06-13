@@ -1,0 +1,16 @@
+{
+  "name": "signal-rush-project",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Signal Rush project workspace with shared engine, CLI game, and future web/admin surfaces.",
+  "scripts": {
+    "cli": "node src/cli/index.js",
+    "cli:demo": "node src/cli/index.js --demo",
+    "test": "npm run test:mechanics && npm run test:smoke",
+    "test:mechanics": "node scripts/mechanics-test.js",
+    "test:smoke": "node scripts/smoke-test.js"
+  },
+  "engines": {
+    "node": ">=18"
+  }
+}
