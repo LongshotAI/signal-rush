@@ -425,6 +425,13 @@ function stepFrogger(state, input) {
     }
   }
 
+  // Reset the "GO!" message from the GET READY window so the player gets
+  // a neutral play-state hint on the first normal tick instead of seeing
+  // "GO!" stuck in the message line for the whole run.
+  if (state.message === 'GO!') {
+    state.message = 'Move WASD/arrows. Hop logs. Avoid cars. Fill the slots.';
+  }
+
   return state;
 }
 

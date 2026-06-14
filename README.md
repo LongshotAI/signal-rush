@@ -6,14 +6,20 @@ Structured project workspace for the Signal Rush game.
 
 - `src/core/` shared game engine logic
 - `src/cli/` terminal renderer and runtime
+- `src/state/` persistent state (best scores, run counts)
 - `src/config/` tuning constants
 - `src/content/` sponsor and UX copy stubs
 - `scripts/` smoke tests and utility scripts
-- `docs/` product and technical docs migrated from the planning files
+- `docs/` product and technical docs (including the embed integration guide)
+- `examples/` demo harnesses for the agent-CLI embed mode
 
 ## Current runnable surface
 
-The CLI game is the active executable surface.
+Three modes:
+
+1. **Fullscreen CLI game** (original): a complete arcade experience for solo play.
+2. **Agent CLI embed** (new): a 6–10 row widget that lives in the bottom band of an agent's CLI chat, replacing the "thinking" line during idle, rate-limited, and post-prompt downtime. See `docs/EMBED_INTEGRATION_GUIDE.md` for the integration guide.
+3. **Demo harness**: a fake agent CLI that cycles the embed widget through all four lifecycle states, useful for visual proof and screenshot tooling. Run with `npm run cli:embed:demo`.
 
 ### Team launch from GitHub
 
@@ -46,13 +52,21 @@ node src/cli/index.js --mode=aiHunt
 node src/cli/index.js --mode=frogger
 ```
 
+Run the embed widget standalone (for plugin authors to verify):
+
+```bash
+npm run cli:embed          # static widget, idle
+npm run cli:embed --rows=10 --columns=120 --mode=frogger
+npm run cli:embed:demo     # cycle through 4 agent lifecycle states
+```
+
 Run verification with:
 
 ```bash
 npm test
 ```
 
-This runs deterministic mechanics checks, the CLI smoke test, and a Frogger render verification that confirms the GOAL bar, home slots, water/log lanes, cars, and GET READY overlay are present in the GitHub copy.
+This runs mechanics, smoke, persistence, compact-renderer, and embedded entry-point tests, plus a Frogger render verification that confirms the GOAL bar, home slots, water/log lanes, cars, and GET READY overlay are present in the GitHub copy.
 
 ### Safe GitHub sync guard
 
@@ -93,7 +107,6 @@ If the hook fails, the commit remains local and the fix is to resolve the report
 Latest local audit note:
 
 - `docs/FUNCTIONALITY_AUDIT_2026-06-13.md`
-
 ## Design direction
 
 - shared engine first

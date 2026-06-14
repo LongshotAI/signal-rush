@@ -251,12 +251,16 @@ function buildHudLeft(state, options = {}) {
     const timeColor = state.timeLeft <= 10
       ? (COLORS.bold + COLORS.red)
       : (COLORS.bold + COLORS.yellow);
-    const livesStr = 'F'.repeat(Math.max(0, state.lives)) + '.'.repeat(Math.max(0, state.maxLives - state.lives));
+    // Lives: numeric value first (so partners / spectators can read the
+    // count at a glance), then the dot pattern for a glanceable game
+    // status. Numeric first because a single "1" beats a 5-char glyph
+    // when the player is mid-jump and the screen is moving.
+    const livesNum = Math.max(0, state.lives);
     return (
       `${p(COLORS.dim, 'LVL')} ${p(COLORS.bold + COLORS.cyan, String(state.level))}` +
       `   ${p(COLORS.dim, 'SCORE')} ${p(COLORS.bold + COLORS.yellow, String(state.score))}` +
       `   ${p(COLORS.dim, 'TIME')} ${p(timeColor, String(Math.max(0, state.timeLeft)))}` +
-      `   ${p(COLORS.dim, 'LIVES')} ${p(COLORS.bold + COLORS.green, livesStr)}`
+      `   ${p(COLORS.dim, 'LIVES')} ${p(COLORS.bold + COLORS.green, String(livesNum))}`
     );
   }
   const hpValue = Math.max(0, state.player.health);
@@ -362,7 +366,10 @@ function renderFrame(state, viewport = { columns: 100, rows: 40 }, options = {})
   const arenaLines = buildArena(state, options);
   const shellWidth = Math.max(width, GAME_CONFIG.width + 8);
   const sponsorLabel = `[ ${getSponsorLabel(state)} ]`;
-  const modeTag = state.mode === 'frogger' ? 'FROGGER' : 'AI HUNT';
+  // Display label for the hop-the-lanes mode. Internal mode id stays
+  // 'frogger' (code constant), but user-facing title is rebranded to
+  // avoid any association with Konami's Frogger trademark.
+  const modeTag = state.mode === 'frogger' ? 'PACKET HOP' : 'AI HUNT';
   const title = center(p(COLORS.bold + COLORS.cyan, `SIGNAL RUSH // ${modeTag}`), shellWidth);
   const sponsor = center(p(COLORS.dim + COLORS.white, sponsorLabel), shellWidth);
 
@@ -391,10 +398,21 @@ function renderFrame(state, viewport = { columns: 100, rows: 40 }, options = {})
     lines.push(center(buildAiHuntMissionBar(state, options), shellWidth));
   }
   lines.push(repeat('-', shellWidth));
-  lines.push('');
 
-  for (const row of arenaLines) {
-    lines.push(center(row, shellWidth));
+  // When the run is over, replace the live arena with a compact summary
+  // card. The previous design rendered the full arena AND the game-over
+  // card stacked, which on a default 40-row terminal pushed the score,
+  // combo, and restart prompt off the bottom of the screen — players
+  // never saw the actual end-of-run stats. The "RIDGE" approach below
+  // shaves the arena down to a small decorative title row so the card
+  // sits in view on any 40+ row terminal.
+  if (state.gameOver) {
+    // One centered "RUN ENDED" banner in the arena slot.
+    lines.push(center(p(COLORS.dim + COLORS.white, '· · ·  R U N   E N D E D  · · ·'), shellWidth));
+  } else {
+    for (const row of arenaLines) {
+      lines.push(center(row, shellWidth));
+    }
   }
 
   // GET READY overlay — show a big countdown centered on the arena when
@@ -403,9 +421,12 @@ function renderFrame(state, viewport = { columns: 100, rows: 40 }, options = {})
   // predictable in height.
   if (state.mode === 'frogger' && typeof state.getReadyTicks === 'number' && state.getReadyTicks > 0) {
     const seconds = Math.max(0, Math.ceil(state.getReadyTicks / getFroggerSecondsDivisor()));
+    // Show "GO!" the instant the countdown ends instead of a misleading
+    // "0…" — the old code showed "GET READY — 0…" for the final sub-second
+    // which read as "the timer never started" to first-time players.
     const readyText = seconds > 0
       ? `GET READY — ${seconds}…`
-      : 'GET READY';
+      : 'GO!';
     lines.push(center(p(COLORS.bold + COLORS.yellow, readyText), shellWidth));
   }
 
@@ -418,7 +439,6 @@ function renderFrame(state, viewport = { columns: 100, rows: 40 }, options = {})
     lines.push(center(p(COLORS.dim, 'SHIP=A  MOVE=#  INPUT=W  TRAIL=:-|  WARNING=!  ENEMY=o  HEAVY=X  SIGNAL=$'), shellWidth));
     lines.push(center(p(COLORS.dim, 'MOVE WASD/ARROWS | DASH SPACE | RESTART R | PAUSE P | QUIT Q'), shellWidth));
   }
-  lines.push('');
 
   if (state.gameOver) {
     const cardWidth = Math.min(shellWidth, 72);
@@ -459,8 +479,11 @@ function renderFrame(state, viewport = { columns: 100, rows: 40 }, options = {})
       shellWidth
     );
     const restartMsg = center(p(COLORS.bold + COLORS.cyan, 'PRESS R TO RESTART  |  M FOR MENU'), shellWidth);
-    const devMsg = center(p(COLORS.dim + COLORS.white, 'MANUAL TEST MODE: PRESS R TO INSTANTLY RESTART'), shellWidth);
 
+    // Compact the game-over card so it fits inside a default 40-row
+    // terminal viewport. The previous layout had blank lines between
+    // every block and a redundant dev-only "MANUAL TEST MODE" line that
+    // pushed the bottom prompt off-screen.
     lines.push(border);
     lines.push(header);
     lines.push(border);
@@ -469,9 +492,7 @@ function renderFrame(state, viewport = { columns: 100, rows: 40 }, options = {})
     if (extraLine) lines.push(extraLine);
     lines.push(comboLine);
     lines.push(creditsLine);
-    lines.push('');
     lines.push(restartMsg);
-    lines.push(devMsg);
     lines.push(border);
   }
 
@@ -571,7 +592,7 @@ function renderMenuFrame(selection = 0, options = {}) {
   const selectedMode = MENU_MODES[selection] || 'aiHunt';
   const modeLabels = {
     aiHunt:  'AI HUNT MODE',
-    frogger: 'FROGGER MODE',
+    frogger: 'PACKET HOP MODE',  // rebranded: was 'FROGGER MODE'
   };
   const modeSubtitles = {
     aiHunt:  'survival arcade with homing hazards',

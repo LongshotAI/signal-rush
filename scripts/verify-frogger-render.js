@@ -8,7 +8,8 @@ const engine = createEngine({ mode: 'frogger', rng: () => 0.5 });
 const frame = renderFrame(engine.state, { columns: 92, rows: 40 }, { colors: false });
 
 const checks = {
-  title: frame.includes('SIGNAL RUSH // FROGGER'),
+  // Mode is rebranded: was 'SIGNAL RUSH // FROGGER', now 'SIGNAL RUSH // PACKET HOP'.
+  title: frame.includes('SIGNAL RUSH // PACKET HOP'),
   goalBar: /GOAL\s+\[_ _ _ _ _\]\s+0\/5/.test(frame),
   homeSlots: /_\s+_\s+_\s+_\s+_/.test(frame),
   water: frame.includes('~~~~'),

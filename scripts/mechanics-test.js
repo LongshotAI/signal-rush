@@ -113,7 +113,6 @@ function testGameOverCardShowsFinalStatsAndRestartPrompt() {
   assert(frame.includes('Credits Earned'), 'should label credits earned');
   assert(frame.includes('NEW'), 'should mark new personal best when applicable');
   assert(frame.includes('PRESS R TO RESTART  |  M FOR MENU'), 'should show clear restart + menu prompt');
-  assert(frame.includes('MANUAL TEST MODE'), 'should keep the dev manual test mode line');
 }
 
 function testNoColorOptionProducesAnsiFreeFrame() {
@@ -265,7 +264,8 @@ function testAiHuntDangerHaloGlyphsAreDistinctAcrossOverlapTiers() {
 function testMenuRendersBothModeOptions() {
   const frame = renderMenuFrame(0, { colors: false });
   assert(frame.includes('AI HUNT MODE'), 'menu should list AI Hunt mode');
-  assert(frame.includes('FROGGER MODE'), 'menu should list Frogger mode');
+  // Mode is rebranded: was 'FROGGER MODE', now 'PACKET HOP MODE'.
+  assert(frame.includes('PACKET HOP MODE'), 'menu should list Packet Hop mode');
   assert(frame.includes('SELECT MODE'), 'menu should label the selection section');
   assert(frame.includes('ENTER'), 'menu should mention ENTER key');
   assert(frame.includes('launch'), 'menu should mention launch action');
@@ -274,16 +274,17 @@ function testMenuRendersBothModeOptions() {
 function testMenuSelectionCursorMovesBetweenOptions() {
   // The ▶ cursor should appear on the selected option and not the other.
   // The unselected option uses 2 spaces as a placeholder, not the cursor.
+  // Mode label was rebranded from 'FROGGER' to 'PACKET HOP'.
   const f0 = renderMenuFrame(0, { colors: false });
   const f1 = renderMenuFrame(1, { colors: false });
   const idx0 = f0.indexOf('▶ AI HUNT');
-  const idx0Frogger = f0.indexOf('▶ FROGGER');
+  const idx0Packet = f0.indexOf('▶ PACKET HOP');
   const idx1 = f1.indexOf('▶ AI HUNT');
-  const idx1Frogger = f1.indexOf('▶ FROGGER');
+  const idx1Packet = f1.indexOf('▶ PACKET HOP');
   assert(idx0 !== -1, 'cursor on AI Hunt when selected');
-  assert(idx0Frogger === -1, 'no cursor on Frogger when AI Hunt selected');
-  assert(idx1 === -1, 'no cursor on AI Hunt when Frogger selected');
-  assert(idx1Frogger !== -1, 'cursor on Frogger when Frogger selected');
+  assert(idx0Packet === -1, 'no cursor on Packet Hop when AI Hunt selected');
+  assert(idx1 === -1, 'no cursor on AI Hunt when Packet Hop selected');
+  assert(idx1Packet !== -1, 'cursor on Packet Hop when Packet Hop selected');
 }
 
 function testMenuTaglineUpdatesWithSelection() {
@@ -601,22 +602,24 @@ function testMenuTaglineChangesWithSelection() {
   const a = renderMenuFrame(0, { colors: false });
   const f = renderMenuFrame(1, { colors: false });
   assert(a.includes('AI HUNT MODE'), 'selection 0 should highlight AI HUNT');
-  assert(f.includes('FROGGER MODE'), 'selection 1 should highlight FROGGER');
+  // Mode is rebranded: was 'FROGGER MODE', now 'PACKET HOP MODE'.
+  assert(f.includes('PACKET HOP MODE'), 'selection 1 should highlight PACKET HOP');
   assert(a.includes('Pilot the signal node'), 'selection 0 tagline should describe AI Hunt');
-  assert(f.includes('Cross the road'), 'selection 1 tagline should describe Frogger');
+  assert(f.includes('Cross the road'), 'selection 1 tagline should describe Packet Hop');
 }
 
 function testMenuCursorReflectsSelection() {
   // The ▶ cursor should appear immediately before the selected option.
-  // In selection 0 the AI HUNT label should be preceded by ▶; FROGGER by blank.
+  // In selection 0 the AI HUNT label should be preceded by ▶; PACKET HOP by blank.
   // We use a loose regex check: in selection 0 the ▶ should appear on the
-  // same line as "AI HUNT MODE" and NOT on the FROGGER line.
+  // same line as "AI HUNT MODE" and NOT on the PACKET HOP line.
+  // Mode label was rebranded from 'FROGGER' to 'PACKET HOP'.
   const a = renderMenuFrame(0, { colors: false });
   const f = renderMenuFrame(1, { colors: false });
   const aiHuntCursorOnAiHunt = /▶\s+AI HUNT MODE/.test(a);
-  const froggerCursorOnFrogger = /▶\s+FROGGER MODE/.test(f);
+  const packetHopCursorOnPacket = /▶\s+PACKET HOP MODE/.test(f);
   assert(aiHuntCursorOnAiHunt, 'selection 0 should put ▶ cursor on AI HUNT MODE line');
-  assert(froggerCursorOnFrogger, 'selection 1 should put ▶ cursor on FROGGER MODE line');
+  assert(packetHopCursorOnPacket, 'selection 1 should put ▶ cursor on PACKET HOP MODE line');
 }
 
 function testMenuHasFooterCopyright() {
@@ -651,7 +654,8 @@ function testGameplayFrameFroggerModeShowsPresentedBy() {
   const engine = createEngine({ mode: 'frogger' });
   const frame = renderFrame(engine.state, { columns: 100, rows: 40 });
   const stripped = frame.replace(/\x1b\[[0-9;]*m/g, '');
-  assert(stripped.includes('SIGNAL RUSH // FROGGER'), 'frogger gameplay title should be SIGNAL RUSH // FROGGER');
+  // Mode is rebranded: was 'SIGNAL RUSH // FROGGER', now 'SIGNAL RUSH // PACKET HOP'.
+  assert(stripped.includes('SIGNAL RUSH // PACKET HOP'), 'frogger gameplay title should be SIGNAL RUSH // PACKET HOP');
   assert(stripped.includes(PRESENTED_BY), 'frogger gameplay frame should also show the presented-by line');
 }
 
