@@ -7,6 +7,7 @@ EXPECTED_REMOTE_URL="https://github.com/LongshotAI/signal-rush.git"
 LOG_FILE="${SIGNAL_RUSH_SYNC_LOG:-.git/signal-rush-sync.log}"
 RUN_FRESH_CLONE="${SIGNAL_RUSH_FRESH_CLONE:-0}"
 ALLOW_DIRTY="${SIGNAL_RUSH_ALLOW_DIRTY:-0}"
+GIT_CRED_HELPER="${SIGNAL_RUSH_GIT_CRED_HELPER:-/home/hive/.hermes/skills/github/github-auth/scripts/git-cred-helper.py}"
 
 mkdir -p "$(dirname "$LOG_FILE")"
 exec > >(tee -a "$LOG_FILE") 2>&1
@@ -16,6 +17,10 @@ section() { printf '\n[%s] === %s ===\n' "$(stamp)" "$*"; }
 fail() { printf '[%s] ERROR: %s\n' "$(stamp)" "$*"; exit 1; }
 
 section "Signal Rush safe GitHub sync start"
+
+for cmd in git npm awk grep mktemp date tee; do
+  command -v "$cmd" >/dev/null 2>&1 || fail "required command missing: $cmd"
+done
 
 REPO_ROOT="$(git rev-parse --show-toplevel 2>/dev/null)" || fail "not inside a git repository"
 cd "$REPO_ROOT"
@@ -71,7 +76,11 @@ if [ "$RUN_FRESH_CLONE" = "1" ]; then
   section "fresh clone verification"
   TMP_DIR="$(mktemp -d /tmp/signal-rush-sync-verify.XXXXXX)"
   trap 'rm -rf "$TMP_DIR"' EXIT
-  git clone "$REMOTE_URL" "$TMP_DIR/repo"
+  if [ -f "$GIT_CRED_HELPER" ]; then
+    git -c credential.helper="$GIT_CRED_HELPER" clone "$REMOTE_URL" "$TMP_DIR/repo"
+  else
+    git clone "$REMOTE_URL" "$TMP_DIR/repo"
+  fi
   cd "$TMP_DIR/repo"
   CLONE_HEAD="$(git rev-parse HEAD)"
   printf '[%s] fresh clone HEAD: %s\n' "$(stamp)" "$CLONE_HEAD"

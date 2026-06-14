@@ -51,7 +51,11 @@ else
   code=$?
   echo "[Signal Rush] post-commit auto-sync FAILED with exit code $code. See $LOG_FILE" >&2
   echo "[Signal Rush] Your commit still exists locally; GitHub may not be up to date until you fix the error and run: npm run sync:github" >&2
-  exit $code
+  # post-commit runs AFTER git has already created the commit. Returning a
+  # non-zero status here makes tooling think the commit itself failed, which is
+  # misleading and can cause duplicate commit attempts. Leave the commit local,
+  # report loudly, and let the developer repair + run npm run sync:github.
+  exit 0
 fi
 HOOK
 
