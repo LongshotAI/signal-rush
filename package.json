@@ -9,7 +9,10 @@
     "test": "npm run test:mechanics && npm run test:smoke && npm run verify:frogger-render",
     "test:mechanics": "node scripts/mechanics-test.js",
     "test:smoke": "node scripts/smoke-test.js",
-    "verify:frogger-render": "node scripts/verify-frogger-render.js"
+    "verify:frogger-render": "node scripts/verify-frogger-render.js",
+    "sync:github": "bash scripts/safe-sync-github.sh",
+    "sync:github:fresh": "SIGNAL_RUSH_FRESH_CLONE=1 bash scripts/safe-sync-github.sh",
+    "install:auto-sync": "bash scripts/install-auto-sync-hook.sh"
   },
   "engines": {
     "node": ">=18"
