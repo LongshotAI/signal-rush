@@ -7,6 +7,7 @@ const {
   renderFrame,
   renderMenuFrame,
   buildMiniArenaPreview,
+  buildFroggerGoalBar,
   visibleLength,
   MENU_MODES,
   PRESENTED_BY,
@@ -767,6 +768,85 @@ function testFroggerGameplayFrameHidesGetReadyWhenZero() {
   assert(!stripped.includes('GET READY'), 'gameplay frame should NOT show GET READY after countdown ends');
 }
 
+// === GOAL BAR (always-visible Frogger goal indicator) ===
+
+function testFroggerGoalBarShowsAllFiveEmptySlots() {
+  // On a fresh run, all 5 home slots are empty. The goal bar should
+  // show 5 underscores inside a bracketed row and a "0/5" counter.
+  const engine = createEngine({ mode: 'frogger' });
+  skipFroggerGetReady(engine);
+  const out = buildFroggerGoalBar(engine.state, { colors: false });
+  assert(out.includes('GOAL'), 'goal bar should label itself GOAL');
+  assert(out.includes('[_ _ _ _ _]'),
+    'goal bar should show 5 empty slots as [_ _ _ _ _] inside a row');
+  assert(out.includes('0/5'), 'goal bar should show 0/5 on a fresh run');
+  assert(out.includes('SCORE'), 'goal bar should label the score');
+  assert(out.includes('LIVES'), 'goal bar should label the lives');
+  assert(out.includes('TIME'), 'goal bar should label the time');
+}
+
+function testFroggerGoalBarReflectsFilledSlots() {
+  // As the player fills slots, the bar should show F for filled slots
+  // and the running count.
+  const engine = createEngine({ mode: 'frogger' });
+  skipFroggerGetReady(engine);
+  engine.state.homeSlots = [true, true, false, false, false];
+  const out = buildFroggerGoalBar(engine.state, { colors: false });
+  assert(out.includes('[F F _ _ _]'),
+    'goal bar should show F for filled, _ for empty inside a row');
+  assert(out.includes('2/5'), 'goal bar should show 2/5 with 2 slots filled');
+}
+
+function testFroggerGoalBarRendersInGameplayFrame() {
+  // The goal bar should be in the rendered frame, between the HUD and
+  // the arena, so it's never scrolled off on a small terminal.
+  const engine = createEngine({ mode: 'frogger' });
+  skipFroggerGetReady(engine);
+  const frame = renderFrame(engine.state, { columns: 100, rows: 40 });
+  const stripped = frame.replace(/\x1b\[[0-9;]*m/g, '');
+  assert(stripped.includes('GOAL'),
+    'gameplay frame should include the GOAL bar');
+  // The GOAL bar should appear BEFORE the first arena row (which is the
+  // top wall `-` row). The header is title, presented-by, sponsor, ===,
+  // HUD, GOAL, ---, blank, then arena. We check the index of the bar
+  // is before the first arena character pattern.
+  const goalIdx = stripped.indexOf('GOAL');
+  const arenaWallIdx = stripped.indexOf('+--');  // arena top wall
+  assert(goalIdx !== -1, 'GOAL text should be in the frame');
+  assert(goalIdx < arenaWallIdx, 'GOAL bar should appear before the arena');
+}
+
+function testAiHuntFrameDoesNotIncludeFroggerGoalBar() {
+  // The goal bar is Frogger-only. AI Hunt should keep its existing HUD
+  // layout without a GOAL line.
+  const engine = createEngine();
+  const frame = renderFrame(engine.state, { columns: 100, rows: 40 });
+  const stripped = frame.replace(/\x1b\[[0-9;]*m/g, '');
+  assert(!stripped.includes('GOAL'),
+    'AI Hunt frame should NOT include the Frogger GOAL bar');
+}
+
+function testFroggerGoalBarHandlesLowTime() {
+  // When time is low, the time should be coloured red (we can't easily
+  // test the colour, but we can test the value is shown).
+  const engine = createEngine({ mode: 'frogger' });
+  skipFroggerGetReady(engine);
+  engine.state.timeLeft = 7;
+  const out = buildFroggerGoalBar(engine.state, { colors: false });
+  assert(out.includes('7'), 'goal bar should show timeLeft = 7');
+}
+
+function testFroggerGoalBarHandlesLostLife() {
+  // After losing a life, the bar should reflect the remaining lives.
+  const engine = createEngine({ mode: 'frogger' });
+  skipFroggerGetReady(engine);
+  engine.state.lives = 1;
+  engine.state.maxLives = 3;
+  const out = buildFroggerGoalBar(engine.state, { colors: false });
+  // Lives are shown as F (alive) and . (gone). 1 alive + 2 gone = "F.."
+  assert(out.includes('F..'), 'goal bar should show 1 F + 2 . for 1-of-3 lives');
+}
+
 // === M KEY HANDLING (works at any time) ===
 
 function testMenuKeyEnterFromGameplayReturnsToMenu() {
@@ -876,6 +956,13 @@ const tests = [
   testFroggerGetReadyRearmsAfterLevelClear,
   testFroggerGameplayFrameShowsGetReadyOverlay,
   testFroggerGameplayFrameHidesGetReadyWhenZero,
+  // Goal bar
+  testFroggerGoalBarShowsAllFiveEmptySlots,
+  testFroggerGoalBarReflectsFilledSlots,
+  testFroggerGoalBarRendersInGameplayFrame,
+  testAiHuntFrameDoesNotIncludeFroggerGoalBar,
+  testFroggerGoalBarHandlesLowTime,
+  testFroggerGoalBarHandlesLostLife,
   // M key handling
   testMenuKeyEnterFromGameplayReturnsToMenu,
   testMKeySetsPendingMenuRegardlessOfGameOver,

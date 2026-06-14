@@ -236,6 +236,41 @@ function buildHudRight(state, options = {}) {
   );
 }
 
+function buildFroggerGoalBar(state, options = {}) {
+  // Always-visible goal indicator for Frogger mode. The home row sits
+  // at the very top of the arena (y=1), so on small terminals it gets
+  // clipped and the player has no idea what they're hopping toward.
+  // This bar lives in the header above the arena, where the HUD lives,
+  // so it's never scrolled off.
+  const p = (code, ch) => paint(code, ch, options);
+  const homeSlots = state.homeSlots || [false, false, false, false, false];
+  const filled = homeSlots.filter(Boolean).length;
+  // Per-slot chip: bold green F (filled) or dim underscore (empty),
+  // separated by spaces so they're readable even without ANSI colour.
+  const slotChips = homeSlots.map((isFilled) =>
+    isFilled
+      ? p(COLORS.bold + COLORS.green, 'F')
+      : p(COLORS.dim + COLORS.white, '_')
+  );
+  const slotStr = '[' + slotChips.join(' ') + ']';
+  const timeColor = state.timeLeft <= 10
+    ? (COLORS.bold + COLORS.red)
+    : (COLORS.bold + COLORS.yellow);
+  const lives = Math.max(0, state.lives || 0);
+  const maxLives = Math.max(0, state.maxLives || 0);
+  const livesStr = 'F'.repeat(lives) + '.'.repeat(Math.max(0, maxLives - lives));
+  return (
+    p(COLORS.bold + COLORS.cyan, 'GOAL ') +
+    slotStr +
+    ' ' +
+    p(COLORS.dim + COLORS.cyan, filled + '/5') +
+    p(COLORS.dim, '   |   ') +
+    p(COLORS.dim, 'SCORE ') + p(COLORS.bold + COLORS.yellow, String(state.score || 0)) +
+    p(COLORS.dim, '   TIME ') + p(timeColor, String(Math.max(0, state.timeLeft || 0))) +
+    p(COLORS.dim, '   LIVES ') + p(COLORS.bold + COLORS.green, livesStr)
+  );
+}
+
 function renderFrame(state, viewport = { columns: 100, rows: 40 }, options = {}) {
   const p = (code, ch) => paint(code, ch, options);
   const width = Math.max(80, viewport.columns || 100);
@@ -260,6 +295,14 @@ function renderFrame(state, viewport = { columns: 100, rows: 40 }, options = {})
   lines.push(sponsor);
   lines.push(repeat('=', shellWidth));
   lines.push(combinedHud);
+  if (state.mode === 'frogger') {
+    // Always-visible GOAL bar: the home row sits at the very top of the
+    // arena and gets clipped on small terminals, leaving the player with
+    // no idea what they're hopping toward. The bar lives in the header
+    // above the arena so it's never scrolled off, and explicitly shows
+    // the 5 home slots (filled vs empty), score, time, and lives.
+    lines.push(center(buildFroggerGoalBar(state, options), shellWidth));
+  }
   lines.push(repeat('-', shellWidth));
   lines.push('');
 
@@ -637,6 +680,7 @@ module.exports = {
   renderFrame,
   renderMenuFrame,
   buildMiniArenaPreview,
+  buildFroggerGoalBar,
   visibleLength,
   paint,
   COLORS,
