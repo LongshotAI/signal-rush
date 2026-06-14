@@ -73,7 +73,14 @@ function createDeathState(state, killerType) {
 }
 
 function resetState(state) {
-  const fresh = createInitialState();
+  if (state.mode === 'frogger') {
+    return resetStateFrogger(state);
+  }
+  return resetStateAiHunt(state);
+}
+
+function resetStateAiHunt(state) {
+  const fresh = createInitialState({ mode: 'aiHunt' });
   state.running = fresh.running;
   state.paused = fresh.paused;
   state.gameOver = fresh.gameOver;
@@ -81,7 +88,7 @@ function resetState(state) {
   state.score = fresh.score;
   state.credits = fresh.credits;
   state.combo = fresh.combo;
-  state.bestScore = fresh.bestScore || state.bestScore || 0;
+  state.bestScore = state.bestScore || 0;
   state.dashCooldown = fresh.dashCooldown;
   state.invulnerable = fresh.invulnerable;
   state.message = fresh.message;
@@ -102,192 +109,437 @@ function resetState(state) {
   }
 }
 
-function createEngine() {
-  const state = createInitialState();
-  state.bestScore = 0;
-  resetState(state);
+function resetStateFrogger(state) {
+  const fresh = createInitialState({ mode: 'frogger' });
+  state.mode = 'frogger';
+  state.running = fresh.running;
+  state.paused = fresh.paused;
+  state.gameOver = fresh.gameOver;
+  state.tick = fresh.tick;
+  state.score = fresh.score;
+  state.credits = fresh.credits;
+  state.combo = 1;
+  state.bestScore = state.bestScore || 0;
+  state.dashCooldown = 0;
+  state.invulnerable = 0;
+  state.message = fresh.message;
+  state.player = { ...fresh.player };
+  state.hazards = [];
+  state.pickups = [];
+  state.trail = null;
+  state.inputPulse = 0;
+  state.moveFlash = 0;
+  state.deathState = null;
+  // Frogger-specific
+  state.lives = fresh.lives;
+  state.maxLives = fresh.maxLives;
+  state.level = fresh.level;
+  state.homeSlots = [...fresh.homeSlots];
+  state.timeLeft = fresh.timeLeft;
+  state.maxTime = fresh.maxTime;
+  state.onLog = null;
+  state.lastFroggerCause = null;
+  state.lanes = fresh.lanes.map((l) => ({
+    y: l.y, type: l.type, direction: l.direction || 0, speed: l.speed || 0,
+    vehicles: (l.vehicles || []).map((v) => ({ x: v.x })),
+  }));
+}
 
-  function step(input = {}) {
-    const events = [];
-    state.lastEvents = events;
+function respawnFrog(state) {
+  const cfg = GAME_CONFIG.modes.frogger;
+  state.player.x = cfg.spawnX;
+  state.player.y = cfg.spawnRow;
+  state.onLog = null;
+  state.timeLeft = cfg.timePerLevel;
+}
 
-    if (input.pause && !state.gameOver) {
-      state.paused = !state.paused;
-      state.message = state.paused ? 'Paused.' : 'Back in the run.';
-      events.push({ type: 'pause_toggled', paused: state.paused });
-      return state;
+function laneAt(state, y) {
+  return state.lanes.find((l) => l.y === y);
+}
+
+// Sync onLog with the player's current position.
+// Called at the start of every step so that:
+//   - a player manually placed on a log (e.g. by a test) rides it immediately
+//   - a player who hops onto a log via input gets the ride on the very next tick
+//   - a player who falls off a log has onLog cleared
+function syncOnLog(state) {
+  const lane = state.lanes.find((l) => l.y === state.player.y);
+  if (lane && lane.type === 'river') {
+    const log = lane.vehicles.find((v) => v.x === state.player.x);
+    if (log) {
+      state.onLog = log;
+      return;
     }
+  }
+  state.onLog = null;
+}
 
-    if (state.gameOver) {
-      if (input.restart) {
-        resetState(state);
-        state.message = 'Signal live. New run.';
-        state.lastEvents = [{ type: 'run_restarted' }];
-      }
-      return state;
-    }
+function loseFroggerLife(state, cause) {
+  state.lives -= 1;
+  state.lastFroggerCause = cause;
+  state.onLog = null;
+  if (state.lives <= 0) {
+    state.gameOver = true;
+    state.deathState = {
+      inactive: true,
+      cause,
+      killerType: cause,
+      finalTick: state.tick,
+      finalPosition: { x: state.player.x, y: state.player.y },
+      finalScore: state.score,
+      finalCombo: state.combo,
+      finalCredits: state.credits,
+      bestScoreUpdated: state.score >= state.bestScore,
+      mode: 'frogger',
+      level: state.level,
+      homeSlots: [...state.homeSlots],
+    };
+    state.message = `${cause}. Game over. Press R or M.`;
+    return;
+  }
+  respawnFrog(state);
+  state.message = `${cause}. ${state.lives} ${state.lives === 1 ? 'frog' : 'frogs'} left.`;
+}
 
-    if (state.paused) {
-      return state;
-    }
+function tryFillHomeSlot(state) {
+  const cfg = GAME_CONFIG.modes.frogger;
+  const slotIndex = cfg.homeSlotXs.indexOf(state.player.x);
+  if (slotIndex === -1) {
+    loseFroggerLife(state, 'wrong_slot');
+    return;
+  }
+  if (state.homeSlots[slotIndex]) {
+    loseFroggerLife(state, 'slot_blocked');
+    return;
+  }
+  state.homeSlots[slotIndex] = true;
+  state.score += cfg.slotScore;
+  state.credits += Math.max(1, Math.floor(cfg.slotScore / 50));
+  state.combo = Math.min(9.9, Number((state.combo + 0.5).toFixed(1)));
+  state.lastEvents.push({ type: 'home_slot_filled', slotIndex });
+  if (state.homeSlots.every((s) => s)) {
+    const timeBonus = state.timeLeft * cfg.timeBonusPerTick;
+    const levelBonus = cfg.levelClearBonus * state.level;
+    state.score += timeBonus + levelBonus;
+    state.credits += Math.max(1, Math.floor((timeBonus + levelBonus) / 50));
+    state.level += 1;
+    state.homeSlots = [false, false, false, false, false];
+    state.timeLeft = cfg.timePerLevel + state.level * 5;
+    state.maxTime = state.timeLeft;
+    state.lastEvents.push({ type: 'level_cleared', level: state.level - 1 });
+    respawnFrog(state);
+    state.message = `Level cleared. +${timeBonus} time + ${levelBonus} bonus. Level ${state.level}.`;
+    return;
+  }
+  respawnFrog(state);
+  state.message = `Slot ${slotIndex + 1} filled. ${state.homeSlots.filter((s) => !s).length} to go.`;
+}
 
-    state.tick += 1;
-    state.dashCooldown = Math.max(0, state.dashCooldown - 1);
-    state.invulnerable = Math.max(0, state.invulnerable - 1);
-    if (state.inputPulse > 0) state.inputPulse -= 1;
-    if (state.moveFlash > 0) state.moveFlash -= 1;
-    if (state.trail && state.trail.ttl > 0) {
-      state.trail.ttl -= 1;
-      if (state.trail.ttl <= 0) state.trail = null;
-    }
+function stepFrogger(state, input) {
+  const events = state.lastEvents = [];
 
-    const player = state.player;
-    let move = input.move || null;
-    let steps = 1;
-
-    const moveChanged = Boolean(
-      (move && (!state.currentMove || move.x !== state.currentMove.x || move.y !== state.currentMove.y)) ||
-      (!move && state.currentMove)
-    );
-
-    if (move) {
-      state.lastMove = move;
-      if (moveChanged) {
-        state.inputPulse = GAME_CONFIG.inputFeedbackTicks;
-      }
-    }
-    state.currentMove = move;
-
-    if (input.dash && state.dashCooldown === 0) {
-      const dashVector = move || state.lastMove;
-      if (dashVector && (dashVector.x !== 0 || dashVector.y !== 0)) {
-        move = dashVector;
-        steps = 2;
-        state.dashCooldown = GAME_CONFIG.dashCooldownTicks;
-        state.message = 'Dash.';
-        events.push({ type: 'dash_used' });
-      }
-    }
-
-    if (move) {
-      const startX = player.x;
-      const startY = player.y;
-      for (let i = 0; i < steps; i += 1) {
-        player.x = clamp(player.x + move.x, 1, GAME_CONFIG.width - 2);
-        player.y = clamp(player.y + move.y, 1, GAME_CONFIG.height - 2);
-      }
-      if (player.x !== startX || player.y !== startY) {
-        state.trail = { x: startX, y: startY, ttl: GAME_CONFIG.trailTicks, from: { x: startX, y: startY }, to: { x: player.x, y: player.y } };
-        state.moveFlash = GAME_CONFIG.moveFlashTicks;
-        events.push({ type: 'player_moved', from: { x: startX, y: startY }, to: { x: player.x, y: player.y } });
-      }
-    }
-
-    const safeWindowActive = state.tick <= GAME_CONFIG.hazardRamp.safeStartTicks;
-    const hazardFloor = Math.min(
-      GAME_CONFIG.hazardRamp.max,
-      GAME_CONFIG.hazardRamp.base + Math.floor(state.tick / GAME_CONFIG.hazardRamp.growthIntervalTicks),
-    );
-
-    if (!safeWindowActive && state.hazards.length < hazardFloor && Math.random() < GAME_CONFIG.hazardRamp.randomSpawnChance) {
-      const spawned = spawnHazard(state);
-      if (spawned) events.push({ type: 'hazard_spawned', kind: spawned.kind });
-    }
-
-    if (
-      !safeWindowActive &&
-      state.tick % GAME_CONFIG.hazardRamp.lowCountPulseEvery === 0 &&
-      state.hazards.length < GAME_CONFIG.hazardRamp.lowCountThreshold
-    ) {
-      const spawned = spawnHazard(state);
-      if (spawned) events.push({ type: 'hazard_spawned', kind: spawned.kind });
-    }
-
-    for (const hazard of state.hazards) {
-      const next = moveToward(player.x, player.y, hazard.x, hazard.y);
-      hazard.x = clamp(next.x, 1, GAME_CONFIG.width - 2);
-      hazard.y = clamp(next.y, 1, GAME_CONFIG.height - 2);
-    }
-
-    let lethal = false;
-    state.hazards = state.hazards.filter((hazard) => {
-      const hit = hazard.x === player.x && hazard.y === player.y;
-      if (!hit) return true;
-      if (state.invulnerable > 0) return false;
-      const damage = hazard.kind === 'corruptor' ? 2 : 1;
-      player.health -= damage;
-      state.combo = 1;
-      state.invulnerable = GAME_CONFIG.invulnerableTicks;
-      events.push({ type: 'player_hit', killerType: hazard.kind, damage });
-      if (player.health <= 0) {
-        lethal = true;
-        state.deathState = createDeathState(state, hazard.kind);
-        state.message = `Destroyed by ${hazard.kind}. Final score ${state.score}. Press r.`;
-        return false;
-      }
-      state.message = hazard.kind === 'corruptor' ? 'Corruptor impact.' : 'Packet hit.';
-      return false;
-    });
-
-    if (lethal) {
-      state.bestScore = Math.max(state.bestScore, state.score);
-      state.gameOver = true;
-      events.push({ type: 'run_ended', deathState: state.deathState });
-      return state;
-    }
-
-    state.pickups = state.pickups.filter((pickup) => {
-      if (pickup.x === player.x && pickup.y === player.y) {
-        events.push({ type: 'pickup_collected', value: pickup.value });
-        const priorCombo = state.combo;
-        state.combo = Math.min(9.9, Number((state.combo + 0.3).toFixed(1)));
-        if (state.combo !== priorCombo) {
-          events.push({ type: 'combo_changed', combo: state.combo });
-        }
-        const gained = Math.floor(pickup.value * state.combo);
-        state.score += gained;
-        const credits = Math.max(1, Math.floor(gained / 25));
-        state.credits += credits;
-        events.push({ type: 'credits_awarded', credits });
-        state.message = `Signal secured +${gained}. Keep moving.`;
-        return false;
-      }
-      pickup.ttl -= 1;
-      if (pickup.ttl <= 0) return false;
-      return true;
-    });
-
-    state.score += Math.floor(GAME_CONFIG.baseScorePerTick * state.combo);
-
-    if (safeWindowActive && state.tick === 1) {
-      state.message = 'Calibration window live. Test movement, reversals, and dash.';
-    }
-
-    while (state.pickups.length < GAME_CONFIG.minPickups) {
-      const pickup = spawnPickup(state);
-      if (pickup) events.push({ type: 'pickup_spawned' });
-      else break;
-    }
-    if (state.tick % GAME_CONFIG.pickupRamp.pulseEvery === 0 && state.pickups.length < GAME_CONFIG.maxPickups) {
-      const pickup = spawnPickup(state);
-      if (pickup) events.push({ type: 'pickup_spawned' });
-    }
-
-    const reachedMilestoneIndex = GAME_CONFIG.scoreMilestones.reduce((best, threshold, index) => {
-      return state.score >= threshold ? index : best;
-    }, -1);
-    if (reachedMilestoneIndex > state.lastMilestoneIndex) {
-      state.lastMilestoneIndex = reachedMilestoneIndex;
-      state.message = `Score surge ${GAME_CONFIG.scoreMilestones[reachedMilestoneIndex]}. Pressure rising.`;
-    }
-
-    if (state.tick % GAME_CONFIG.sponsorImpressionEveryTicks === 0) {
-      state.sponsorLabelIndex = (state.sponsorLabelIndex + 1) % 3;
-      events.push({ type: 'sponsor_impression' });
-    }
-
+  if (input.pause && !state.gameOver) {
+    state.paused = !state.paused;
+    state.message = state.paused ? 'Paused.' : 'Back in the run.';
+    events.push({ type: 'pause_toggled', paused: state.paused });
     return state;
   }
+  if (state.gameOver) {
+    if (input.restart) {
+      state.lives = GAME_CONFIG.modes.frogger.lives;
+      state.level = 1;
+      state.score = 0;
+      state.combo = 1;
+      state.credits = 0;
+      state.timeLeft = GAME_CONFIG.modes.frogger.timePerLevel;
+      state.maxTime = state.timeLeft;
+      state.homeSlots = [false, false, false, false, false];
+      state.player = { x: GAME_CONFIG.modes.frogger.spawnX, y: GAME_CONFIG.modes.frogger.spawnRow };
+      state.onLog = null;
+      state.gameOver = false;
+      state.deathState = null;
+      state.message = 'New run. New pattern.';
+      events.push({ type: 'run_restarted' });
+    }
+    return state;
+  }
+  if (state.paused) return state;
+
+  state.tick += 1;
+  state.timeLeft -= 1;
+  if (state.timeLeft <= 0) {
+    loseFroggerLife(state, 'timeout');
+    if (state.gameOver) return state;
+  }
+
+  // 1. Sync onLog with the player's current position. This ensures a player
+  //    who begins the tick on a log (e.g. just hopped onto one, or was placed
+  //    there by a test) is recognized as riding it before vehicles move.
+  syncOnLog(state);
+
+  // 2. Apply player hop input (one-tile).
+  const move = input.move || null;
+  if (move) {
+    state.player.x = clamp(state.player.x + move.x, 1, GAME_CONFIG.width - 2);
+    state.player.y = clamp(state.player.y + move.y, 1, GAME_CONFIG.height - 2);
+    state.lastMove = move;
+    state.inputPulse = 2;
+    events.push({ type: 'player_hop', to: { x: state.player.x, y: state.player.y } });
+  }
+  if (state.inputPulse > 0) state.inputPulse -= 1;
+  if (state.moveFlash > 0) state.moveFlash -= 1;
+
+  // 3. Move all vehicles; wrap around the arena.
+  for (const lane of state.lanes) {
+    if (lane.type !== 'road' && lane.type !== 'river') continue;
+    for (const v of lane.vehicles) {
+      v.x += lane.direction * lane.speed;
+      if (v.x < 1) v.x = GAME_CONFIG.width - 2;
+      else if (v.x > GAME_CONFIG.width - 2) v.x = 1;
+    }
+  }
+
+  // 4. If player was on a log, move with it; off-screen = drown.
+  if (state.onLog) {
+    const log = state.onLog;
+    const lane = state.lanes.find((l) => l.y === state.player.y);
+    if (lane && lane.type === 'river') {
+      state.player.x = clamp(log.x, 1, GAME_CONFIG.width - 2);
+    } else {
+      state.onLog = null;
+    }
+  }
+  if (state.player.x < 1 || state.player.x > GAME_CONFIG.width - 2) {
+    loseFroggerLife(state, 'off_screen');
+    if (state.gameOver) return state;
+  }
+
+  // 5. Check collisions / rides based on the player's current row.
+  //    Re-sync onLog AFTER the ride too, so a player who is now sitting on a
+  //    log keeps the reference fresh for the next tick.
+  const playerRow = state.player.y;
+  const lane = laneAt(state, playerRow);
+  if (lane) {
+    if (lane.type === 'road') {
+      const hit = lane.vehicles.some((v) => v.x === state.player.x);
+      if (hit) {
+        loseFroggerLife(state, 'car');
+        if (state.gameOver) return state;
+      }
+    } else if (lane.type === 'river') {
+      const log = lane.vehicles.find((v) => v.x === state.player.x);
+      if (log) {
+        state.onLog = log;
+      } else {
+        loseFroggerLife(state, 'water');
+        if (state.gameOver) return state;
+      }
+    } else if (lane.type === 'home') {
+      tryFillHomeSlot(state);
+    } else {
+      // median or unknown: clear onLog
+      state.onLog = null;
+    }
+  }
+
+  return state;
+}
+
+function step(input = {}) {
+  const state = this.state;
+  if (state.mode === 'frogger') {
+    return stepFrogger(state, input);
+  }
+  return stepAiHunt(this, state, input);
+}
+
+function stepAiHunt(engine, state, input) {
+  const events = [];
+  state.lastEvents = events;
+
+  if (input.pause && !state.gameOver) {
+    state.paused = !state.paused;
+    state.message = state.paused ? 'Paused.' : 'Back in the run.';
+    events.push({ type: 'pause_toggled', paused: state.paused });
+    return state;
+  }
+
+  if (state.gameOver) {
+    if (input.restart) {
+      resetState(state);
+      state.message = 'Signal live. New run.';
+      state.lastEvents = [{ type: 'run_restarted' }];
+    }
+    return state;
+  }
+
+  if (state.paused) {
+    return state;
+  }
+
+  state.tick += 1;
+  state.dashCooldown = Math.max(0, state.dashCooldown - 1);
+  state.invulnerable = Math.max(0, state.invulnerable - 1);
+  if (state.inputPulse > 0) state.inputPulse -= 1;
+  if (state.moveFlash > 0) state.moveFlash -= 1;
+  if (state.trail && state.trail.ttl > 0) {
+    state.trail.ttl -= 1;
+    if (state.trail.ttl <= 0) state.trail = null;
+  }
+
+  const player = state.player;
+  let move = input.move || null;
+  let steps = 1;
+
+  const moveChanged = Boolean(
+    (move && (!state.currentMove || move.x !== state.currentMove.x || move.y !== state.currentMove.y)) ||
+    (!move && state.currentMove)
+  );
+
+  if (move) {
+    state.lastMove = move;
+    if (moveChanged) {
+      state.inputPulse = GAME_CONFIG.inputFeedbackTicks;
+    }
+  }
+  state.currentMove = move;
+
+  if (input.dash && state.dashCooldown === 0) {
+    const dashVector = move || state.lastMove;
+    if (dashVector && (dashVector.x !== 0 || dashVector.y !== 0)) {
+      move = dashVector;
+      steps = 2;
+      state.dashCooldown = GAME_CONFIG.dashCooldownTicks;
+      state.message = 'Dash.';
+      events.push({ type: 'dash_used' });
+    }
+  }
+
+  if (move) {
+    const startX = player.x;
+    const startY = player.y;
+    for (let i = 0; i < steps; i += 1) {
+      player.x = clamp(player.x + move.x, 1, GAME_CONFIG.width - 2);
+      player.y = clamp(player.y + move.y, 1, GAME_CONFIG.height - 2);
+    }
+    if (player.x !== startX || player.y !== startY) {
+      state.trail = { x: startX, y: startY, ttl: GAME_CONFIG.trailTicks, from: { x: startX, y: startY }, to: { x: player.x, y: player.y } };
+      state.moveFlash = GAME_CONFIG.moveFlashTicks;
+      events.push({ type: 'player_moved', from: { x: startX, y: startY }, to: { x: player.x, y: player.y } });
+    }
+  }
+
+  const safeWindowActive = state.tick <= GAME_CONFIG.hazardRamp.safeStartTicks;
+  const hazardFloor = Math.min(
+    GAME_CONFIG.hazardRamp.max,
+    GAME_CONFIG.hazardRamp.base + Math.floor(state.tick / GAME_CONFIG.hazardRamp.growthIntervalTicks),
+  );
+
+  if (!safeWindowActive && state.hazards.length < hazardFloor && Math.random() < GAME_CONFIG.hazardRamp.randomSpawnChance) {
+    const spawned = spawnHazard(state);
+    if (spawned) events.push({ type: 'hazard_spawned', kind: spawned.kind });
+  }
+
+  if (
+    !safeWindowActive &&
+    state.tick % GAME_CONFIG.hazardRamp.lowCountPulseEvery === 0 &&
+    state.hazards.length < GAME_CONFIG.hazardRamp.lowCountThreshold
+  ) {
+    const spawned = spawnHazard(state);
+    if (spawned) events.push({ type: 'hazard_spawned', kind: spawned.kind });
+  }
+
+  for (const hazard of state.hazards) {
+    const next = moveToward(player.x, player.y, hazard.x, hazard.y);
+    hazard.x = clamp(next.x, 1, GAME_CONFIG.width - 2);
+    hazard.y = clamp(next.y, 1, GAME_CONFIG.height - 2);
+  }
+
+  let lethal = false;
+  state.hazards = state.hazards.filter((hazard) => {
+    const hit = hazard.x === player.x && hazard.y === player.y;
+    if (!hit) return true;
+    if (state.invulnerable > 0) return false;
+    const damage = hazard.kind === 'corruptor' ? 2 : 1;
+    player.health -= damage;
+    state.combo = 1;
+    state.invulnerable = GAME_CONFIG.invulnerableTicks;
+    events.push({ type: 'player_hit', killerType: hazard.kind, damage });
+    if (player.health <= 0) {
+      lethal = true;
+      state.deathState = createDeathState(state, hazard.kind);
+      state.message = `Destroyed by ${hazard.kind}. Final score ${state.score}. Press r.`;
+      return false;
+    }
+    state.message = hazard.kind === 'corruptor' ? 'Corruptor impact.' : 'Packet hit.';
+    return false;
+  });
+
+  if (lethal) {
+    state.bestScore = Math.max(state.bestScore, state.score);
+    state.gameOver = true;
+    events.push({ type: 'run_ended', deathState: state.deathState });
+    return state;
+  }
+
+  state.pickups = state.pickups.filter((pickup) => {
+    if (pickup.x === player.x && pickup.y === player.y) {
+      events.push({ type: 'pickup_collected', value: pickup.value });
+      const priorCombo = state.combo;
+      state.combo = Math.min(9.9, Number((state.combo + 0.3).toFixed(1)));
+      if (state.combo !== priorCombo) {
+        events.push({ type: 'combo_changed', combo: state.combo });
+      }
+      const gained = Math.floor(pickup.value * state.combo);
+      state.score += gained;
+      const credits = Math.max(1, Math.floor(gained / 25));
+      state.credits += credits;
+      events.push({ type: 'credits_awarded', credits });
+      state.message = `Signal secured +${gained}. Keep moving.`;
+      return false;
+    }
+    pickup.ttl -= 1;
+    if (pickup.ttl <= 0) return false;
+    return true;
+  });
+
+  state.score += Math.floor(GAME_CONFIG.baseScorePerTick * state.combo);
+
+  if (safeWindowActive && state.tick === 1) {
+    state.message = 'Calibration window live. Test movement, reversals, and dash.';
+  }
+
+  while (state.pickups.length < GAME_CONFIG.minPickups) {
+    const pickup = spawnPickup(state);
+    if (pickup) events.push({ type: 'pickup_spawned' });
+    else break;
+  }
+  if (state.tick % GAME_CONFIG.pickupRamp.pulseEvery === 0 && state.pickups.length < GAME_CONFIG.maxPickups) {
+    const pickup = spawnPickup(state);
+    if (pickup) events.push({ type: 'pickup_spawned' });
+  }
+
+  const reachedMilestoneIndex = GAME_CONFIG.scoreMilestones.reduce((best, threshold, index) => {
+    return state.score >= threshold ? index : best;
+  }, -1);
+  if (reachedMilestoneIndex > state.lastMilestoneIndex) {
+    state.lastMilestoneIndex = reachedMilestoneIndex;
+    state.message = `Score surge ${GAME_CONFIG.scoreMilestones[reachedMilestoneIndex]}. Pressure rising.`;
+  }
+
+  if (state.tick % GAME_CONFIG.sponsorImpressionEveryTicks === 0) {
+    state.sponsorLabelIndex = (state.sponsorLabelIndex + 1) % 3;
+    events.push({ type: 'sponsor_impression' });
+  }
+
+  return state;
+}
+
+function createEngine(options = {}) {
+  const mode = options.mode || 'aiHunt';
+  const state = createInitialState({ mode });
+  state.bestScore = 0;
+  resetState(state);
 
   return {
     state,

@@ -8,7 +8,7 @@ function createPlayer() {
   };
 }
 
-function createInitialState() {
+function createAiHuntState() {
   return {
     running: true,
     paused: false,
@@ -34,6 +34,58 @@ function createInitialState() {
     lastMilestoneIndex: -1,
     sponsorLabelIndex: 0,
   };
+}
+
+function createFroggerState() {
+  const cfg = GAME_CONFIG.modes.frogger;
+  return {
+    running: true,
+    paused: false,
+    gameOver: false,
+    tick: 0,
+    score: 0,
+    credits: 0,
+    combo: 1,
+    bestScore: 0,
+    dashCooldown: 0,
+    invulnerable: 0,
+    message: cfg.tagline,
+    player: { x: cfg.spawnX, y: cfg.spawnRow, health: 1 },
+    hazards: [],
+    pickups: [],
+    trail: null,
+    inputPulse: 0,
+    moveFlash: 0,
+    deathState: null,
+    lastMove: { x: 0, y: -1 },
+    currentMove: null,
+    lastEvents: [],
+    lastMilestoneIndex: -1,
+    sponsorLabelIndex: 0,
+    // Frogger-specific
+    lives: cfg.lives,
+    maxLives: cfg.lives,
+    level: 1,
+    homeSlots: [false, false, false, false, false],
+    timeLeft: cfg.timePerLevel,
+    maxTime: cfg.timePerLevel,
+    onLog: null,
+    lastFroggerCause: null,
+    lanes: cfg.lanes.map((l) => ({
+      y: l.y,
+      type: l.type,
+      direction: l.direction || 0,
+      speed: l.speed || 0,
+      vehicles: (l.vehicles || []).map((v) => ({ x: v.x })),
+    })),
+  };
+}
+
+function createInitialState(options = {}) {
+  const mode = options.mode || 'aiHunt';
+  const base = mode === 'frogger' ? createFroggerState() : createAiHuntState();
+  base.mode = mode;
+  return base;
 }
 
 module.exports = {
