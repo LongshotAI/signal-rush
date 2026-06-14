@@ -1,4 +1,12 @@
-function createInputBuffer() {
+function createInputBuffer(options = {}) {
+  // AI Hunt wants continuous movement: hold a direction to keep gliding
+  // that way. Frogger wants discrete hops: a tap moves one tile, releasing
+  // the key stops the frog. The singleShot option toggles the second
+  // behaviour on — after consume() returns the direction, it is cleared
+  // so the next tick produces no movement unless the user has pressed
+  // again. The terminal's auto-repeat then still gives a "hold to rapid-
+  // hop" feel for Frogger, but a single tap is a single hop.
+  const singleShot = options.singleShot === true;
   // Active direction persists across consumes so that holding a key
   // (or pressing it once and waiting for the next tick) feels continuous.
   // Press the same direction again after a pause to toggle off.
@@ -47,8 +55,11 @@ function createInputBuffer() {
       touchInput();
       return true;
     }
-    if (sameAsActive) {
+    if (sameAsActive && !singleShot) {
       // Same direction pressed deliberately after a pause -> stop.
+      // (In singleShot mode the active direction is cleared after each
+      // consume, so the only way it could be the same is if the user
+      // tapped it twice quickly — treat that as "hop again" not "stop".)
       state.activeDirection = null;
     } else {
       // Different direction (or first press) -> set/overwrite.
@@ -101,6 +112,11 @@ function createInputBuffer() {
     state.restartQueued = false;
     state.quitQueued = false;
     state.pauseQueued = false;
+    if (singleShot) {
+      // Discrete-hop model: each consume drains the active direction so
+      // the next tick produces no movement unless the user re-pressed.
+      state.activeDirection = null;
+    }
     return snapshot;
   }
 

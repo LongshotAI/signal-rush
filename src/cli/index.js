@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 
 const readline = require('node:readline');
-const { GAME_CONFIG } = require('../config/gameConfig');
+const { GAME_CONFIG, getTickMsForMode } = require('../config/gameConfig');
 const { createEngine } = require('../core/engine');
 const { renderFrame, renderMenuFrame, MENU_MODES } = require('./render');
 const { createInputBuffer } = require('./input');
@@ -47,7 +47,10 @@ function refreshViewport() {
 function startEngine(mode) {
   engine = createEngine({ mode });
   engineMode = mode;
-  inputBuffer = createInputBuffer();
+  // Frogger wants discrete hops (tap to hop, then stop); AI Hunt wants
+  // continuous movement (hold to glide). The singleShot flag on the
+  // input buffer toggles the first behaviour on.
+  inputBuffer = createInputBuffer({ singleShot: mode === 'frogger' });
   menuMode = false;
   if (!isDemo) inputBuffer.handleKeypress('up', { name: 'up', sequence: '\x1b[A' });
 }
@@ -99,14 +102,21 @@ function scheduleNextTick() {
 
 function step() {
   const frameStart = Date.now();
+  // Centralised tick rate so Frogger runs slower than AI Hunt.
+  const tickMs = getTickMsForMode(engineMode);
   if (pendingQuit) {
     shutdown('Exited Signal Rush CLI.');
     return;
   }
   if (pendingMenu) {
+    // Return-to-menu path: clear the engine first, THEN draw — so the
+    // user sees the menu, not one last frame of the game they just left.
+    // The previous ordering (draw -> returnToMenu) made the game over
+    // card flash for one tick before the menu appeared, and the
+    // subsequent \x1b[J clear left artifacts from the taller game frame.
     returnToMenu();
     draw();
-    nextTickAt = Date.now() + GAME_CONFIG.tickMs;
+    nextTickAt = Date.now() + getTickMsForMode(null);
     scheduleNextTick();
     return;
   }
@@ -114,7 +124,7 @@ function step() {
     if (isDemo) {
       // Demo with no mode selected = default to aiHunt
       startEngine('aiHunt');
-      nextTickAt = Date.now() + GAME_CONFIG.tickMs;
+      nextTickAt = Date.now() + getTickMsForMode('aiHunt');
       scheduleNextTick();
       return;
     }
@@ -122,7 +132,7 @@ function step() {
     // motion) keep flowing. Without this, the menu would only refresh
     // on keypresses — which made up/down feel like nothing was happening.
     draw();
-    nextTickAt = Date.now() + GAME_CONFIG.tickMs;
+    nextTickAt = Date.now() + getTickMsForMode(null);
     scheduleNextTick();
     return;
   }
@@ -133,14 +143,13 @@ function step() {
     return;
   }
   engine.step(input);
-  if (input.restart && engine.state.gameOver) {
-    // R was pressed during game over — restart already happened in step()
-  }
-  // Check for M key (return to menu) from game over
-  if (engine.state.gameOver && pendingMenu) {
-    draw();
+  // pendingMenu is set by the M keypress handler at any time (gameplay,
+  // pause, game over). Honour it here regardless of gameOver state so
+  // the player can always bail back to the menu mid-run.
+  if (pendingMenu) {
     returnToMenu();
-    nextTickAt = Date.now() + GAME_CONFIG.tickMs;
+    draw();
+    nextTickAt = Date.now() + getTickMsForMode(null);
     scheduleNextTick();
     return;
   }
@@ -150,9 +159,9 @@ function step() {
     return;
   }
   const elapsed = Date.now() - frameStart;
-  nextTickAt += GAME_CONFIG.tickMs;
+  nextTickAt += tickMs;
   if (nextTickAt < Date.now()) {
-    nextTickAt = Date.now() + Math.max(0, GAME_CONFIG.tickMs - elapsed);
+    nextTickAt = Date.now() + Math.max(0, tickMs - elapsed);
   }
   scheduleNextTick();
 }
@@ -177,7 +186,7 @@ function onMenuKey(sequence, key = {}) {
     pendingQuit = true;
   } else if (result.action === 'select') {
     startEngine(MENU_MODES[menuSelection]);
-    nextTickAt = Date.now() + GAME_CONFIG.tickMs;
+    nextTickAt = Date.now() + getTickMsForMode(MENU_MODES[menuSelection]);
   }
   if (selectionChanged || modeChanged || result.action !== 'noop') {
     // Trigger an immediate redraw so the user sees the cursor move /
@@ -210,9 +219,11 @@ function start() {
   process.stdin.on('keypress', (seq, key) => {
     if (menuMode || !inputBuffer) return;
     if (key && key.name && key.name.toLowerCase() === 'm') {
-      if (engine.state.gameOver) {
-        pendingMenu = true;
-      }
+      // M works at any time — gameplay, pause, or game over — so the
+      // player can always bail back to the menu. The previous behaviour
+      // required the player to die first, which made the menu feel
+      // unreachable in the middle of a run.
+      pendingMenu = true;
       return;
     }
     inputBuffer.handleKeypress(seq, key);
@@ -229,7 +240,7 @@ function start() {
   // else: stay on menu, wait for user input
 
   draw();
-  nextTickAt = Date.now() + GAME_CONFIG.tickMs;
+  nextTickAt = Date.now() + getTickMsForMode(initialMode || (isDemo ? 'aiHunt' : null));
   scheduleNextTick();
 }
 

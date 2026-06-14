@@ -18,6 +18,13 @@ const ANSI_RE = /\x1b\[[0-9;]*m/g;
 
 const PRESENTED_BY = 'Presented by USP x Temple Works';
 
+// How many game ticks correspond to one "second" of the GET READY
+// countdown. The config sets getReadyTicks to 30, so each visible
+// number covers ~10 ticks. Tweak in one place if the cadence changes.
+function getFroggerSecondsDivisor() {
+  return 10;
+}
+
 function visibleLength(s) {
   return s.replace(ANSI_RE, '').length;
 }
@@ -258,6 +265,18 @@ function renderFrame(state, viewport = { columns: 100, rows: 40 }, options = {})
 
   for (const row of arenaLines) {
     lines.push(center(row, shellWidth));
+  }
+
+  // GET READY overlay — show a big countdown centered on the arena when
+  // the level hasn't started yet. We splice it in just below the arena
+  // (between arena and the message line) so the whole frame stays
+  // predictable in height.
+  if (state.mode === 'frogger' && typeof state.getReadyTicks === 'number' && state.getReadyTicks > 0) {
+    const seconds = Math.max(0, Math.ceil(state.getReadyTicks / getFroggerSecondsDivisor()));
+    const readyText = seconds > 0
+      ? `GET READY — ${seconds}…`
+      : 'GET READY';
+    lines.push(center(p(COLORS.bold + COLORS.yellow, readyText), shellWidth));
   }
 
   lines.push('');

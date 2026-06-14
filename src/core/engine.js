@@ -198,6 +198,9 @@ function loseFroggerLife(state, cause) {
     return;
   }
   respawnFrog(state);
+  // Re-arm GET READY so the player has a beat to read the new layout
+  // before the cars start moving again.
+  state.getReadyTicks = GAME_CONFIG.modes.frogger.getReadyTicks;
   state.message = `${cause}. ${state.lives} ${state.lives === 1 ? 'frog' : 'frogs'} left.`;
 }
 
@@ -226,6 +229,9 @@ function tryFillHomeSlot(state) {
     state.homeSlots = [false, false, false, false, false];
     state.timeLeft = cfg.timePerLevel + state.level * 5;
     state.maxTime = state.timeLeft;
+    // Re-arm GET READY so the next level starts with a beat for the
+    // player to read the (now-faster) layout.
+    state.getReadyTicks = cfg.getReadyTicks;
     state.lastEvents.push({ type: 'level_cleared', level: state.level - 1 });
     respawnFrog(state);
     state.message = `Level cleared. +${timeBonus} time + ${levelBonus} bonus. Level ${state.level}.`;
@@ -237,6 +243,39 @@ function tryFillHomeSlot(state) {
 
 function stepFrogger(state, input) {
   const events = state.lastEvents = [];
+
+  // GET READY window: when getReadyTicks > 0 the level hasn't started yet.
+  // Vehicles don't move, the timer doesn't tick, and the frog can still
+  // hop but no collisions are processed. This gives the player a beat
+  // to read the layout before the action starts.
+  if (state.getReadyTicks > 0) {
+    if (input.pause) {
+      // Allow toggling pause during GET READY.
+      state.paused = !state.paused;
+      state.message = state.paused ? 'Paused.' : 'Back in the run.';
+      events.push({ type: 'pause_toggled', paused: state.paused });
+      return state;
+    }
+    if (state.paused) return state;
+    const move = input.move || null;
+    if (move) {
+      state.player.x = clamp(state.player.x + move.x, 1, GAME_CONFIG.width - 2);
+      state.player.y = clamp(state.player.y + move.y, 1, GAME_CONFIG.height - 2);
+      state.lastMove = move;
+      state.inputPulse = 2;
+      events.push({ type: 'player_hop', to: { x: state.player.x, y: state.player.y } });
+    }
+    if (state.inputPulse > 0) state.inputPulse -= 1;
+    state.getReadyTicks -= 1;
+    if (state.getReadyTicks === 0) {
+      state.message = 'GO!';
+      events.push({ type: 'level_started', level: state.level });
+    } else if (state.getReadyTicks <= 6) {
+      // Countdown 3..GO! in the last ~6 ticks.
+      state.message = 'READY...';
+    }
+    return state;
+  }
 
   if (input.pause && !state.gameOver) {
     state.paused = !state.paused;
@@ -258,6 +297,7 @@ function stepFrogger(state, input) {
       state.onLog = null;
       state.gameOver = false;
       state.deathState = null;
+      state.getReadyTicks = GAME_CONFIG.modes.frogger.getReadyTicks;
       state.message = 'New run. New pattern.';
       events.push({ type: 'run_restarted' });
     }
@@ -289,11 +329,16 @@ function stepFrogger(state, input) {
   if (state.inputPulse > 0) state.inputPulse -= 1;
   if (state.moveFlash > 0) state.moveFlash -= 1;
 
-  // 3. Move all vehicles; wrap around the arena.
+  // 3. Move all vehicles; wrap around the arena. Per-level speed multiplier
+  //    softens level 1 (a speed-3 car becomes 1 there) without ever stopping
+  //    a vehicle entirely.
+  const mults = GAME_CONFIG.modes.frogger.levelSpeedMultipliers || [1];
+  const speedMult = mults[state.level - 1] != null ? mults[state.level - 1] : 1;
   for (const lane of state.lanes) {
     if (lane.type !== 'road' && lane.type !== 'river') continue;
     for (const v of lane.vehicles) {
-      v.x += lane.direction * lane.speed;
+      const effectiveSpeed = Math.max(1, Math.floor(lane.speed * speedMult));
+      v.x += lane.direction * effectiveSpeed;
       if (v.x < 1) v.x = GAME_CONFIG.width - 2;
       else if (v.x > GAME_CONFIG.width - 2) v.x = 1;
     }

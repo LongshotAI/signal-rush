@@ -71,6 +71,9 @@ function createFroggerState() {
     maxTime: cfg.timePerLevel,
     onLog: null,
     lastFroggerCause: null,
+    // GET READY countdown (vehicles frozen, no deaths) at the start of
+    // every level — first run and after each level clear / respawn.
+    getReadyTicks: cfg.getReadyTicks,
     lanes: cfg.lanes.map((l) => ({
       y: l.y,
       type: l.type,

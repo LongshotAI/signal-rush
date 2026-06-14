@@ -1,9 +1,21 @@
 // Top-level fields are the AI Hunt configuration.
 // They are also the default values used when no mode is specified.
+// Per-mode tick rate. Frogger runs a touch slower than AI Hunt so the
+// player has time to time hops against moving cars. Centralised so the
+// game loop and any test that simulates a full run use the same value.
+function getTickMsForMode(mode) {
+  if (mode === 'frogger') return GAME_CONFIG.froggerTickMs || GAME_CONFIG.tickMs;
+  return GAME_CONFIG.tickMs;
+}
+
 const GAME_CONFIG = {
   width: 56,
   height: 28,
   tickMs: 120,
+  // Frogger wants a slightly slower cadence than AI Hunt so the player
+  // has time to time hops against the moving cars. Read this via
+  // getTickMsForMode(mode) below.
+  froggerTickMs: 150,
   startHealth: 8,
   dashCooldownTicks: 8,
   invulnerableTicks: 3,
@@ -48,7 +60,7 @@ const GAME_CONFIG = {
       // Number of lives per level. Lose all = game over.
       lives: 3,
 
-      // Per-level countdown in ticks (1 tick == 1 game step).
+      // Per-level countdown in ticks (1 tick == 1 game step at froggerTickMs).
       timePerLevel: 60,
 
       // Score for landing in an empty home slot.
@@ -59,6 +71,18 @@ const GAME_CONFIG = {
 
       // Bonus per level cleared.
       levelClearBonus: 200,
+
+      // Number of GET READY ticks shown at the start of every level —
+      // vehicles don't move and the frog doesn't drown/die during this
+      // window so the player has a beat to read the layout.
+      getReadyTicks: 30,
+
+      // Per-level speed multiplier applied to every vehicle. Level 1 is
+      // intentionally easy; speeds ramp up to 1.0× by level 4.
+      //   index 0 = level 1, index 1 = level 2, ...
+      // Multipliers < 1 floor a vehicle's effective speed to 1 so
+      // nothing stops dead, but caps a level-1 speed-3 car at 2.
+      levelSpeedMultipliers: [0.55, 0.8, 1.0, 1.0, 1.0, 1.0],
 
       // Columns of the five home slots on row 1.
       homeSlotXs: [6, 17, 28, 39, 50],
@@ -111,4 +135,5 @@ const GAME_CONFIG = {
 
 module.exports = {
   GAME_CONFIG,
+  getTickMsForMode,
 };
