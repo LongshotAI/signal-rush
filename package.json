@@ -6,9 +6,10 @@
   "scripts": {
     "cli": "node src/cli/index.js",
     "cli:demo": "node src/cli/index.js --demo",
-    "test": "npm run test:mechanics && npm run test:smoke",
+    "test": "npm run test:mechanics && npm run test:smoke && npm run verify:frogger-render",
     "test:mechanics": "node scripts/mechanics-test.js",
-    "test:smoke": "node scripts/smoke-test.js"
+    "test:smoke": "node scripts/smoke-test.js",
+    "verify:frogger-render": "node scripts/verify-frogger-render.js"
   },
   "engines": {
     "node": ">=18"

@@ -15,17 +15,35 @@ Structured project workspace for the Signal Rush game.
 
 The CLI game is the active executable surface.
 
-Run it with:
+### Team launch from GitHub
+
+For a fresh machine or teammate device:
 
 ```bash
-cd signal-rush-project
-npm run cli
+git clone https://github.com/LongshotAI/signal-rush.git
+cd signal-rush
+npm install
+node src/cli/index.js
 ```
 
-Or:
+The start menu includes:
+
+- **AI Hunt** — the original survival arcade mode
+- **Frogger** — lane-crossing mode with home slots, water/log lanes, cars, score, lives, timer, and a visible GOAL bar
+
+Controls:
+
+- Move: **WASD**, **arrow keys**, or **vim keys** (`K/J` in menus)
+- Pause: `P`
+- Restart current mode: `R`
+- Return to menu: `M`
+- Quit: `Q`
+
+Run a specific mode directly:
 
 ```bash
-node src/cli/index.js
+node src/cli/index.js --mode=aiHunt
+node src/cli/index.js --mode=frogger
 ```
 
 Run verification with:
@@ -34,7 +52,7 @@ Run verification with:
 npm test
 ```
 
-This runs deterministic mechanics checks plus the CLI smoke test.
+This runs deterministic mechanics checks, the CLI smoke test, and a Frogger render verification that confirms the GOAL bar, home slots, water/log lanes, cars, and GET READY overlay are present in the GitHub copy.
 
 Latest local audit note:
 
