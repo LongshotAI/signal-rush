@@ -5,6 +5,7 @@ const { GAME_CONFIG } = require('../config/gameConfig');
 const { createEngine } = require('../core/engine');
 const { renderFrame, renderMenuFrame, MENU_MODES } = require('./render');
 const { createInputBuffer } = require('./input');
+const { applyMenuKey } = require('./menuKeyHandler');
 
 const args = process.argv.slice(2);
 const isDemo = args.includes('--demo');
@@ -117,7 +118,10 @@ function step() {
       scheduleNextTick();
       return;
     }
-    // In menu, no per-tick work, just keep the loop alive for redraw
+    // In menu: redraw every tick so animations (cursor blink, preview
+    // motion) keep flowing. Without this, the menu would only refresh
+    // on keypresses — which made up/down feel like nothing was happening.
+    draw();
     nextTickAt = Date.now() + GAME_CONFIG.tickMs;
     scheduleNextTick();
     return;
@@ -154,29 +158,33 @@ function step() {
 }
 
 function onMenuKey(sequence, key = {}) {
-  const name = (key.name || '').toLowerCase();
-  const seq = typeof sequence === 'string' ? sequence.toLowerCase() : '';
-  const lookup = name || seq;
-  if (key.sequence === '\u0003') {
+  // The menu keypress handler must only act while we are on the menu.
+  // Otherwise it would intercept game-input keys (WASD/arrows/Enter/Q)
+  // and silently mutate menuSelection, which made menu navigation look
+  // broken AND meant pressing Enter mid-game could swap the active mode.
+  // The pure keypress logic is in menuKeyHandler.js so it can be unit
+  // tested without a real terminal.
+  const result = applyMenuKey(
+    { menuMode, menuSelection, menuLength: MENU_MODES.length },
+    sequence,
+    key
+  );
+  let selectionChanged = result.menuSelection !== menuSelection;
+  let modeChanged = result.menuMode !== menuMode;
+  menuSelection = result.menuSelection;
+  menuMode = result.menuMode;
+  if (result.action === 'quit') {
     pendingQuit = true;
-    return;
-  }
-  if (lookup === 'q') {
-    pendingQuit = true;
-    return;
-  }
-  if (lookup === 'up' || seq === '\x1b[a') {
-    menuSelection = (menuSelection + MENU_MODES.length - 1) % MENU_MODES.length;
-    return;
-  }
-  if (lookup === 'down' || seq === '\x1b[b') {
-    menuSelection = (menuSelection + 1) % MENU_MODES.length;
-    return;
-  }
-  if (key.name === 'return' || key.name === 'enter' || seq === '\r' || seq === '\n') {
-    const mode = MENU_MODES[menuSelection];
-    startEngine(mode);
+  } else if (result.action === 'select') {
+    startEngine(MENU_MODES[menuSelection]);
     nextTickAt = Date.now() + GAME_CONFIG.tickMs;
+  }
+  if (selectionChanged || modeChanged || result.action !== 'noop') {
+    // Trigger an immediate redraw so the user sees the cursor move /
+    // the new mode launch without waiting for the next tick. Without
+    // this call the menu would only refresh on the 120ms tick boundary
+    // and navigation felt broken.
+    draw();
   }
 }
 

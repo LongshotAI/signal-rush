@@ -3,7 +3,15 @@ const assert = require('node:assert/strict');
 const { createEngine } = require('../src/core/engine');
 const { createInitialState } = require('../src/core/createInitialState');
 const { createInputBuffer } = require('../src/cli/input');
-const { renderFrame, renderMenuFrame, visibleLength, MENU_MODES } = require('../src/cli/render');
+const {
+  renderFrame,
+  renderMenuFrame,
+  buildMiniArenaPreview,
+  visibleLength,
+  MENU_MODES,
+  PRESENTED_BY,
+} = require('../src/cli/render');
+const { applyMenuKey } = require('../src/cli/menuKeyHandler');
 const { GAME_CONFIG } = require('../src/config/gameConfig');
 
 // === AI Hunt regression coverage (existing behavior must hold) ===
@@ -127,17 +135,19 @@ function testMenuRendersBothModeOptions() {
   assert(frame.includes('AI HUNT MODE'), 'menu should list AI Hunt mode');
   assert(frame.includes('FROGGER MODE'), 'menu should list Frogger mode');
   assert(frame.includes('SELECT MODE'), 'menu should label the selection section');
-  assert(frame.includes('ENTER launch'), 'menu should show ENTER to launch');
+  assert(frame.includes('ENTER'), 'menu should mention ENTER key');
+  assert(frame.includes('launch'), 'menu should mention launch action');
 }
 
 function testMenuSelectionCursorMovesBetweenOptions() {
+  // The ▶ cursor should appear on the selected option and not the other.
+  // The unselected option uses 2 spaces as a placeholder, not the cursor.
   const f0 = renderMenuFrame(0, { colors: false });
   const f1 = renderMenuFrame(1, { colors: false });
-  // Cursor ">" should appear on a different mode in each
-  const idx0 = f0.indexOf('> AI HUNT');
-  const idx0Frogger = f0.indexOf('> FROGGER');
-  const idx1 = f1.indexOf('> AI HUNT');
-  const idx1Frogger = f1.indexOf('> FROGGER');
+  const idx0 = f0.indexOf('▶ AI HUNT');
+  const idx0Frogger = f0.indexOf('▶ FROGGER');
+  const idx1 = f1.indexOf('▶ AI HUNT');
+  const idx1Frogger = f1.indexOf('▶ FROGGER');
   assert(idx0 !== -1, 'cursor on AI Hunt when selected');
   assert(idx0Frogger === -1, 'no cursor on Frogger when AI Hunt selected');
   assert(idx1 === -1, 'no cursor on AI Hunt when Frogger selected');
@@ -346,6 +356,167 @@ function testFroggerVehiclesMoveAndWrap() {
   assert.equal(afterX, startX + roadLane.speed, 'right-bound car should move right by lane.speed each tick');
 }
 
+// === MENU DESIGN & BRANDING ===
+
+function testMenuBrandingIncludesUSPTempleWorks() {
+  const out = renderMenuFrame(0, { colors: false });
+  // We use spaced "U S P" / "T E M P L E   W O R K S" for legibility in the
+  // banner. The footer line uses the same spaced form. Both forms are valid.
+  const hasUsp = out.includes('U S P') || out.includes('USP');
+  const hasTemple = out.includes('T E M P L E') || out.includes('TEMPLE');
+  const hasWorks = out.includes('W O R K S') || out.includes('WORKS');
+  assert(hasUsp, 'menu should include USP branding (spaced or compact)');
+  assert(hasTemple, 'menu should include TEMPLE branding (spaced or compact)');
+  assert(hasWorks, 'menu should include WORKS branding (spaced or compact)');
+}
+
+function testMenuHasSignalRushTitle() {
+  const out = renderMenuFrame(0, { colors: false });
+  assert(out.includes('S I G N A L'), 'menu should have spaced SIGNAL title');
+  assert(out.includes('R U S H'), 'menu should have spaced RUSH title');
+  assert(out.includes('TERMINAL ARCADE'), 'menu subtitle should say TERMINAL ARCADE');
+}
+
+function testMenuHasPresentedByCallout() {
+  const out = renderMenuFrame(0, { colors: false });
+  assert(out.includes('P R E S E N T E D'), 'menu should have PRESENTED callout');
+  assert(out.includes('P R E S E N T E D   B Y'), 'menu should have the full PRESENTED BY phrase');
+}
+
+function testMenuHasDoubleLineTitleFrame() {
+  const out = renderMenuFrame(0, { colors: false });
+  // The top branding block uses double-line borders (╔ ═ ║ ╚) for a strong
+  // arcade-banner feel. The mode list area uses single-line borders (━ ┃ ┣ ┫ ┗ ┛).
+  assert(out.includes('╔'), 'menu top should use double-line top border');
+  assert(out.includes('╚'), 'menu top should use double-line bottom border');
+  assert(out.includes('║'), 'menu top should use double-line vertical borders');
+  assert(out.includes('┣'), 'menu body should use single-line separator borders');
+  assert(out.includes('┗'), 'menu body should use single-line bottom corner');
+}
+
+function testMenuMiniArenaPreviewAiHunt() {
+  const lines = buildMiniArenaPreview('aiHunt', { colors: false });
+  const flat = lines.join('\n');
+  assert(flat.includes('$'), 'AI Hunt preview should show a $ pickup');
+  assert(flat.includes('o'), 'AI Hunt preview should show a hazard (o)');
+  assert(flat.includes('A'), 'AI Hunt preview should show the player (A)');
+  assert(flat.includes('|'), 'AI Hunt preview should have wall borders');
+  assert.equal(lines.length, 9, 'AI Hunt preview should be 9 rows tall');
+}
+
+function testMenuMiniArenaPreviewFrogger() {
+  const lines = buildMiniArenaPreview('frogger', { colors: false });
+  const flat = lines.join('\n');
+  assert(flat.includes('~'), 'Frogger preview should show river water (~)');
+  assert(flat.includes('='), 'Frogger preview should show logs (=)');
+  assert(flat.includes('>'), 'Frogger preview should show right-bound cars (>)');
+  assert(flat.includes('<'), 'Frogger preview should show left-bound cars (<)');
+  assert(flat.includes('F'), 'Frogger preview should show the frog (F)');
+  assert(flat.includes('_'), 'Frogger preview should show empty home slots (_)');
+  assert.equal(lines.length, 9, 'Frogger preview should be 9 rows tall');
+}
+
+function testMenuTaglineChangesWithSelection() {
+  const a = renderMenuFrame(0, { colors: false });
+  const f = renderMenuFrame(1, { colors: false });
+  assert(a.includes('AI HUNT MODE'), 'selection 0 should highlight AI HUNT');
+  assert(f.includes('FROGGER MODE'), 'selection 1 should highlight FROGGER');
+  assert(a.includes('Pilot the signal node'), 'selection 0 tagline should describe AI Hunt');
+  assert(f.includes('Cross the road'), 'selection 1 tagline should describe Frogger');
+}
+
+function testMenuCursorReflectsSelection() {
+  // The ▶ cursor should appear immediately before the selected option.
+  // In selection 0 the AI HUNT label should be preceded by ▶; FROGGER by blank.
+  // We use a loose regex check: in selection 0 the ▶ should appear on the
+  // same line as "AI HUNT MODE" and NOT on the FROGGER line.
+  const a = renderMenuFrame(0, { colors: false });
+  const f = renderMenuFrame(1, { colors: false });
+  const aiHuntCursorOnAiHunt = /▶\s+AI HUNT MODE/.test(a);
+  const froggerCursorOnFrogger = /▶\s+FROGGER MODE/.test(f);
+  assert(aiHuntCursorOnAiHunt, 'selection 0 should put ▶ cursor on AI HUNT MODE line');
+  assert(froggerCursorOnFrogger, 'selection 1 should put ▶ cursor on FROGGER MODE line');
+}
+
+function testMenuHasFooterCopyright() {
+  const out = renderMenuFrame(0, { colors: false });
+  assert(out.includes('© 2026'), 'menu footer should include copyright year');
+  assert(out.includes('U S P') && out.includes('T E M P L E'), 'menu footer should include spaced USP and TEMPLE');
+}
+
+// === GAMEPLAY FRAME BRANDING ===
+
+function testGameplayFrameIncludesPresentedByUSPTempleWorks() {
+  const engine = createEngine();
+  const frame = renderFrame(engine.state, { columns: 100, rows: 40 });
+  // ANSI-stripped substring search.
+  const stripped = frame.replace(/\x1b\[[0-9;]*m/g, '');
+  assert(stripped.includes(PRESENTED_BY), `gameplay frame should include '${PRESENTED_BY}' line below the title`);
+  assert(stripped.includes('USP'), 'gameplay frame should include USP');
+  assert(stripped.includes('Temple Works'), 'gameplay frame should include Temple Works');
+}
+
+function testGameplayFrameKeepsTitleAndRotatingSponsor() {
+  const engine = createEngine();
+  const frame = renderFrame(engine.state, { columns: 100, rows: 40 });
+  const stripped = frame.replace(/\x1b\[[0-9;]*m/g, '');
+  assert(stripped.includes('SIGNAL RUSH // AI HUNT'), 'gameplay title should still be SIGNAL RUSH // AI HUNT');
+  // The rotating sponsor label is one of three — at index 0 it should be the original.
+  assert(stripped.includes('Presented by Temple Works') || stripped.includes('Supported by') || stripped.includes('Sponsor Impression Active'),
+    'gameplay should still show a rotating sponsor impression label');
+}
+
+function testGameplayFrameFroggerModeShowsPresentedBy() {
+  const engine = createEngine({ mode: 'frogger' });
+  const frame = renderFrame(engine.state, { columns: 100, rows: 40 });
+  const stripped = frame.replace(/\x1b\[[0-9;]*m/g, '');
+  assert(stripped.includes('SIGNAL RUSH // FROGGER'), 'frogger gameplay title should be SIGNAL RUSH // FROGGER');
+  assert(stripped.includes(PRESENTED_BY), 'frogger gameplay frame should also show the presented-by line');
+}
+
+// === MENU KEYPRESS HANDLER (redraw + guard) ===
+
+function testMenuKeyDownAdvancesSelection() {
+  const r1 = applyMenuKey({ menuMode: true, menuSelection: 0, menuLength: 2 }, '\x1b[B', { name: 'down' });
+  assert.equal(r1.menuSelection, 1, 'down arrow should advance selection 0 → 1');
+  assert.equal(r1.action, 'noop', 'down arrow should be a no-op action (caller still redraws)');
+}
+
+function testMenuKeyUpWrapsSelection() {
+  const r1 = applyMenuKey({ menuMode: true, menuSelection: 0, menuLength: 2 }, '\x1b[A', { name: 'up' });
+  assert.equal(r1.menuSelection, 1, 'up arrow at 0 should wrap to 1');
+}
+
+function testMenuKeyEnterSelectsMode() {
+  const r1 = applyMenuKey({ menuMode: true, menuSelection: 1, menuLength: 2 }, '\r', { name: 'return' });
+  assert.equal(r1.action, 'select', 'enter should return select action');
+  assert.equal(r1.menuMode, false, 'enter should set menuMode to false');
+}
+
+function testMenuKeyQQuits() {
+  const r1 = applyMenuKey({ menuMode: true, menuSelection: 0, menuLength: 2 }, 'q', { name: 'q' });
+  assert.equal(r1.action, 'quit', 'q should return quit action');
+}
+
+function testMenuKeyCtrlCQuits() {
+  const r1 = applyMenuKey({ menuMode: true, menuSelection: 0, menuLength: 2 }, '\u0003', { sequence: '\u0003' });
+  assert.equal(r1.action, 'quit', 'Ctrl-C should return quit action');
+}
+
+function testMenuKeyIgnoredWhenNotInMenuMode() {
+  // This is the critical guard: the keypress handler MUST not change state
+  // or return an action when the user is in-game, otherwise pressing Enter
+  // mid-game could swap the active mode.
+  const r1 = applyMenuKey({ menuMode: false, menuSelection: 0, menuLength: 2 }, '\r', { name: 'return' });
+  assert.equal(r1.action, 'noop', 'enter mid-game should be noop (not select)');
+  assert.equal(r1.menuMode, false, 'menuMode should stay false mid-game');
+  assert.equal(r1.menuSelection, 0, 'menuSelection should be unchanged mid-game');
+
+  const r2 = applyMenuKey({ menuMode: false, menuSelection: 0, menuLength: 2 }, '\x1b[B', { name: 'down' });
+  assert.equal(r2.action, 'noop', 'arrow mid-game should be noop');
+  assert.equal(r2.menuSelection, 0, 'menuSelection should NOT change mid-game');
+}
+
 const tests = [
   // AI Hunt regression
   testRawInitialStateRendersCleanSponsorLabel,
@@ -375,6 +546,27 @@ const tests = [
   testFroggerGameOverWhenAllLivesLost,
   testFroggerGameOverCardShowsLevelAndSlots,
   testFroggerVehiclesMoveAndWrap,
+  // Menu design & branding
+  testMenuBrandingIncludesUSPTempleWorks,
+  testMenuHasSignalRushTitle,
+  testMenuHasPresentedByCallout,
+  testMenuHasDoubleLineTitleFrame,
+  testMenuMiniArenaPreviewAiHunt,
+  testMenuMiniArenaPreviewFrogger,
+  testMenuTaglineChangesWithSelection,
+  testMenuCursorReflectsSelection,
+  testMenuHasFooterCopyright,
+  // Gameplay branding
+  testGameplayFrameIncludesPresentedByUSPTempleWorks,
+  testGameplayFrameKeepsTitleAndRotatingSponsor,
+  testGameplayFrameFroggerModeShowsPresentedBy,
+  // Menu keypress handler
+  testMenuKeyDownAdvancesSelection,
+  testMenuKeyUpWrapsSelection,
+  testMenuKeyEnterSelectsMode,
+  testMenuKeyQQuits,
+  testMenuKeyCtrlCQuits,
+  testMenuKeyIgnoredWhenNotInMenuMode,
 ];
 
 for (const test of tests) {

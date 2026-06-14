@@ -16,6 +16,8 @@ const COLORS = {
 
 const ANSI_RE = /\x1b\[[0-9;]*m/g;
 
+const PRESENTED_BY = 'Presented by USP x Temple Works';
+
 function visibleLength(s) {
   return s.replace(ANSI_RE, '').length;
 }
@@ -247,6 +249,7 @@ function renderFrame(state, viewport = { columns: 100, rows: 40 }, options = {})
 
   const lines = [];
   lines.push(title);
+  lines.push(center(p(COLORS.dim + COLORS.cyan, PRESENTED_BY), shellWidth));
   lines.push(sponsor);
   lines.push(repeat('=', shellWidth));
   lines.push(combinedHud);
@@ -326,74 +329,296 @@ function renderFrame(state, viewport = { columns: 100, rows: 40 }, options = {})
   return lines.join('\n');
 }
 
+// === MINI ARENA PREVIEW (used by the start menu) ===
+//
+// A small, hand-composed snapshot of each mode's visual language so the
+// menu reads as part of the same world as the game itself — same tiles,
+// same colors, same walls, same vibe.
+
+function buildMiniArenaPreview(mode, options = {}) {
+  const p = (code, ch) => paint(code, ch, options);
+  const width = 18;
+  const height = 9;
+  const grid = [];
+  for (let i = 0; i < height; i += 1) {
+    grid.push(Array.from({ length: width }, () => ' '));
+  }
+  // Walls
+  for (let x = 0; x < width; x += 1) {
+    grid[0][x] = p(COLORS.dim + COLORS.white, '-');
+    grid[height - 1][x] = p(COLORS.dim + COLORS.white, '-');
+  }
+  for (let y = 0; y < height; y += 1) {
+    grid[y][0] = p(COLORS.dim + COLORS.white, '|');
+    grid[y][width - 1] = p(COLORS.dim + COLORS.white, '|');
+  }
+  grid[0][0] = p(COLORS.dim + COLORS.white, '+');
+  grid[0][width - 1] = p(COLORS.dim + COLORS.white, '+');
+  grid[height - 1][0] = p(COLORS.dim + COLORS.white, '+');
+  grid[height - 1][width - 1] = p(COLORS.dim + COLORS.white, '+');
+
+  if (mode === 'frogger') {
+    // Row 1 = home with one filled slot
+    for (let x = 1; x < width - 1; x += 1) grid[1][x] = p(COLORS.dim + COLORS.white, '_');
+    grid[1][4] = p(COLORS.bold + COLORS.green, 'F');
+    grid[1][10] = p(COLORS.bold + COLORS.green, 'F');
+    // Rows 2-3 = river with logs
+    for (let x = 1; x < width - 1; x += 1) grid[2][x] = p(COLORS.dim + COLORS.cyan, '~');
+    grid[2][3] = p(COLORS.bold + COLORS.yellow, '=');
+    grid[2][4] = p(COLORS.bold + COLORS.yellow, '=');
+    grid[2][5] = p(COLORS.bold + COLORS.yellow, '=');
+    grid[2][12] = p(COLORS.bold + COLORS.yellow, '=');
+    for (let x = 1; x < width - 1; x += 1) grid[3][x] = p(COLORS.dim + COLORS.cyan, '~');
+    grid[3][7] = p(COLORS.bold + COLORS.yellow, '=');
+    grid[3][8] = p(COLORS.bold + COLORS.yellow, '=');
+    grid[3][9] = p(COLORS.bold + COLORS.yellow, '=');
+    // Row 4 = median (safe grass)
+    for (let x = 1; x < width - 1; x += 1) grid[4][x] = p(COLORS.dim + COLORS.green, '.');
+    // Rows 5-6 = road with cars
+    for (let x = 1; x < width - 1; x += 1) grid[5][x] = p(COLORS.dim + COLORS.white, ':');
+    grid[5][2] = p(COLORS.red, '>');
+    grid[5][3] = p(COLORS.red, '>');
+    grid[5][11] = p(COLORS.red, '>');
+    grid[5][12] = p(COLORS.red, '>');
+    grid[5][13] = p(COLORS.red, '>');
+    for (let x = 1; x < width - 1; x += 1) grid[6][x] = p(COLORS.dim + COLORS.white, ':');
+    grid[6][4] = p(COLORS.red, '<');
+    grid[6][5] = p(COLORS.red, '<');
+    grid[6][14] = p(COLORS.red, '<');
+    // Row 7 = safe median
+    for (let x = 1; x < width - 1; x += 1) grid[7][x] = p(COLORS.dim + COLORS.green, '.');
+    // Frog on the bottom median
+    grid[7][9] = p(COLORS.bold + COLORS.green, 'F');
+  } else {
+    // AI Hunt: pickups, hazards, player, trail
+    grid[1][3] = p(COLORS.bold + COLORS.green, '$');
+    grid[1][10] = p(COLORS.bold + COLORS.green, '$');
+    grid[1][15] = p(COLORS.bold + COLORS.green, '$');
+    grid[2][6] = p(COLORS.red, 'o');
+    grid[2][13] = p(COLORS.red, 'o');
+    grid[3][2] = p(COLORS.red, 'o');
+    grid[3][9] = p(COLORS.bold + COLORS.magenta, 'X');
+    grid[3][14] = p(COLORS.red, 'o');
+    grid[4][4] = p(COLORS.dim + COLORS.cyan, ':');
+    grid[4][5] = p(COLORS.dim + COLORS.cyan, '-');
+    grid[4][6] = p(COLORS.dim + COLORS.cyan, ':');
+    grid[5][7] = p(COLORS.bold + COLORS.white, 'A');
+    grid[6][5] = p(COLORS.red, 'o');
+    grid[6][12] = p(COLORS.bold + COLORS.green, '$');
+    grid[7][2] = p(COLORS.bold + COLORS.green, '$');
+    grid[7][9] = p(COLORS.red, 'o');
+  }
+  return grid.map((row) => row.join(''));
+}
+
 // === MENU RENDERER ===
 
 const MENU_MODES = ['aiHunt', 'frogger'];
 
 function renderMenuFrame(selection = 0, options = {}) {
   const p = (code, ch) => paint(code, ch, options);
-  const width = 80;
-  const height = 24;
-  const shellWidth = Math.max(width, 88);
-  const lines = [];
-  for (let i = 0; i < height; i += 1) lines.push('');
-
-  // Title
-  const title = center(p(COLORS.bold + COLORS.cyan, 'SIGNAL RUSH // TERMINAL ARCADE'), shellWidth);
-  const sub = center(p(COLORS.dim + COLORS.white, '[ Presented by Temple Works ]'), shellWidth);
-  const divider1 = center(p(COLORS.dim + COLORS.white, repeat('=', 64)), shellWidth);
-
-  // Mode list
+  const outerWidth = 78;
+  const innerWidth = outerWidth - 2;  // for the ┃ borders
+  const selectedMode = MENU_MODES[selection] || 'aiHunt';
   const modeLabels = {
-    aiHunt:  'AI HUNT MODE  -  survival arcade with homing hazards',
-    frogger: 'FROGGER MODE  -  cross the road, ride the river, fill five slots',
+    aiHunt:  'AI HUNT MODE',
+    frogger: 'FROGGER MODE',
+  };
+  const modeSubtitles = {
+    aiHunt:  'survival arcade with homing hazards',
+    frogger: 'cross the road, ride the river, fill five slots',
   };
   const modeTaglines = {
     aiHunt:  GAME_CONFIG.modes.aiHunt.tagline,
     frogger: GAME_CONFIG.modes.frogger.tagline,
   };
+  const modeStats = {
+    aiHunt:  'HP 8   •   DASH   •   CHAIN   •   CREDITS',
+    frogger: 'LIVES 3   •   TIME 60s   •   SLOTS 5   •   COMBO',
+  };
 
-  const selectionLabels = MENU_MODES.map((mode, i) => {
-    const isSelected = i === selection;
-    const cursor = isSelected ? p(COLORS.bold + COLORS.yellow, '> ') : '  ';
-    const labelText = modeLabels[mode];
-    const labelColor = isSelected
-      ? (COLORS.bold + COLORS.yellow)
-      : (COLORS.dim + COLORS.white);
-    const label = p(labelColor, labelText);
-    return cursor + label;
-  });
+  const hbar = repeat('━', innerWidth);
+  const dbar = repeat('═', innerWidth);
+  const topBorder    = '┏' + hbar + '┓';
+  const sepBorder    = '┣' + hbar + '┫';
+  const botBorder    = '┗' + hbar + '┛';
+  const dblTopBorder = '╔' + dbar + '╗';
+  const dblBotBorder = '╚' + dbar + '╝';
 
-  // Layout: title block, then 1 blank, then mode list, then 1 blank, then tagline of selected, then divider, then help
+  // Pad a content string to the inner width and wrap it in a ┃ border.
+  function framed(content) {
+    const vlen = visibleLength(content);
+    const pad = Math.max(0, innerWidth - vlen);
+    return '┃' + content + repeat(' ', pad) + '┃';
+  }
+  function dblFramed(content) {
+    const vlen = visibleLength(content);
+    const pad = Math.max(0, innerWidth - vlen);
+    return '║' + content + repeat(' ', pad) + '║';
+  }
+  // Same as dblFramed but centers the content within the frame.
+  function dblFramedCentered(content) {
+    const vlen = visibleLength(content);
+    const totalPad = Math.max(0, innerWidth - vlen);
+    const left = Math.floor(totalPad / 2);
+    const right = totalPad - left;
+    return '║' + repeat(' ', left) + content + repeat(' ', right) + '║';
+  }
+
   const out = [];
+  // Top branding block — double-line frame for the title.
+  out.push(dblTopBorder);
+  out.push(dblFramed(''));
+  out.push(dblFramedCentered(
+    p(COLORS.bold + COLORS.cyan, 'S I G N A L    R U S H') +
+    '   ' +
+    p(COLORS.dim + COLORS.cyan, '// TERMINAL ARCADE')
+  ));
+  out.push(dblFramed(''));
+  // Decorative rule under the title
+  out.push(dblFramedCentered(p(COLORS.dim + COLORS.cyan, repeat('·', 24))));
+  out.push(dblFramed(''));
+  out.push(dblFramedCentered(
+    p(COLORS.dim + COLORS.white, '> > >') +
+    '  ' +
+    p(COLORS.bold + COLORS.white, 'P R E S E N T E D   B Y') +
+    '  ' +
+    p(COLORS.dim + COLORS.white, '< < <')
+  ));
+  out.push(dblFramed(''));
+  out.push(dblFramedCentered(
+    p(COLORS.bold + COLORS.yellow, '★  ') +
+    p(COLORS.bold + COLORS.white, 'U S P') +
+    p(COLORS.bold + COLORS.yellow, '  ×  ') +
+    p(COLORS.bold + COLORS.white, 'T E M P L E   W O R K S') +
+    p(COLORS.bold + COLORS.yellow, '  ★')
+  ));
+  out.push(dblFramed(''));
+  out.push(dblBotBorder);
+
+  // Mode selector + mini arena preview, side by side.
+  out.push(sepBorder);
+  out.push(framed(''));
+  out.push(framed(
+    p(COLORS.bold + COLORS.cyan, 'SELECT MODE') +
+    p(COLORS.dim, '  ·  ') +
+    p(COLORS.dim + COLORS.cyan, modeSubtitles[selectedMode])
+  ));
+  out.push(framed(''));
+
+  // Render the mode list and the mini preview as parallel columns.
+  const previewLines = buildMiniArenaPreview(selectedMode, options);
+  // Mode list lines (we show both options, the selected one with a cursor + highlight).
+  const labelFor = (i) => {
+    const isSelected = i === selection;
+    const tag = isSelected
+      ? p(COLORS.bold + COLORS.yellow, '▶ ' + modeLabels[MENU_MODES[i]])
+      : p(COLORS.dim + COLORS.white, '  ' + modeLabels[MENU_MODES[i]]);
+    const sub = isSelected
+      ? p(COLORS.dim + COLORS.cyan, '  ' + modeSubtitles[MENU_MODES[i]])
+      : p(COLORS.dim, '  ' + modeSubtitles[MENU_MODES[i]]);
+    return { tag, sub };
+  };
+  const modeLine0 = labelFor(0);
+  const modeLine1 = labelFor(1);
+
+  // Build the side-by-side rows: each row has [preview] + [mode list fragment].
+  const leftCol  = '  ' + p(COLORS.dim + COLORS.white, '▌');   // left rail with thin bar
+  const middle   = ' ';                                          // gap between preview and mode list
+  const rows = [];
+  // Row 0: top of preview + mode line 0
+  rows.push(framed(leftCol + previewLines[0] + middle + modeLine0.tag));
+  // Row 1: row 1 of preview + mode line 0 subtitle
+  rows.push(framed(leftCol + previewLines[1] + middle + modeLine0.sub));
+  // Row 2: row 2 of preview + blank
+  rows.push(framed(leftCol + previewLines[2] + middle));
+  // Row 3: row 3 of preview + mode line 1 (with cursor)
+  rows.push(framed(leftCol + previewLines[3] + middle + modeLine1.tag));
+  // Row 4: row 4 of preview + mode line 1 subtitle
+  rows.push(framed(leftCol + previewLines[4] + middle + modeLine1.sub));
+  // Rows 5..end: rest of preview
+  for (let y = 5; y < previewLines.length; y += 1) {
+    rows.push(framed(leftCol + previewLines[y] + middle));
+  }
+  for (const r of rows) out.push(r);
+
+  out.push(framed(''));
+  out.push(sepBorder);
+  out.push(framed(''));
+  out.push(framed(
+    p(COLORS.dim, 'MODE OVERVIEW — ') +
+    p(COLORS.bold + COLORS.cyan, modeLabels[selectedMode])
+  ));
+  out.push(framed(''));
+  // Word-wrap the tagline into lines that fit.
+  const tagline = modeTaglines[selectedMode];
+  const taglineLines = wrapText(tagline, innerWidth - 4);
+  for (const line of taglineLines) {
+    out.push(framed('  ' + p(COLORS.dim + COLORS.cyan, line)));
+  }
+  out.push(framed(''));
+  out.push(framed('  ' + p(COLORS.dim + COLORS.yellow, modeStats[selectedMode])));
+  out.push(framed(''));
+  out.push(botBorder);
+
+  // Controls + footer (under the framed block).
   out.push('');
-  out.push(title);
-  out.push(sub);
+  out.push(center(
+    p(COLORS.bold + COLORS.cyan, '↑ ↓') + p(COLORS.dim, '  select     ') +
+    p(COLORS.bold + COLORS.cyan, 'ENTER') + p(COLORS.dim, '  launch     ') +
+    p(COLORS.bold + COLORS.cyan, 'Q') + p(COLORS.dim, '  quit'),
+    outerWidth + 4
+  ));
+  out.push(center(
+    p(COLORS.dim, 'Game controls:  ') +
+    p(COLORS.bold + COLORS.white, 'WASD/arrows') + p(COLORS.dim, '  move   ') +
+    p(COLORS.bold + COLORS.white, 'SPACE') + p(COLORS.dim, '  dash   ') +
+    p(COLORS.bold + COLORS.white, 'P') + p(COLORS.dim, '  pause   ') +
+    p(COLORS.bold + COLORS.white, 'R') + p(COLORS.dim, '  restart   ') +
+    p(COLORS.bold + COLORS.white, 'M') + p(COLORS.dim, '  menu'),
+    outerWidth + 4
+  ));
   out.push('');
-  out.push(divider1);
-  out.push('');
-  out.push(center(p(COLORS.bold + COLORS.white, 'SELECT MODE'), shellWidth));
-  out.push('');
-  for (const l of selectionLabels) out.push(center(l, shellWidth));
-  out.push('');
-  out.push(center(p(COLORS.dim + COLORS.cyan, modeTaglines[MENU_MODES[selection]]), shellWidth));
-  out.push('');
-  out.push(center(p(COLORS.dim + COLORS.white, repeat('-', 64)), shellWidth));
-  out.push('');
-  out.push(center(p(COLORS.dim, 'UP / DOWN select     ENTER launch     Q quit'), shellWidth));
-  out.push('');
-  out.push(center(p(COLORS.dim, 'Game controls: WASD/arrows  |  P pause  |  R restart  |  M menu'), shellWidth));
-  out.push('');
-  out.push(center(p(COLORS.dim + COLORS.white, repeat('=', 64)), shellWidth));
+  out.push(center(
+    p(COLORS.dim + COLORS.white, '© 2026 ') +
+    p(COLORS.bold + COLORS.white, 'U S P') +
+    p(COLORS.dim + COLORS.yellow, '  ×  ') +
+    p(COLORS.bold + COLORS.white, 'T E M P L E   W O R K S') +
+    p(COLORS.dim + COLORS.white, '   //   ') +
+    p(COLORS.dim + COLORS.cyan, 'SIGNAL RUSH TERMINAL ARCADE'),
+    outerWidth + 4
+  ));
 
   return out.join('\n');
+}
+
+function wrapText(text, maxWidth) {
+  const words = String(text).split(/\s+/);
+  const lines = [];
+  let current = '';
+  for (const w of words) {
+    if (!current) {
+      current = w;
+      continue;
+    }
+    if (current.length + 1 + w.length <= maxWidth) {
+      current += ' ' + w;
+    } else {
+      lines.push(current);
+      current = w;
+    }
+  }
+  if (current) lines.push(current);
+  return lines;
 }
 
 module.exports = {
   renderFrame,
   renderMenuFrame,
+  buildMiniArenaPreview,
   visibleLength,
   paint,
   COLORS,
   MENU_MODES,
+  PRESENTED_BY,
 };
