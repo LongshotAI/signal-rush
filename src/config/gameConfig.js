@@ -43,6 +43,12 @@ const GAME_CONFIG = {
   pickupRamp: {
     pulseEvery: 18,
   },
+  nearMiss: {
+    radius: 1,
+    score: 12,
+    comboBump: 0.1,
+    maxPerTick: 3,
+  },
   scoreMilestones: [100, 250, 500, 900, 1400],
   sponsorImpressionEveryTicks: 40,
 
@@ -71,6 +77,11 @@ const GAME_CONFIG = {
 
       // Bonus per level cleared.
       levelClearBonus: 200,
+
+      // Small constant reward for pushing upward into a new best row
+      // during the current life/slot attempt. Gives players feedback
+      // before they reach a home slot without making side/down hops farmable.
+      forwardProgressScore: 5,
 
       // Number of GET READY ticks shown at the start of every level —
       // vehicles don't move and the frog doesn't drown/die during this

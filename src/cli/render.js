@@ -229,8 +229,12 @@ function buildHudRight(state, options = {}) {
   const dashText = state.dashCooldown === 0
     ? p(COLORS.bold + COLORS.green, 'READY')
     : p(COLORS.dim, String(state.dashCooldown));
+  const riskText = state.nearMissStreak > 0
+    ? `   ${p(COLORS.dim, 'RISK')} ${p(COLORS.bold + COLORS.magenta, 'x' + state.nearMissStreak)}`
+    : '';
   return (
     `${p(COLORS.dim, 'DASH')} ${dashText}` +
+    riskText +
     `   ${p(COLORS.dim, 'CREDITS')} ${p(COLORS.bold + COLORS.yellow, String(state.credits))}` +
     `   ${p(COLORS.dim, 'BEST')} ${p(COLORS.bold + COLORS.yellow, String(state.bestScore))}`
   );

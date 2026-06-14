@@ -137,6 +137,42 @@ function testDefaultEngineModeIsAiHunt() {
   assert.equal(engine.state.lanes, undefined, 'aiHunt state should not have Frogger lanes field');
 }
 
+function testAiHuntNearMissAwardsRiskReward() {
+  const engine = createEngine();
+  const { state } = engine;
+  state.pickups = [];
+  state.hazards = [{ x: state.player.x + 2, y: state.player.y, kind: 'packet' }];
+  const scoreBefore = state.score;
+  engine.step({});
+  assert.equal(state.nearMissStreak, 1, 'near miss should increment risk streak');
+  assert.equal(state.combo, 1.1, 'near miss should lightly bump combo');
+  assert(state.score >= scoreBefore + GAME_CONFIG.nearMiss.score, 'near miss should award bonus score');
+  assert(state.lastEvents.some((e) => e.type === 'near_miss' && e.count === 1), 'near miss event should be emitted');
+  const frame = renderFrame(state, { columns: 100, rows: 40 }, { colors: false });
+  assert(frame.includes('RISK x1'), 'HUD should surface risk streak');
+}
+
+function testAiHuntNearMissesAreCappedPerTick() {
+  const engine = createEngine();
+  const { state } = engine;
+  state.pickups = [];
+  state.hazards = Array.from({ length: 5 }, () => ({ x: state.player.x + 2, y: state.player.y, kind: 'packet' }));
+  engine.step({});
+  assert.equal(state.nearMissStreak, GAME_CONFIG.nearMiss.maxPerTick, 'near misses should cap per tick');
+  assert(state.lastEvents.some((e) => e.type === 'near_miss' && e.count === GAME_CONFIG.nearMiss.maxPerTick), 'event count should reflect cap');
+}
+
+function testAiHuntHitResetsNearMissStreak() {
+  const engine = createEngine();
+  const { state } = engine;
+  state.pickups = [];
+  state.nearMissStreak = 4;
+  state.hazards = [{ x: state.player.x + 1, y: state.player.y, kind: 'packet' }];
+  engine.step({});
+  assert.equal(state.nearMissStreak, 0, 'taking a hit should reset risk streak');
+  assert(state.lastEvents.some((e) => e.type === 'player_hit'), 'hit should still be registered');
+}
+
 // === Menu coverage ===
 
 function testMenuRendersBothModeOptions() {
@@ -381,6 +417,37 @@ function testFroggerVehiclesMoveAndWrap() {
   engine.step({});  // one tick
   const afterX = roadLane.vehicles[0].x;
   assert.equal(afterX, startX + roadLane.speed, 'right-bound car should move right by lane.speed each tick');
+}
+
+function testFroggerForwardProgressAwardsScoreOncePerBestRow() {
+  const engine = createEngine({ mode: 'frogger' });
+  skipFroggerGetReady(engine);
+  const scoreBefore = engine.state.score;
+  engine.step({ move: { x: 0, y: -1 } });
+  assert.equal(engine.state.bestProgressY, GAME_CONFIG.modes.frogger.spawnRow - 1, 'best progress row should advance upward');
+  assert.equal(engine.state.score, scoreBefore + GAME_CONFIG.modes.frogger.forwardProgressScore, 'first upward row should award progress score');
+  assert(engine.state.lastEvents.some((e) => e.type === 'forward_progress'), 'forward progress event should be emitted');
+  const scoreAfterFirstHop = engine.state.score;
+  engine.step({ move: { x: 1, y: 0 } });
+  engine.step({ move: { x: -1, y: 0 } });
+  engine.step({ move: { x: 0, y: 1 } });
+  engine.step({ move: { x: 0, y: -1 } });
+  assert.equal(engine.state.score, scoreAfterFirstHop, 'side/down/revisited-row hops should not farm progress score');
+}
+
+function testFroggerForwardProgressResetsAfterLifeLoss() {
+  const engine = createEngine({ mode: 'frogger' });
+  skipFroggerGetReady(engine);
+  engine.step({ move: { x: 0, y: -1 } });
+  const scoreAfterFirstProgress = engine.state.score;
+  const riverLane = engine.state.lanes.find((l) => l.type === 'river' && l.y === 5);
+  engine.state.player.x = 2;
+  engine.state.player.y = riverLane.y;
+  engine.step({});
+  assert.equal(engine.state.bestProgressY, GAME_CONFIG.modes.frogger.spawnRow, 'respawn should reset best progress row');
+  engine.state.getReadyTicks = 0;
+  engine.step({ move: { x: 0, y: -1 } });
+  assert.equal(engine.state.score, scoreAfterFirstProgress + GAME_CONFIG.modes.frogger.forwardProgressScore, 'new life should be able to earn progress again');
 }
 
 // === MENU DESIGN & BRANDING ===
@@ -896,6 +963,9 @@ const tests = [
   testGameOverCardShowsFinalStatsAndRestartPrompt,
   testNoColorOptionProducesAnsiFreeFrame,
   testDefaultEngineModeIsAiHunt,
+  testAiHuntNearMissAwardsRiskReward,
+  testAiHuntNearMissesAreCappedPerTick,
+  testAiHuntHitResetsNearMissStreak,
   // Menu
   testMenuRendersBothModeOptions,
   testMenuSelectionCursorMovesBetweenOptions,
@@ -915,6 +985,8 @@ const tests = [
   testFroggerGameOverWhenAllLivesLost,
   testFroggerGameOverCardShowsLevelAndSlots,
   testFroggerVehiclesMoveAndWrap,
+  testFroggerForwardProgressAwardsScoreOncePerBestRow,
+  testFroggerForwardProgressResetsAfterLifeLoss,
   // Menu design & branding
   testMenuBrandingIncludesUSPTempleWorks,
   testMenuHasSignalRushTitle,

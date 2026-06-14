@@ -72,6 +72,33 @@ function createDeathState(state, killerType) {
   };
 }
 
+function manhattan(a, b) {
+  return Math.abs(a.x - b.x) + Math.abs(a.y - b.y);
+}
+
+function awardNearMisses(state, events) {
+  const cfg = GAME_CONFIG.nearMiss || {};
+  const radius = cfg.radius || 1;
+  const maxPerTick = cfg.maxPerTick || 1;
+  const nearCount = Math.min(
+    maxPerTick,
+    state.hazards.filter((hazard) => {
+      const distance = manhattan(state.player, hazard);
+      return distance > 0 && distance <= radius;
+    }).length,
+  );
+  if (nearCount <= 0) return;
+  const gained = nearCount * (cfg.score || 0);
+  const bump = nearCount * (cfg.comboBump || 0);
+  state.nearMissStreak = (state.nearMissStreak || 0) + nearCount;
+  state.score += gained;
+  state.combo = Math.min(9.9, Number((state.combo + bump).toFixed(1)));
+  state.message = nearCount === 1
+    ? `Near miss +${gained}. Thread the signal.`
+    : `Near misses x${nearCount} +${gained}. Risk pays.`;
+  events.push({ type: 'near_miss', count: nearCount, score: gained, streak: state.nearMissStreak });
+}
+
 function resetState(state) {
   if (state.mode === 'frogger') {
     return resetStateFrogger(state);
@@ -101,6 +128,7 @@ function resetStateAiHunt(state) {
   state.deathState = null;
   state.lastMilestoneIndex = -1;
   state.sponsorLabelIndex = 0;
+  state.nearMissStreak = 0;
   state.trail = null;
   state.inputPulse = 0;
   state.moveFlash = 0;
@@ -139,6 +167,7 @@ function resetStateFrogger(state) {
   state.maxTime = fresh.maxTime;
   state.onLog = null;
   state.lastFroggerCause = null;
+  state.bestProgressY = fresh.bestProgressY;
   state.lanes = fresh.lanes.map((l) => ({
     y: l.y, type: l.type, direction: l.direction || 0, speed: l.speed || 0,
     vehicles: (l.vehicles || []).map((v) => ({ x: v.x })),
@@ -150,6 +179,7 @@ function respawnFrog(state) {
   state.player.x = cfg.spawnX;
   state.player.y = cfg.spawnRow;
   state.onLog = null;
+  state.bestProgressY = cfg.spawnRow;
   state.timeLeft = cfg.timePerLevel;
 }
 
@@ -325,6 +355,14 @@ function stepFrogger(state, input) {
     state.lastMove = move;
     state.inputPulse = 2;
     events.push({ type: 'player_hop', to: { x: state.player.x, y: state.player.y } });
+    if (move.y < 0 && state.player.y < state.bestProgressY) {
+      const rowsGained = state.bestProgressY - state.player.y;
+      const gained = rowsGained * GAME_CONFIG.modes.frogger.forwardProgressScore;
+      state.bestProgressY = state.player.y;
+      state.score += gained;
+      state.message = `Forward +${gained}. Keep climbing.`;
+      events.push({ type: 'forward_progress', rows: rowsGained, score: gained });
+    }
   }
   if (state.inputPulse > 0) state.inputPulse -= 1;
   if (state.moveFlash > 0) state.moveFlash -= 1;
@@ -508,6 +546,7 @@ function stepAiHunt(engine, state, input) {
     const damage = hazard.kind === 'corruptor' ? 2 : 1;
     player.health -= damage;
     state.combo = 1;
+    state.nearMissStreak = 0;
     state.invulnerable = GAME_CONFIG.invulnerableTicks;
     events.push({ type: 'player_hit', killerType: hazard.kind, damage });
     if (player.health <= 0) {
@@ -526,6 +565,8 @@ function stepAiHunt(engine, state, input) {
     events.push({ type: 'run_ended', deathState: state.deathState });
     return state;
   }
+
+  awardNearMisses(state, events);
 
   state.pickups = state.pickups.filter((pickup) => {
     if (pickup.x === player.x && pickup.y === player.y) {

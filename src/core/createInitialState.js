@@ -33,6 +33,7 @@ function createAiHuntState() {
     lastEvents: [],
     lastMilestoneIndex: -1,
     sponsorLabelIndex: 0,
+    nearMissStreak: 0,
   };
 }
 
@@ -71,6 +72,7 @@ function createFroggerState() {
     maxTime: cfg.timePerLevel,
     onLog: null,
     lastFroggerCause: null,
+    bestProgressY: cfg.spawnRow,
     // GET READY countdown (vehicles frozen, no deaths) at the start of
     // every level — first run and after each level clear / respawn.
     getReadyTicks: cfg.getReadyTicks,
