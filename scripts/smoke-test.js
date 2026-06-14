@@ -4,7 +4,7 @@ const path = require('node:path');
 const projectRoot = path.resolve(__dirname, '..');
 const entry = path.join(projectRoot, 'src/cli/index.js');
 
-const result = spawnSync(process.execPath, [entry, '--demo'], {
+const result = spawnSync(process.execPath, [entry, '--demo', '--no-color'], {
   cwd: projectRoot,
   encoding: 'utf8',
   timeout: 5000,

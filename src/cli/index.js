@@ -8,6 +8,7 @@ const { createInputBuffer } = require('./input');
 
 const args = process.argv.slice(2);
 const isDemo = args.includes('--demo');
+const useColor = !args.includes('--no-color');
 
 const engine = createEngine();
 const inputBuffer = createInputBuffer();
@@ -36,7 +37,7 @@ function refreshViewport() {
 
 function draw() {
   refreshViewport();
-  const frame = renderFrame(engine.state, viewport);
+  const frame = renderFrame(engine.state, viewport, { colors: useColor });
   process.stdout.write('\x1b[H');
   process.stdout.write(frame);
   process.stdout.write('\x1b[J');

@@ -1,6 +1,10 @@
 function createInputBuffer() {
+  // Active direction persists across consumes so that holding a key
+  // (or pressing it once and waiting for the next tick) feels continuous.
+  // Press the same direction again after a pause to toggle off.
   const state = {
-    queuedMove: null,
+    activeDirection: null,
+    lastDirPressAt: 0,
     dashQueued: false,
     restartQueued: false,
     quitQueued: false,
@@ -19,6 +23,11 @@ function createInputBuffer() {
     d: { x: 1, y: 0 },
   };
 
+  // Auto-repeat window in ms. Terminals send repeated keypress events
+  // for held keys at this rate; presses within the window are treated
+  // as continuous hold, presses outside it are deliberate toggles.
+  const REPEAT_WINDOW_MS = 200;
+
   function touchInput() {
     state.lastInputAt = Date.now();
   }
@@ -26,7 +35,26 @@ function createInputBuffer() {
   function queueDirection(keyName) {
     const vector = DIRECTION_KEYS[keyName];
     if (!vector) return false;
-    state.queuedMove = vector;
+    const now = Date.now();
+    const sameAsActive =
+      state.activeDirection &&
+      state.activeDirection.x === vector.x &&
+      state.activeDirection.y === vector.y;
+    const isAutoRepeat =
+      sameAsActive && (now - state.lastDirPressAt) < REPEAT_WINDOW_MS;
+    if (isAutoRepeat) {
+      // Held key; keep the active direction as-is.
+      touchInput();
+      return true;
+    }
+    if (sameAsActive) {
+      // Same direction pressed deliberately after a pause -> stop.
+      state.activeDirection = null;
+    } else {
+      // Different direction (or first press) -> set/overwrite.
+      state.activeDirection = vector;
+    }
+    state.lastDirPressAt = now;
     touchInput();
     return true;
   }
@@ -62,14 +90,13 @@ function createInputBuffer() {
 
   function consume() {
     const snapshot = {
-      move: state.queuedMove,
+      move: state.activeDirection,
       dash: state.dashQueued,
       restart: state.restartQueued,
       quit: state.quitQueued,
       pause: state.pauseQueued,
       lastInputAt: state.lastInputAt,
     };
-    state.queuedMove = null;
     state.dashQueued = false;
     state.restartQueued = false;
     state.quitQueued = false;
