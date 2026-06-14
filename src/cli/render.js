@@ -85,6 +85,23 @@ function buildArenaAiHunt(state, grid, p) {
   grid[GAME_CONFIG.height - 1][0] = p(COLORS.dim + COLORS.white, '+');
   grid[GAME_CONFIG.height - 1][GAME_CONFIG.width - 1] = p(COLORS.dim + COLORS.white, '+');
 
+  // Visual-only danger halos make enemy pressure readable at a glance.
+  // They mark the one-cell near-miss zone without changing collision rules.
+  for (const hazard of state.hazards) {
+    const haloCells = [
+      { x: hazard.x + 1, y: hazard.y },
+      { x: hazard.x - 1, y: hazard.y },
+      { x: hazard.x, y: hazard.y + 1 },
+      { x: hazard.x, y: hazard.y - 1 },
+    ];
+    for (const cell of haloCells) {
+      if (cell.x <= 0 || cell.x >= GAME_CONFIG.width - 1 || cell.y <= 0 || cell.y >= GAME_CONFIG.height - 1) continue;
+      if (grid[cell.y][cell.x] === ' ') {
+        grid[cell.y][cell.x] = p(COLORS.dim + COLORS.red, '!');
+      }
+    }
+  }
+
   for (const pickup of state.pickups) {
     grid[pickup.y][pickup.x] = p(COLORS.bold + COLORS.green, '$');
   }
@@ -275,6 +292,33 @@ function buildFroggerGoalBar(state, options = {}) {
   );
 }
 
+function buildAiHuntMissionBar(state, options = {}) {
+  const p = (code, ch) => paint(code, ch, options);
+  const hp = Math.max(0, state.player && typeof state.player.health === 'number' ? state.player.health : 0);
+  const maxHp = GAME_CONFIG.startHealth;
+  const hpPips = '█'.repeat(Math.min(hp, maxHp)) + '░'.repeat(Math.max(0, maxHp - hp));
+  const hpColor = hp <= 2 ? (COLORS.bold + COLORS.red) : (COLORS.bold + COLORS.green);
+  const maxThreat = GAME_CONFIG.hazardRamp && GAME_CONFIG.hazardRamp.max ? GAME_CONFIG.hazardRamp.max : 12;
+  const threat = Array.isArray(state.hazards) ? state.hazards.length : 0;
+  const threatColor = threat >= Math.ceil(maxThreat * 0.75)
+    ? (COLORS.bold + COLORS.red)
+    : threat >= Math.ceil(maxThreat * 0.4)
+      ? (COLORS.bold + COLORS.yellow)
+      : (COLORS.bold + COLORS.cyan);
+  const risk = state.nearMissStreak > 0
+    ? p(COLORS.dim, '   |   RISK ') + p(COLORS.bold + COLORS.magenta, 'x' + state.nearMissStreak)
+    : '';
+  return (
+    p(COLORS.bold + COLORS.cyan, 'MISSION ') +
+    p(COLORS.dim + COLORS.white, 'SURVIVE') +
+    p(COLORS.dim, '   |   COLLECT ') + p(COLORS.bold + COLORS.green, '$') +
+    p(COLORS.dim, '   |   CHAIN ') + p(COLORS.bold + COLORS.yellow, 'x' + state.combo.toFixed(1)) +
+    p(COLORS.dim, '   |   HP ') + p(hpColor, '[' + hpPips + ']') +
+    p(COLORS.dim, '   |   THREAT ') + p(threatColor, `${threat}/${maxThreat}`) +
+    risk
+  );
+}
+
 function renderFrame(state, viewport = { columns: 100, rows: 40 }, options = {}) {
   const p = (code, ch) => paint(code, ch, options);
   const width = Math.max(80, viewport.columns || 100);
@@ -306,6 +350,8 @@ function renderFrame(state, viewport = { columns: 100, rows: 40 }, options = {})
     // above the arena so it's never scrolled off, and explicitly shows
     // the 5 home slots (filled vs empty), score, time, and lives.
     lines.push(center(buildFroggerGoalBar(state, options), shellWidth));
+  } else {
+    lines.push(center(buildAiHuntMissionBar(state, options), shellWidth));
   }
   lines.push(repeat('-', shellWidth));
   lines.push('');
@@ -332,7 +378,7 @@ function renderFrame(state, viewport = { columns: 100, rows: 40 }, options = {})
     lines.push(center(p(COLORS.dim, 'FROG=F  LOG==  WATER=~  CAR=><  HOME=_  FILLED=F  GRASS=.'), shellWidth));
     lines.push(center(p(COLORS.dim, 'MOVE WASD/ARROWS | PAUSE P | RESTART R | QUIT Q'), shellWidth));
   } else {
-    lines.push(center(p(COLORS.dim, 'SHIP=A  MOVE=#  INPUT=W  TRAIL=:-|  ENEMY=o  HEAVY=X  SIGNAL=$'), shellWidth));
+    lines.push(center(p(COLORS.dim, 'SHIP=A  MOVE=#  INPUT=W  TRAIL=:-|  WARNING=!  ENEMY=o  HEAVY=X  SIGNAL=$'), shellWidth));
     lines.push(center(p(COLORS.dim, 'MOVE WASD/ARROWS | DASH SPACE | RESTART R | PAUSE P | QUIT Q'), shellWidth));
   }
   lines.push('');
@@ -685,6 +731,7 @@ module.exports = {
   renderMenuFrame,
   buildMiniArenaPreview,
   buildFroggerGoalBar,
+  buildAiHuntMissionBar,
   visibleLength,
   paint,
   COLORS,

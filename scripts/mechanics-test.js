@@ -8,6 +8,7 @@ const {
   renderMenuFrame,
   buildMiniArenaPreview,
   buildFroggerGoalBar,
+  buildAiHuntMissionBar,
   visibleLength,
   MENU_MODES,
   PRESENTED_BY,
@@ -171,6 +172,46 @@ function testAiHuntHitResetsNearMissStreak() {
   engine.step({});
   assert.equal(state.nearMissStreak, 0, 'taking a hit should reset risk streak');
   assert(state.lastEvents.some((e) => e.type === 'player_hit'), 'hit should still be registered');
+}
+
+function testAiHuntMissionBarShowsObjectiveHpThreatAndRisk() {
+  const engine = createEngine();
+  engine.state.player.health = 5;
+  engine.state.combo = 2.4;
+  engine.state.nearMissStreak = 3;
+  engine.state.hazards = [
+    { x: 3, y: 3, kind: 'packet' },
+    { x: 8, y: 8, kind: 'corruptor' },
+  ];
+  const out = buildAiHuntMissionBar(engine.state, { colors: false });
+  assert(out.includes('MISSION'), 'AI Hunt mission bar should label the objective');
+  assert(out.includes('SURVIVE'), 'mission bar should tell the player the survival objective');
+  assert(out.includes('COLLECT $'), 'mission bar should surface pickup objective');
+  assert(out.includes('CHAIN x2.4'), 'mission bar should show combo/chain');
+  assert(out.includes('HP [█████░░░]'), 'mission bar should show readable HP pips');
+  assert(out.includes('THREAT 2/12'), 'mission bar should show threat pressure');
+  assert(out.includes('RISK x3'), 'mission bar should show active risk streak');
+}
+
+function testAiHuntMissionBarRendersAboveArenaAndFroggerGoalIsExcluded() {
+  const engine = createEngine();
+  const frame = renderFrame(engine.state, { columns: 100, rows: 40 }, { colors: false });
+  const missionIdx = frame.indexOf('MISSION');
+  const arenaIdx = frame.indexOf('+--');
+  assert(missionIdx !== -1, 'AI Hunt gameplay frame should include mission bar');
+  assert(missionIdx < arenaIdx, 'AI Hunt mission bar should render above arena');
+  assert(!frame.includes('GOAL [_ _ _ _ _]'), 'AI Hunt frame should not include Frogger GOAL bar');
+}
+
+function testAiHuntDangerHaloRendersNearEnemiesWithoutReplacingObjects() {
+  const engine = createEngine();
+  const { state } = engine;
+  state.pickups = [{ x: 12, y: 12, value: 20, ttl: 50 }];
+  state.hazards = [{ x: 10, y: 10, kind: 'packet' }];
+  const frame = renderFrame(state, { columns: 100, rows: 40 }, { colors: false });
+  assert(frame.includes('!o!') || frame.includes('!o') || frame.includes('o!'), 'danger halo should render near packet enemy');
+  assert(frame.includes('$'), 'danger halo should not erase pickups');
+  assert(frame.includes('A'), 'danger halo should not erase player');
 }
 
 // === Menu coverage ===
@@ -966,6 +1007,9 @@ const tests = [
   testAiHuntNearMissAwardsRiskReward,
   testAiHuntNearMissesAreCappedPerTick,
   testAiHuntHitResetsNearMissStreak,
+  testAiHuntMissionBarShowsObjectiveHpThreatAndRisk,
+  testAiHuntMissionBarRendersAboveArenaAndFroggerGoalIsExcluded,
+  testAiHuntDangerHaloRendersNearEnemiesWithoutReplacingObjects,
   // Menu
   testMenuRendersBothModeOptions,
   testMenuSelectionCursorMovesBetweenOptions,
