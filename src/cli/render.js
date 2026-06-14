@@ -583,7 +583,9 @@ function renderMenuFrame(selection = 0, options = {}) {
   // Controls + footer (under the framed block).
   out.push('');
   out.push(center(
-    p(COLORS.bold + COLORS.cyan, '↑ ↓') + p(COLORS.dim, '  select     ') +
+    p(COLORS.bold + COLORS.cyan, '↑ ↓') + p(COLORS.dim, '  /  ') +
+    p(COLORS.bold + COLORS.cyan, 'W S') + p(COLORS.dim, '  /  ') +
+    p(COLORS.bold + COLORS.cyan, 'K J') + p(COLORS.dim, '  select     ') +
     p(COLORS.bold + COLORS.cyan, 'ENTER') + p(COLORS.dim, '  launch     ') +
     p(COLORS.bold + COLORS.cyan, 'Q') + p(COLORS.dim, '  quit'),
     outerWidth + 4

@@ -513,6 +513,51 @@ function testMenuKeyUpWrapsSelection() {
   assert.equal(r1.menuSelection, 1, 'up arrow at 0 should wrap to 1');
 }
 
+function testMenuKeyWASDFallbackForNavigation() {
+  // Even if the user's terminal doesn't parse arrow keys, they should
+  // be able to navigate the menu with WASD. Some terminals send raw
+  // escape sequences without populating key.name.
+  const r1 = applyMenuKey({ menuMode: true, menuSelection: 0, menuLength: 2 }, 's', { name: 's' });
+  assert.equal(r1.menuSelection, 1, 'S should advance selection (WASD fallback)');
+  const r2 = applyMenuKey({ menuMode: true, menuSelection: 1, menuLength: 2 }, 'w', { name: 'w' });
+  assert.equal(r2.menuSelection, 0, 'W should go back (WASD fallback)');
+}
+
+function testMenuKeyVimFallbackForNavigation() {
+  // vim-style: j = down, k = up.
+  const r1 = applyMenuKey({ menuMode: true, menuSelection: 0, menuLength: 2 }, 'j', { name: 'j' });
+  assert.equal(r1.menuSelection, 1, 'J should advance selection (vim fallback)');
+  const r2 = applyMenuKey({ menuMode: true, menuSelection: 1, menuLength: 2 }, 'k', { name: 'k' });
+  assert.equal(r2.menuSelection, 0, 'K should go back (vim fallback)');
+}
+
+function testMenuKeyRawArrowSequenceFallback() {
+  // Some terminals send arrow-key escape sequences without populating
+  // key.name (e.g. older xterm, embedded terminals, mobile ssh clients).
+  // The handler should still recognise the raw sequence.
+  const r1 = applyMenuKey({ menuMode: true, menuSelection: 0, menuLength: 2 }, '\x1b[B', {});
+  assert.equal(r1.menuSelection, 1, 'raw \\x1b[B should advance (terminal with no key.name)');
+  const r2 = applyMenuKey({ menuMode: true, menuSelection: 1, menuLength: 2 }, '\x1b[A', {});
+  assert.equal(r2.menuSelection, 0, 'raw \\x1b[A should go back (terminal with no key.name)');
+}
+
+function testMenuKeyAlternateArrowSequenceFallback() {
+  // Some terminals use \x1bOA / \x1bOB style sequences (e.g. older
+  // xterm, certain VTE implementations).
+  const r1 = applyMenuKey({ menuMode: true, menuSelection: 0, menuLength: 2 }, '\x1bOB', {});
+  assert.equal(r1.menuSelection, 1, 'alternate \\x1bOB should advance');
+  const r2 = applyMenuKey({ menuMode: true, menuSelection: 1, menuLength: 2 }, '\x1bOA', {});
+  assert.equal(r2.menuSelection, 0, 'alternate \\x1bOA should go back');
+}
+
+function testMenuKeyDisplayIncludesWASDAndVimAlternatives() {
+  // The on-screen menu controls should advertise the alternative keys
+  // so the user knows they exist if arrows fail on their terminal.
+  const out = renderMenuFrame(0, { colors: false });
+  assert(out.includes('W S'), 'menu controls should show WASD fallback');
+  assert(out.includes('K J'), 'menu controls should show vim fallback');
+}
+
 function testMenuKeyEnterSelectsMode() {
   const r1 = applyMenuKey({ menuMode: true, menuSelection: 1, menuLength: 2 }, '\r', { name: 'return' });
   assert.equal(r1.action, 'select', 'enter should return select action');
@@ -807,6 +852,11 @@ const tests = [
   // Menu keypress handler
   testMenuKeyDownAdvancesSelection,
   testMenuKeyUpWrapsSelection,
+  testMenuKeyWASDFallbackForNavigation,
+  testMenuKeyVimFallbackForNavigation,
+  testMenuKeyRawArrowSequenceFallback,
+  testMenuKeyAlternateArrowSequenceFallback,
+  testMenuKeyDisplayIncludesWASDAndVimAlternatives,
   testMenuKeyEnterSelectsMode,
   testMenuKeyQQuits,
   testMenuKeyCtrlCQuits,
