@@ -87,6 +87,18 @@ function buildArenaAiHunt(state, grid, p) {
 
   // Visual-only danger halos make enemy pressure readable at a glance.
   // They mark the one-cell near-miss zone without changing collision rules.
+  //
+  // Two passes:
+  //   1. Count how many hazards have each empty cell in their halo (the
+  //      "overlap count") and the minimum Manhattan distance from any
+  //      contributing hazard to the player. The count drives the glyph
+  //      ramp (1 -> dim, 2 -> mid, 3+ -> hot); the distance tints the
+  //      glyph hotter when the overlap is close to the player. This is
+  //      what the bar's discrete THREAT tier is rendering spatially.
+  //   2. Paint exactly once per cell. The previous "last write wins" loop
+  //      would silently drop a halo on top of a previously-painted halo;
+  //      now overlap compounds visually instead of being lost.
+  const halo = new Map(); // key = "x,y" -> { count, minDistToPlayer }
   for (const hazard of state.hazards) {
     const haloCells = [
       { x: hazard.x + 1, y: hazard.y },
@@ -94,12 +106,37 @@ function buildArenaAiHunt(state, grid, p) {
       { x: hazard.x, y: hazard.y + 1 },
       { x: hazard.x, y: hazard.y - 1 },
     ];
+    const dist = Math.abs(hazard.x - state.player.x) + Math.abs(hazard.y - state.player.y);
     for (const cell of haloCells) {
       if (cell.x <= 0 || cell.x >= GAME_CONFIG.width - 1 || cell.y <= 0 || cell.y >= GAME_CONFIG.height - 1) continue;
-      if (grid[cell.y][cell.x] === ' ') {
-        grid[cell.y][cell.x] = p(COLORS.dim + COLORS.red, '!');
+      const key = cell.x + ',' + cell.y;
+      const existing = halo.get(key);
+      if (existing) {
+        existing.count += 1;
+        if (dist < existing.minDistToPlayer) existing.minDistToPlayer = dist;
+      } else {
+        halo.set(key, { count: 1, minDistToPlayer: dist });
       }
     }
+  }
+  for (const [key, info] of halo) {
+    const [xStr, yStr] = key.split(',');
+    const cx = Number(xStr);
+    const cy = Number(yStr);
+    if (grid[cy][cx] !== ' ') continue; // don't overwrite walls, pickups, enemies
+    let glyph;
+    let color;
+    if (info.count >= 3) {
+      glyph = '!';
+      color = COLORS.bold + COLORS.red;
+    } else if (info.count === 2) {
+      glyph = ':';
+      color = info.minDistToPlayer <= 2 ? (COLORS.bold + COLORS.yellow) : (COLORS.dim + COLORS.yellow);
+    } else {
+      glyph = '·';
+      color = info.minDistToPlayer <= 2 ? (COLORS.dim + COLORS.red) : (COLORS.dim + COLORS.white);
+    }
+    grid[cy][cx] = p(color, glyph);
   }
 
   for (const pickup of state.pickups) {

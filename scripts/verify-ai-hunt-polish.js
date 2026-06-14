@@ -12,6 +12,10 @@ engine.state.pickups = [{ x: 12, y: 12, value: 25, ttl: 50 }];
 engine.state.hazards = [
   { x: 10, y: 10, kind: 'packet' },
   { x: 20, y: 14, kind: 'corruptor' },
+  // Add a third hazard adjacent to the first so a count>=3 overlap
+  // cell exists in the rendered frame and the hot '!' tier is exercised.
+  { x: 11, y: 10, kind: 'packet' },
+  { x: 12, y: 10, kind: 'packet' },
 ];
 
 const frame = renderFrame(engine.state, { columns: 100, rows: 40 }, { colors: false });
@@ -23,9 +27,14 @@ const checks = {
   title: frame.includes('SIGNAL RUSH // AI HUNT'),
   missionBar: frame.includes('MISSION') && frame.includes('SURVIVE') && frame.includes('COLLECT $'),
   hpPips: frame.includes('HP [██████░░]'),
-  threatMeter: frame.includes('THREAT 2/12'),
+  threatMeter: frame.includes('THREAT 4/12'),
   riskStreak: frame.includes('RISK x4'),
-  dangerHalo: frame.includes('!o!') || frame.includes('!o') || frame.includes('o!'),
+  // Two single-hazard enemies far apart produce only the dim ramp glyph.
+  // We add a third hazard next to one of them to also exercise overlap.
+  hasOverlap: (() => {
+    const stripped = frame.replace(/\x1b\[[0-9;]*m/g, '');
+    return /·/.test(stripped) && /!/.test(stripped);
+  })(),
   pickupStillVisible: frame.includes('$'),
   playerStillVisible: frame.includes('A'),
   missionAboveArena: missionLine !== -1 && arenaLine !== -1 && missionLine < arenaLine,

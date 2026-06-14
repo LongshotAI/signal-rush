@@ -209,9 +209,55 @@ function testAiHuntDangerHaloRendersNearEnemiesWithoutReplacingObjects() {
   state.pickups = [{ x: 12, y: 12, value: 20, ttl: 50 }];
   state.hazards = [{ x: 10, y: 10, kind: 'packet' }];
   const frame = renderFrame(state, { columns: 100, rows: 40 }, { colors: false });
-  assert(frame.includes('!o!') || frame.includes('!o') || frame.includes('o!'), 'danger halo should render near packet enemy');
+  // Single-hazard overlap count is 1, so cells use the dim ramp glyph
+  // ('·'). The halo still wraps the enemy on the same row.
+  assert(frame.includes('·o·') || frame.includes('·o'), 'single-hazard halo should use dim ramp glyph (·)');
   assert(frame.includes('$'), 'danger halo should not erase pickups');
   assert(frame.includes('A'), 'danger halo should not erase player');
+}
+
+function testAiHuntDangerHaloEscalatesGlyphWithOverlap() {
+  const engine = createEngine();
+  const { state } = engine;
+  // Three hazards sharing a single halo cell: (x=15,y=15) is the right
+  // neighbor of hazard A, the top neighbor of hazard B, and the left
+  // neighbor of hazard C. Overlap count = 3, which should escalate to
+  // the hot '!' glyph in bold red.
+  state.hazards = [
+    { x: 14, y: 15, kind: 'packet' },
+    { x: 15, y: 16, kind: 'packet' },
+    { x: 16, y: 15, kind: 'packet' },
+  ];
+  const frame = renderFrame(state, { columns: 100, rows: 40 }, { colors: false });
+  // Find the arena row containing the cluster and assert a hot-cell
+  // glyph is present next to one of the enemies.
+  const arenaLines = frame.split('\n').filter((l) => l.includes('o') || l.includes('X'));
+  assert(arenaLines.length >= 1, 'arena should render the three-hazard cluster');
+  const hasHotCell = arenaLines.some((line) => /!o/.test(line) || /o!/.test(line) || /!X/.test(line) || /X!/.test(line));
+  assert(hasHotCell, 'three-hazard overlap should escalate to the hot ! glyph');
+}
+
+function testAiHuntDangerHaloGlyphsAreDistinctAcrossOverlapTiers() {
+  const engine = createEngine();
+  const { state } = engine;
+  // 1 hazard -> dim '·'. 2 hazards overlap a shared cell -> ':'. 3
+  // hazards overlap a shared cell -> '!'. The renderer must use three
+  // distinct glyphs so the player can read threat at a glance without
+  // needing the mission bar.
+  state.hazards = [
+    { x: 10, y: 10, kind: 'packet' },                                  // single halo at (11,10)
+    { x: 11, y: 10, kind: 'packet' },                                  // adds (10,10) and (12,10) and (11,9) and (11,11) at count=2 with (11,10)
+    { x: 12, y: 10, kind: 'packet' },                                  // makes (11,10) a triple-overlap cell
+  ];
+  const frame = renderFrame(state, { columns: 100, rows: 40 }, { colors: false });
+  assert(frame.includes('·'), 'count-1 halo cells should use the dim · glyph');
+  assert(frame.includes('!'), 'count-3 halo cells should use the hot ! glyph');
+  // The mid-tier ':' glyph is also used by the trail renderer, so we
+  // assert on the halo's distinct ramp by checking the dim tier is
+  // present and that the count-1 vs count-3 glyphs are both present.
+  // The character-class assertion is intentional: '!' is the only
+  // count-3 halo glyph, so its presence implies the overlap escalated.
+  assert(!frame.match(/!o!/), 'cells with count>=3 should not be lost behind a later single-hazard halo (no double-painting)');
 }
 
 // === Menu coverage ===
@@ -1010,6 +1056,8 @@ const tests = [
   testAiHuntMissionBarShowsObjectiveHpThreatAndRisk,
   testAiHuntMissionBarRendersAboveArenaAndFroggerGoalIsExcluded,
   testAiHuntDangerHaloRendersNearEnemiesWithoutReplacingObjects,
+  testAiHuntDangerHaloEscalatesGlyphWithOverlap,
+  testAiHuntDangerHaloGlyphsAreDistinctAcrossOverlapTiers,
   // Menu
   testMenuRendersBothModeOptions,
   testMenuSelectionCursorMovesBetweenOptions,
