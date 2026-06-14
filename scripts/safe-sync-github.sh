@@ -77,7 +77,7 @@ if [ "$RUN_FRESH_CLONE" = "1" ]; then
   TMP_DIR="$(mktemp -d /tmp/signal-rush-sync-verify.XXXXXX)"
   trap 'rm -rf "$TMP_DIR"' EXIT
   if [ -f "$GIT_CRED_HELPER" ]; then
-    git -c credential.helper="$GIT_CRED_HELPER" clone "$REMOTE_URL" "$TMP_DIR/repo"
+    git -c "credential.helper=!python3 $GIT_CRED_HELPER" clone "$REMOTE_URL" "$TMP_DIR/repo"
   else
     git clone "$REMOTE_URL" "$TMP_DIR/repo"
   fi
