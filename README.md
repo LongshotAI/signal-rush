@@ -86,6 +86,8 @@ After installation, every local commit runs `scripts/safe-sync-github.sh` automa
 - verifies local `HEAD`, `origin/main`, and GitHub `refs/heads/main` are identical
 - writes a local log to `.git/signal-rush-sync.log`
 
+The Z440 working copy has this post-commit hook installed locally, so commits made there auto-sync to GitHub after passing the guard.
+
 If the hook fails, the commit remains local and the fix is to resolve the reported issue, commit/stash remaining changes, then run `npm run sync:github`.
 
 Latest local audit note:
