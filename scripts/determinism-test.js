@@ -155,6 +155,44 @@ function testRNGQuality() {
   console.log('  PASS');
 }
 
+function testFallbackToMathRandom() {
+  console.log('Testing: engine falls back to Math.random when no RNG attached...');
+  // Path 1: createEngine with no seed/rng — natural non-deterministic mode.
+  // This is the "casual play" case where we don't need reproducibility.
+  const engine1 = createEngine({ mode: 'aiHunt' });
+  assert.equal(engine1.state.rng, undefined, 'No-seed engine should have no rng attached');
+  let threw = false;
+  try {
+    for (let i = 0; i < 20; i += 1) {
+      engine1.step({ move: { x: 1, y: 0 } });
+    }
+  } catch (e) {
+    threw = true;
+    console.error('Threw (path 1):', e.message);
+  }
+  assert(!threw, 'engine.step() must not throw when state.rng is undefined (no-seed path)');
+  assert(engine1.state.tick > 0, 'Engine should have advanced');
+  assert(engine1.state.hazards.length > 0 || engine1.state.pickups.length > 0, 'Engine should have spawned something via Math.random fallback');
+
+  // Path 2: seeded engine, then RNG detached — simulates a partial-mock or
+  // a future caller that resets state without re-attaching RNG.
+  const engine2 = createEngine({ mode: 'aiHunt', seed: 12345 });
+  assert(engine2.state.rng, 'Seeded engine should have an RNG');
+  delete engine2.state.rng;
+  threw = false;
+  try {
+    for (let i = 0; i < 20; i += 1) {
+      engine2.step({ move: { x: 1, y: 0 } });
+    }
+  } catch (e) {
+    threw = true;
+    console.error('Threw (path 2):', e.message);
+  }
+  assert(!threw, 'engine.step() must not throw when state.rng is detached (seeded-then-detached path)');
+  assert(engine2.state.tick > 0, 'Engine should have advanced after RNG detach');
+  console.log('  PASS');
+}
+
 // Run all tests
 console.log('\n=== Signal Rush Determinism Tests ===\n');
 
@@ -167,6 +205,7 @@ try {
   testStringSeed();
   testResetPreservesDeterminism();
   testReplayCompatibility();
+  testFallbackToMathRandom();
   console.log('\n✅ ALL DETERMINISM TESTS PASSED');
 } catch (e) {
   console.error('\n❌ TEST FAILED:', e.message);

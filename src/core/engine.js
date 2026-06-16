@@ -3,8 +3,15 @@ const { createInitialState, createPlayer } = require('./createInitialState');
 const { randInt, clamp, moveToward } = require('./utils');
 const { createRNG } = require('./rng');
 
+// Safe RNG accessor — falls back to Math.random when no seeded RNG is attached.
+// Prevents TypeError on code paths that build state without going through createEngine
+// (e.g. tests, partial mocks, or future callers that skip the RNG wiring).
+function getRng(state) {
+  return state.rng || Math.random;
+}
+
 function randomOpenCell(state, avoidCenter = false) {
-  const rng = state.rng;
+  const rng = getRng(state);
   for (let tries = 0; tries < 200; tries += 1) {
     const x = randInt(1, GAME_CONFIG.width - 2, rng);
     const y = randInt(1, GAME_CONFIG.height - 2, rng);
@@ -21,7 +28,7 @@ function randomOpenCell(state, avoidCenter = false) {
 }
 
 function spawnPickup(state) {
-  const rng = state.rng;
+  const rng = getRng(state);
   const cell = randomOpenCell(state, true);
   if (!cell) return null;
   const pickup = {
@@ -35,7 +42,7 @@ function spawnPickup(state) {
 }
 
 function spawnHazard(state) {
-  const rng = state.rng;
+  const rng = getRng(state);
   const edges = [];
   for (let x = 2; x < GAME_CONFIG.width - 2; x += 1) {
     edges.push({ x, y: 1 });
@@ -529,7 +536,7 @@ function stepAiHunt(engine, state, input) {
     GAME_CONFIG.hazardRamp.base + Math.floor(state.tick / GAME_CONFIG.hazardRamp.growthIntervalTicks),
   );
 
-  const rng = state.rng;
+  const rng = getRng(state);
   if (!safeWindowActive && state.hazards.length < hazardFloor && rng() < GAME_CONFIG.hazardRamp.randomSpawnChance) {
     const spawned = spawnHazard(state);
     if (spawned) events.push({ type: 'hazard_spawned', kind: spawned.kind });
