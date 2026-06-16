@@ -1,0 +1,95 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Signal Rush MVP</title>
+    <link rel="stylesheet" href="./styles.css" />
+  </head>
+  <body>
+    <div class="app-shell">
+      <aside class="panel panel-left">
+        <div class="brand">
+          <p class="eyebrow">Agent Forge Prototype</p>
+          <h1>Signal Rush</h1>
+          <p class="tagline">Dodge noise. Collect signal. Convert attention into credits.</p>
+        </div>
+
+        <section class="card">
+          <h2>Core Loop</h2>
+          <p>Move through a hostile grid, survive escalating bursts, and route into high-value pickups for combo-driven score.</p>
+        </section>
+
+        <section class="card controls">
+          <h2>Controls</h2>
+          <p><span>Move</span><span>WASD / Arrows</span></p>
+          <p><span>Dash</span><span>Space</span></p>
+          <p><span>Pause</span><span>P</span></p>
+          <p><span>Restart</span><span>Enter</span></p>
+        </section>
+
+        <section class="card notes">
+          <h2>Placeholder Assets</h2>
+          <ul>
+            <li>Canvas-rendered node, hazards, pickups, and HUD motifs</li>
+            <li>CSS neon gradients in place of final environment art</li>
+            <li>Text-only ad cards instead of integrated ad units</li>
+          </ul>
+        </section>
+      </aside>
+
+      <main class="play-surface">
+        <header class="hud">
+          <div class="hud-block">
+            <span class="hud-label">Credits</span>
+            <strong id="creditsValue">0</strong>
+          </div>
+          <div class="hud-block">
+            <span class="hud-label">Score</span>
+            <strong id="scoreValue">0</strong>
+          </div>
+          <div class="hud-block">
+            <span class="hud-label">Combo</span>
+            <strong id="comboValue">x1.0</strong>
+          </div>
+          <div class="hud-block">
+            <span class="hud-label">Integrity</span>
+            <strong id="healthValue">100</strong>
+          </div>
+          <div class="passive-slot">Passive Ad Placeholder</div>
+        </header>
+
+        <div class="canvas-frame">
+          <canvas id="gameCanvas" width="960" height="540" aria-label="Signal Rush game area"></canvas>
+          <div class="overlay active" id="startOverlay">
+            <div class="overlay-card">
+              <p class="eyebrow">MVP Arena</p>
+              <h2>Route clean lines through the noise.</h2>
+              <p>Survive as long as possible. Pickups increase score and credits. Dash has a short cooldown.</p>
+              <button id="startButton">Start Run</button>
+            </div>
+          </div>
+          <div class="overlay" id="pauseOverlay">
+            <div class="overlay-card">
+              <p class="eyebrow">Paused</p>
+              <h2>Signal held.</h2>
+              <p>Press <strong>P</strong> to resume.</p>
+            </div>
+          </div>
+          <div class="overlay" id="gameOverOverlay">
+            <div class="overlay-card">
+              <p class="eyebrow">Interstitial Placeholder</p>
+              <h2>Run terminated.</h2>
+              <p id="summaryText">You converted 0 signal into 0 credits.</p>
+              <div class="overlay-actions">
+                <button id="restartButton">Run Again</button>
+              </div>
+            </div>
+          </div>
+        </div>
+      </main>
+    </div>
+
+    <script src="./game.js"></script>
+  </body>
+</html>

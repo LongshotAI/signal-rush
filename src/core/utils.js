@@ -1,5 +1,9 @@
-function randInt(min, max) {
-  return Math.floor(Math.random() * (max - min + 1)) + min;
+// Utility functions for the game engine.
+
+const { createRNG, defaultRNG, randInt: rngRandInt } = require('./rng');
+
+function randInt(min, max, rng = defaultRNG) {
+  return rngRandInt(rng, min, max);
 }
 
 function clamp(value, min, max) {

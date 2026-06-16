@@ -1,11 +1,13 @@
 const { GAME_CONFIG } = require('../config/gameConfig');
 const { createInitialState, createPlayer } = require('./createInitialState');
 const { randInt, clamp, moveToward } = require('./utils');
+const { createRNG } = require('./rng');
 
 function randomOpenCell(state, avoidCenter = false) {
+  const rng = state.rng;
   for (let tries = 0; tries < 200; tries += 1) {
-    const x = randInt(1, GAME_CONFIG.width - 2);
-    const y = randInt(1, GAME_CONFIG.height - 2);
+    const x = randInt(1, GAME_CONFIG.width - 2, rng);
+    const y = randInt(1, GAME_CONFIG.height - 2, rng);
     if (avoidCenter) {
       const dist = Math.abs(x - state.player.x) + Math.abs(y - state.player.y);
       if (dist < 7) continue;
@@ -19,19 +21,21 @@ function randomOpenCell(state, avoidCenter = false) {
 }
 
 function spawnPickup(state) {
+  const rng = state.rng;
   const cell = randomOpenCell(state, true);
   if (!cell) return null;
   const pickup = {
     x: cell.x,
     y: cell.y,
-    value: randInt(GAME_CONFIG.pickupValueMin, GAME_CONFIG.pickupValueMax),
-    ttl: randInt(GAME_CONFIG.pickupTtlMin, GAME_CONFIG.pickupTtlMax),
+    value: randInt(GAME_CONFIG.pickupValueMin, GAME_CONFIG.pickupValueMax, rng),
+    ttl: randInt(GAME_CONFIG.pickupTtlMin, GAME_CONFIG.pickupTtlMax, rng),
   };
   state.pickups.push(pickup);
   return pickup;
 }
 
 function spawnHazard(state) {
+  const rng = state.rng;
   const edges = [];
   for (let x = 2; x < GAME_CONFIG.width - 2; x += 1) {
     edges.push({ x, y: 1 });
@@ -42,14 +46,14 @@ function spawnHazard(state) {
     edges.push({ x: GAME_CONFIG.width - 2, y });
   }
   for (let tries = 0; tries < 200; tries += 1) {
-    const cell = edges[randInt(0, edges.length - 1)];
+    const cell = edges[randInt(0, edges.length - 1, rng)];
     const conflict = state.hazards.some((h) => h.x === cell.x && h.y === cell.y);
     const playerConflict = state.player.x === cell.x && state.player.y === cell.y;
     if (!conflict && !playerConflict) {
       const hazard = {
         x: cell.x,
         y: cell.y,
-        kind: Math.random() < 0.18 ? 'corruptor' : 'packet',
+        kind: rng() < 0.18 ? 'corruptor' : 'packet',
       };
       state.hazards.push(hazard);
       return hazard;
@@ -525,7 +529,8 @@ function stepAiHunt(engine, state, input) {
     GAME_CONFIG.hazardRamp.base + Math.floor(state.tick / GAME_CONFIG.hazardRamp.growthIntervalTicks),
   );
 
-  if (!safeWindowActive && state.hazards.length < hazardFloor && Math.random() < GAME_CONFIG.hazardRamp.randomSpawnChance) {
+  const rng = state.rng;
+  if (!safeWindowActive && state.hazards.length < hazardFloor && rng() < GAME_CONFIG.hazardRamp.randomSpawnChance) {
     const spawned = spawnHazard(state);
     if (spawned) events.push({ type: 'hazard_spawned', kind: spawned.kind });
   }
@@ -630,14 +635,25 @@ function stepAiHunt(engine, state, input) {
 
 function createEngine(options = {}) {
   const mode = options.mode || 'aiHunt';
+  const seed = options.seed;
+  const rngFactory = options.rng
+    ? () => options.rng
+    : (seed != null ? () => createRNG(seed) : null);
+  const initialRng = rngFactory ? rngFactory() : null;
   const state = createInitialState({ mode });
   state.bestScore = 0;
+  if (initialRng) state.rng = initialRng;
   resetState(state);
+
+  function resetEngine() {
+    if (rngFactory) state.rng = rngFactory();
+    resetState(state);
+  }
 
   return {
     state,
     step,
-    reset: () => resetState(state),
+    reset: resetEngine,
     spawnHazard: () => spawnHazard(state),
     spawnPickup: () => spawnPickup(state),
   };

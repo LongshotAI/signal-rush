@@ -27,7 +27,7 @@ const isDemo = bool('demo', false);
 
 if (isDemo) {
   // Run the demo harness instead
-  require('../examples/agent-cli-with-embed.js');
+  require('../../examples/agent-cli-with-embed.js');
 } else {
   const embedded = require('../embedded');
   const w = embedded.start({
