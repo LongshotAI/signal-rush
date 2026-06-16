@@ -91,6 +91,10 @@ function start(opts = {}) {
     raf: null,
     lastDrawn: 0,
     listeners: [],
+    // Input log for run receipts (anti-cheat)
+    inputLog: [],
+    // Seed used for this run (for reproducible verification)
+    runSeed: config.seed || null,
   };
 
   function isTTY() {
