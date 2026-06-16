@@ -197,6 +197,50 @@ function testPauseResumeStopsTicker() {
   console.log('PASS testPauseResumeStopsTicker');
 }
 
+function testWidgetCreatesReceiptWithSeed() {
+  embedded._resetForTests();
+  const out = makeOut({ rows: 24, columns: 80 });
+  const p = tmpStatePath();
+  // Start widget WITH a seed — enables receipt generation
+  const w = embedded.start({ out, persistPath: p, rows: 6, columns: 80, mode: 'aiHunt', seed: 4242 });
+  // Verify seed was captured
+  assert.equal(w._internal.ctx.runSeed, 4242, 'widget should capture seed');
+  // Force a game over with a score
+  const e = w.getEngineState();
+  e.player.health = 1;
+  e.hazards = [{ x: e.player.x, y: e.player.y, kind: 'packet' }];
+  e.score = 999;
+  w.step({ move: { x: 1, y: 0 } });
+  // Verify receipt was stored
+  const reloaded = persistence.load(p);
+  assert(reloaded.runReceipts && reloaded.runReceipts.length === 1, `should have 1 receipt, got ${reloaded.runReceipts?.length}`);
+  const receipt = reloaded.runReceipts[0];
+  assert.equal(receipt.seed, 4242, 'receipt should have the seed');
+  assert.equal(receipt.mode, 'aiHunt', 'receipt should have the mode');
+  assert.equal(receipt.finalScore, 999, 'receipt should have the final score');
+  assert(receipt.inputs && receipt.inputs.length > 0, 'receipt should have inputs');
+  // Verify the receipt signature
+  const verifyResult = persistence.verifyRunReceipt(receipt);
+  assert(verifyResult.valid, 'receipt should verify with valid signature');
+  w.stop();
+  cleanupState(p);
+  console.log('PASS testWidgetCreatesReceiptWithSeed');
+}
+
+function testWidgetPreservesSeedOnModeSwitch() {
+  embedded._resetForTests();
+  const out = makeOut({ rows: 24, columns: 80 });
+  const p = tmpStatePath();
+  const w = embedded.start({ out, persistPath: p, rows: 6, columns: 80, mode: 'aiHunt', seed: 7777 });
+  assert.equal(w._internal.ctx.runSeed, 7777, 'seed should be 7777 before switch');
+  // Switch mode — seed should be preserved
+  w.setMode('frogger');
+  assert.equal(w._internal.ctx.runSeed, 7777, 'seed should be preserved after mode switch');
+  w.stop();
+  cleanupState(p);
+  console.log('PASS testWidgetPreservesSeedOnModeSwitch');
+}
+
 const tests = [
   testStartIsIdempotent,
   testStartRendersIdleFrame,
@@ -209,6 +253,8 @@ const tests = [
   testGetStatsReturnsAllFields,
   testNonTTYDoesNotStartTicker,
   testPauseResumeStopsTicker,
+  testWidgetCreatesReceiptWithSeed,
+  testWidgetPreservesSeedOnModeSwitch,
 ];
 
 let failed = 0;

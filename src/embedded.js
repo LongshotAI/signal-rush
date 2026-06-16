@@ -36,6 +36,7 @@ const DEFAULTS = {
   persistPath: null,           // null → ~/.signal-rush/state.json
   presentation: 'idle',       // 'idle' | 'play' | 'hidden'
   mode: 'aiHunt',
+  seed: null,                 // null = non-deterministic; number/string = reproducible
   noColor: false,
   fpsCap: 15,                 // max redraws per second
   autoClearOnStop: true,
@@ -72,7 +73,7 @@ function start(opts = {}) {
   config.columns = Math.max(40, Math.min(120, Math.floor(Number(config.columns) || DEFAULTS.columns)));
 
   const persisted = persistence.load(config.persistPath);
-  const engine = createEngine({ mode: config.mode });
+  const engine = createEngine({ mode: config.mode, seed: config.seed });
   const ctx = {
     config,
     engine,
@@ -91,9 +92,10 @@ function start(opts = {}) {
     raf: null,
     lastDrawn: 0,
     listeners: [],
-    // Input log for run receipts (anti-cheat)
+    // Anti-cheat: log every input the engine receives during a run,
+    // so persistence can build a receipt for verification.
     inputLog: [],
-    // Seed used for this run (for reproducible verification)
+    // Seed used for the current run (for reproducible verification).
     runSeed: config.seed || null,
   };
 
@@ -178,6 +180,7 @@ function start(opts = {}) {
     // host has indicated the user is actually playing). This keeps
     // the simulation paused while the host is in another workflow.
     if (ctx.config.autoStep && ctx.focused && ctx.presentation === 'play' && !ctx.engine.state.gameOver) {
+      ctx.inputLog.push({});  // log the empty auto-step for receipt fidelity
       ctx.engine.step({});
     }
     draw();
@@ -252,15 +255,20 @@ function start(opts = {}) {
           mode: ctx.mode,
           score: ctx.engine.state.score || 0,
           level: ctx.engine.state.level || 1,
+          seed: ctx.runSeed,
+          inputs: ctx.inputLog,
+          finalState: { ...ctx.engine.state },
         });
         ctx.state = next;
         ctx._isNewBest = isNewBest;
         try { persistence.save(ctx.state, ctx.config.persistPath); } catch {}
       }
       ctx.mode = mode;
-      // Reset engine with new mode
-      const fresh = createEngine({ mode });
+      // Reset engine with new mode, preserving seed for reproducible receipt chains
+      const fresh = createEngine({ mode, seed: ctx.runSeed });
       ctx.engine = fresh;
+      // Reset input log for the new run
+      ctx.inputLog = [];
       ctx._forceDraw = true;
       draw();
       return true;
@@ -275,18 +283,25 @@ function start(opts = {}) {
     // Step the engine one tick with optional input. Host can call this
     // to advance the simulation when focus is on.
     step(input = {}) {
+      // Log input for run receipt (anti-cheat)
+      ctx.inputLog.push(input);
       ctx.engine.step(input);
-      // If the run ended, record it.
+      // If the run ended, record it with full receipt data.
       if (ctx.engine.state.gameOver) {
-        const { state: next, isNewBest } = persistence.recordRun(ctx.state, {
+        const { state: next, isNewBest, receipt } = persistence.recordRun(ctx.state, {
           mode: ctx.mode,
           score: ctx.engine.state.score || 0,
           level: ctx.engine.state.level || 1,
+          seed: ctx.runSeed,
+          inputs: ctx.inputLog,
+          finalState: { ...ctx.engine.state },
         });
         ctx.state = next;
         ctx._isNewBest = isNewBest;
         try { persistence.save(ctx.state, ctx.config.persistPath); } catch {}
         ctx._isNewBest = isNewBest;
+        // Reset input log for next run
+        ctx.inputLog = [];
       }
     },
     getStats() {
@@ -332,6 +347,9 @@ function start(opts = {}) {
           mode: ctx.mode,
           score: ctx.engine.state.score || 0,
           level: ctx.engine.state.level || 1,
+          seed: ctx.runSeed,
+          inputs: ctx.inputLog,
+          finalState: { ...ctx.engine.state },
         });
         persistence.save(next, ctx.config.persistPath);
       } catch (e) { /* best-effort */ }
