@@ -25,8 +25,7 @@ const COLORS = {
 const ANSI_RE = /\x1b\[[0-9;]*m/g;
 
 // PRESENTED_BY is derived from sponsors.js (single source of truth).
-// Exported for backward compat with tests that import it from here.
-const PRESENTED_BY = getPresentedBy();
+// Uses a getter so it reflects live campaign changes after startup fetch.
 
 // How many game ticks correspond to one "second" of the GET READY
 // countdown. The config sets getReadyTicks to 30, so each visible
@@ -394,7 +393,7 @@ function renderFrame(state, viewport = { columns: 100, rows: 40 }, options = {})
   lines.push(title);
   // Compact ASCII logo in the HUD header — visible during gameplay
   lines.push(center(p(COLORS.bold + COLORS.yellow, getCompactLogo()), shellWidth));
-  lines.push(center(p(COLORS.dim + COLORS.cyan, PRESENTED_BY), shellWidth));
+  lines.push(center(p(COLORS.dim + COLORS.cyan, getPresentedBy()), shellWidth));
   lines.push(sponsor);
   lines.push(repeat('=', shellWidth));
   lines.push(combinedHud);
@@ -865,5 +864,10 @@ module.exports = {
   paint,
   COLORS,
   MENU_MODES,
-  PRESENTED_BY,
 };
+
+// PRESENTED_BY is a live getter so it reflects campaign changes after startup fetch.
+Object.defineProperty(module.exports, 'PRESENTED_BY', {
+  get: () => getPresentedBy(),
+  enumerable: true,
+});

@@ -423,6 +423,23 @@ function testFroggerCarHitLosesLife() {
   assert.equal(engine.state.lastFroggerCause, 'car', 'cause should be car');
 }
 
+function testFroggerCarHitIfStandingOnCarAtTickStart() {
+  // Pre-existing bug: if the player is standing on a car at the start of a
+  // tick, the car moves away before the post-movement collision check, so
+  // the player survives. The fix adds a pre-movement collision check.
+  const engine = createEngine({ mode: 'frogger' });
+  skipFroggerGetReady(engine);
+  engine.state.level = 4; // full speed so cars move predictably
+  const roadLane = engine.state.lanes.find((l) => l.type === 'road');
+  // Place frog directly on a car
+  engine.state.player.x = roadLane.vehicles[0].x;
+  engine.state.player.y = roadLane.y;
+  const livesBefore = engine.state.lives;
+  engine.step({});
+  assert.equal(engine.state.lives, livesBefore - 1, 'standing on a car at tick start should cost a life');
+  assert.equal(engine.state.lastFroggerCause, 'car', 'cause should be car');
+}
+
 function testFroggerTimeoutLosesLife() {
   const engine = createEngine({ mode: 'frogger' });
   skipFroggerGetReady(engine);
@@ -1149,6 +1166,7 @@ const tests = [
   testFroggerDrownsInWaterWithoutLog,
   testFroggerRideLogCarriesPlayer,
   testFroggerCarHitLosesLife,
+  testFroggerCarHitIfStandingOnCarAtTickStart,
   testFroggerTimeoutLosesLife,
   testFroggerAllSlotsFilledAdvancesLevel,
   testFroggerGameOverWhenAllLivesLost,

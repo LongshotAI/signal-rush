@@ -404,6 +404,28 @@ function stepFrogger(state, input) {
   if (state.inputPulse > 0) state.inputPulse -= 1;
   if (state.moveFlash > 0) state.moveFlash -= 1;
 
+  // 2b. Pre-movement collision check: if the player is already on a car
+  //     or in water (e.g. placed there by a test, or landed on a log that
+  //     then carried them to an edge), catch it before vehicles move.
+  //     Without this, a player standing on a car survives because the car
+  //     drives away before the post-movement check at step 5.
+  {
+    const preLane = laneAt(state, state.player.y);
+    if (preLane) {
+      if (preLane.type === 'road') {
+        const hit = preLane.vehicles.some((v) => v.x === state.player.x);
+        if (hit) {
+          loseFroggerLife(state, 'car');
+          if (state.gameOver) return state;
+        }
+      } else if (preLane.type === 'river' && !state.onLog) {
+        // onLog is already synced by syncOnLog above; if null, player is in water
+        loseFroggerLife(state, 'water');
+        if (state.gameOver) return state;
+      }
+    }
+  }
+
   // 3. Move all vehicles; wrap around the arena. Per-level speed multiplier
   //    softens level 1 (a speed-3 car becomes 1 there) without ever stopping
   //    a vehicle entirely.
