@@ -135,9 +135,12 @@ function ingestEvent(db, { playerId, sessionId, creditsDelta = 0, isReset = fals
     // creditsDelta < 0 (with isReset=false) means credits were spent
     // isReset=true means the engine reset credits to 0 — not a spend, just zero the balance
     if (isReset && playerId) {
-      // Engine reset credits to 0 — update our balance to match
-      // No spend transaction recorded; this is a game state reset, not a player spend
+      // Engine reset credits to 0 — atomically read current balance and zero it
+      // so concurrent resets cannot lose credits.
+      const before = db.prepare('SELECT balance FROM players WHERE id = ?').get(playerId);
+      const preResetBalance = before ? before.balance : 0;
       db.prepare('UPDATE players SET balance = 0 WHERE id = ?').run(playerId);
+      result.preResetBalance = preResetBalance;
     } else if (creditsDelta > 0 && playerId) {
       const eventId = `diff-${sessionId}-${ts}`;
       // Generate a synthetic event_id for idempotency

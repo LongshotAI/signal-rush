@@ -209,6 +209,131 @@ function testSecurityModelDocumented() {
   console.log('  PASS');
 }
 
+function testEnvVarValidKey() {
+  console.log('Testing: SIGNAL_RUSH_HMAC_KEY with valid 64-char hex key...');
+  const original = process.env.SIGNAL_RUSH_HMAC_KEY;
+  // Deterministic 32-byte key (64 hex chars)
+  const testKey = 'a'.repeat(64); // 64 hex chars = 32 bytes of 0xAA
+  process.env.SIGNAL_RUSH_HMAC_KEY = testKey;
+  try {
+    // Flush require cache so getSigningKey re-evaluates the env var
+    delete require.cache[require.resolve('../src/core/crypto')];
+    const cryptoMod = require('../src/core/crypto');
+
+    const data = JSON.stringify({ env: 'test', value: 123 });
+    const sig = cryptoMod.sign(data);
+    assert(sig, 'Signature should be produced with env var key');
+    assert(cryptoMod.verify(data, sig), 'Signature created with env key should verify');
+    assert(!cryptoMod.verify(data + 'x', sig), 'Tampered data should fail even with env key');
+
+    // Verify getSigningKey returns exactly 32 bytes
+    const key = cryptoMod.getSigningKey();
+    assert.equal(key.length, 32, 'Key from env var should be 32 bytes');
+    // Verify it matches our input
+    assert.equal(key.toString('hex'), testKey, 'Key should match the env var hex value');
+    console.log('  PASS');
+  } finally {
+    if (original === undefined) {
+      delete process.env.SIGNAL_RUSH_HMAC_KEY;
+    } else {
+      process.env.SIGNAL_RUSH_HMAC_KEY = original;
+    }
+    // Restore cached module
+    delete require.cache[require.resolve('../src/core/crypto')];
+  }
+}
+
+function testEnvVarInvalidKey() {
+  console.log('Testing: SIGNAL_RUSH_HMAC_KEY with invalid length falls back...');
+  const original = process.env.SIGNAL_RUSH_HMAC_KEY;
+  const originalWrite = process.stderr.write;
+  let warningOutput = '';
+  // Capture stderr to verify warning is emitted
+  process.stderr.write = function(chunk) {
+    warningOutput += chunk.toString();
+    return true;
+  };
+  try {
+    // Set a key that is not 64 hex chars (too short)
+    process.env.SIGNAL_RUSH_HMAC_KEY = 'aabbcc';
+    delete require.cache[require.resolve('../src/core/crypto')];
+    const cryptoMod = require('../src/core/crypto');
+
+    // Should still work — falls back to machine key
+    const data = JSON.stringify({ env: 'test', value: 456 });
+    const sig = cryptoMod.sign(data);
+    assert(sig, 'Signature should be produced after fallback');
+    assert(cryptoMod.verify(data, sig), 'Signature created with fallback key should verify');
+
+    // Key should still be 32 bytes (machine-derived)
+    const key = cryptoMod.getSigningKey();
+    assert.equal(key.length, 32, 'Fallback key should be 32 bytes');
+
+    // Warning should have been emitted
+    assert(warningOutput.includes('WARNING'), 'Warning message should be emitted on invalid key');
+    assert(warningOutput.includes('64 hex chars'), 'Warning should mention 64 hex char requirement');
+    console.log('  PASS');
+  } finally {
+    process.stderr.write = originalWrite;
+    if (original === undefined) {
+      delete process.env.SIGNAL_RUSH_HMAC_KEY;
+    } else {
+      process.env.SIGNAL_RUSH_HMAC_KEY = original;
+    }
+    delete require.cache[require.resolve('../src/core/crypto')];
+  }
+}
+
+function testReceiptVerificationWithEnvKey() {
+  console.log('Testing: Receipt creation and verification with SIGNAL_RUSH_HMAC_KEY...');
+  const original = process.env.SIGNAL_RUSH_HMAC_KEY;
+  const testKey = '0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef';
+  process.env.SIGNAL_RUSH_HMAC_KEY = testKey;
+  try {
+    delete require.cache[require.resolve('../src/core/crypto')];
+    const cryptoMod = require('../src/core/crypto');
+    const { createEngine } = require('../src/core/engine');
+
+    const engine = createEngine({ mode: 'aiHunt', seed: 4242 });
+    const inputs = [{ move: { x: 1, y: 0 } }, { move: { x: 0, y: 1 } }, { move: { x: 1, y: 0 } }];
+    for (const input of inputs) engine.step(input);
+
+    const receipt = cryptoMod.createRunReceipt({
+      seed: 4242,
+      mode: 'aiHunt',
+      inputs,
+      finalState: { ...engine.state },
+      finalScore: engine.state.score,
+      finalLevel: engine.state.level || 1,
+    });
+
+    // Verify with signature check only
+    let result = cryptoMod.verifyRunReceipt(receipt);
+    assert(result.valid, 'Receipt should verify with env var key (signature check)');
+
+    // Verify with full re-simulation
+    result = cryptoMod.verifyRunReceipt(receipt, {
+      reSimulate: true,
+      engineFactory: (opts) => createEngine(opts),
+    });
+    assert(result.valid, 'Receipt should verify with env var key + re-simulation');
+
+    // Tamper and ensure it fails
+    receipt.finalScore = 999999;
+    result = cryptoMod.verifyRunReceipt(receipt);
+    assert(!result.valid, 'Tampered receipt with env key should fail verification');
+
+    console.log('  PASS');
+  } finally {
+    if (original === undefined) {
+      delete process.env.SIGNAL_RUSH_HMAC_KEY;
+    } else {
+      process.env.SIGNAL_RUSH_HMAC_KEY = original;
+    }
+    delete require.cache[require.resolve('../src/core/crypto')];
+  }
+}
+
 // Run all tests
 console.log('\n=== Signal Rush Anti-Cheat Tests ===\n');
 
@@ -222,6 +347,9 @@ try {
   testRecordRunWithReceipt();
   testStateHashing();
   testSecurityModelDocumented();
+  testEnvVarValidKey();
+  testEnvVarInvalidKey();
+  testReceiptVerificationWithEnvKey();
   cleanup();
   console.log('\n✅ ALL ANTI-CHEAT TESTS PASSED');
 } catch (e) {

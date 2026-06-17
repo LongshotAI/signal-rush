@@ -205,8 +205,9 @@ async function logAdImpression(playerId, placementType = 'hud_frame', campaignId
   try {
     await postToEconomyPayload('/ads/impression', payload);
   } catch {
-    // Best-effort: if economy service is down, silently drop the impression.
-    // We don't queue ad impressions — they're not worth blocking/retrying.
+    // Economy service is down — queue the impression for later retry
+    // so impressions are not silently lost.
+    enqueue(payload);
   }
 }
 

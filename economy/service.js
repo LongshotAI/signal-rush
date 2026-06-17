@@ -14,6 +14,9 @@ const ledger = require('./ledger');
 const validate = require('./validate');
 const auth = require('./auth');
 const rateLimit = require('./rateLimit');
+const redeem = require('./redeem');
+const ppqClient = require('./ppq-client');
+const { execFile } = require('child_process');
 
 
 const DEFAULT_PORT = 8720;
@@ -22,6 +25,15 @@ const DEFAULT_HOST = '127.0.0.1'; // localhost only — no external exposure
 function createServer({ port = DEFAULT_PORT, host = DEFAULT_HOST, dbPath = ledger.DEFAULT_DB_PATH } = {}) {
   const app = Fastify({ logger: false }); // quiet logging for MVP
   const db = ledger.openDb(dbPath);
+
+  // ─── Multipart Upload Support ──────────────────────────────────
+  // Required for image upload endpoint (POST /portal/campaigns/:id/upload-logo)
+  app.register(require('@fastify/multipart'), {
+    limits: {
+      fileSize: 5 * 1024 * 1024, // 5MB max
+      files: 1,
+    },
+  });
 
   // ─── Auth Enforcement Hook ──────────────────────────────────────
   // Protects all /internal/*, /credits/*, and /ads/* endpoints.
@@ -176,16 +188,38 @@ function createServer({ port = DEFAULT_PORT, host = DEFAULT_HOST, dbPath = ledge
       return { error: 'credits_delta exceeds maximum allowed (1000000)' };
     }
 
-    // Anti-fraud: per-session credit limit
+    // Anti-fraud: per-session credit limit (atomic check-and-act)
     const maxPerSession = parseInt(process.env.MAX_CREDITS_PER_SESSION) || 10000;
     if (rawDelta > 0 && validatedPlayerId) {
-      const sessionEarned = db.prepare(
-        'SELECT COALESCE(credits_earned, 0) as total FROM sessions WHERE id = ?'
-      ).get(session_id.trim());
-      const currentEarned = sessionEarned?.total || 0;
-      if (currentEarned + rawDelta > maxPerSession) {
-        reply.code(400);
-        return { error: `session credit limit exceeded (max ${maxPerSession} per session)` };
+      try {
+        db.transaction(() => {
+          const sessionEarned = db.prepare(
+            'SELECT COALESCE(credits_earned, 0) as total FROM sessions WHERE id = ?'
+          ).get(session_id.trim());
+          const currentEarned = sessionEarned?.total || 0;
+          if (currentEarned + rawDelta > maxPerSession) {
+            throw new Error(`session credit limit exceeded (max ${maxPerSession} per session)`);
+          }
+          // Ingest inside the same transaction so the check and the write
+          // are atomic — concurrent requests are serialized by the write lock.
+          const result = ledger.ingestEvent(db, {
+            playerId: validatedPlayerId,
+            sessionId: session_id.trim(),
+            creditsDelta: rawDelta,
+            isReset: Boolean(is_reset),
+            events: Array.isArray(events) ? events : [],
+            timestamp: timestamp || new Date().toISOString(),
+          });
+          return result;
+        })();
+        return { ok: true };
+      } catch (err) {
+        if (err.message.includes('session credit limit exceeded')) {
+          reply.code(400);
+          return { error: err.message };
+        }
+        reply.code(500);
+        return { error: 'ingest failed' };
       }
     }
 
@@ -275,6 +309,279 @@ function createServer({ port = DEFAULT_PORT, host = DEFAULT_HOST, dbPath = ledge
       }
       return { error: err.message };
     }
+  });
+
+  // ─── Token Redemption ───────────────────────────────────────────
+  // Players redeem earned credits for AI API calls.
+  // Flow: validate → deduct credits → call ppq.ai → complete or refund.
+  // All endpoints under /credits/ are protected by shared-secret auth.
+
+  app.post('/credits/redeem', async (req, reply) => {
+    let playerId, credits, model, prompt, provider;
+    try {
+      playerId = validate.validateUuid(req.body?.player_id, 'player_id');
+      credits = validate.validateAmount(req.body?.credits, 'credits', 100000);
+      model = validate.validateModelName(req.body?.model || process.env.PPQ_DEFAULT_MODEL || 'gpt-4o-mini');
+      prompt = validate.validatePrompt(req.body?.prompt);
+      provider = validate.validateProvider(req.body?.provider || 'ppq');
+    } catch (err) {
+      reply.code(400);
+      return { error: err.message };
+    }
+
+    // Check player exists and has sufficient balance
+    const player = ledger.getPlayer(db, playerId);
+    if (!player) {
+      reply.code(404);
+      return { error: 'player not found' };
+    }
+
+    // Anti-fraud: per-transaction redemption limit (credits, not micros)
+    const maxRedeemPerTx = parseInt(process.env.MAX_REDEMPTION_PER_TX) || 10000;
+    if (credits > maxRedeemPerTx) {
+      reply.code(400);
+      return { error: `redemption amount exceeds per-transaction maximum (${maxRedeemPerTx} credits)` };
+    }
+
+    // Convert credits to micro-credits for storage (1 credit = 1000 micros per provider default)
+    const prov = db.prepare('SELECT * FROM providers WHERE id = ? AND enabled = 1').get(provider);
+    if (!prov) {
+      reply.code(400);
+      return { error: `provider '${provider}' not found or disabled` };
+    }
+    const amountMicros = credits * prov.credit_rate;
+
+    // Idempotency key from request or generate one
+    const idempotencyKey = req.body?.idempotency_key || `redeem-${playerId}-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
+
+    // Step 1: Deduct credits and create pending redemption
+    let redemptionResult;
+    try {
+      redemptionResult = redeem.redeemCredits(db, {
+        playerId,
+        provider,
+        amountMicros,
+        model,
+        prompt,
+        idempotencyKey,
+      });
+    } catch (err) {
+      if (err.message.includes('insufficient balance')) {
+        reply.code(409);
+      } else if (err.message.includes('daily redemption limit')) {
+        reply.code(429);
+      } else if (err.message.includes('minimum')) {
+        reply.code(400);
+      } else if (err.message.includes('maximum')) {
+        reply.code(400);
+      } else {
+        reply.code(400);
+      }
+      return { error: err.message };
+    }
+
+    // If idempotent (already processed), return the existing redemption
+    if (redemptionResult.idempotent) {
+      const existing = redemptionResult.redemption;
+      if (existing.status === 'completed') {
+        let responseContent;
+        try { responseContent = JSON.parse(existing.provider_response); } catch { responseContent = existing.provider_response; }
+        return {
+          ok: true,
+          redemption_id: existing.id,
+          status: 'completed',
+          content: responseContent,
+          idempotent: true,
+        };
+      }
+      return {
+        ok: true,
+        redemption_id: existing.id,
+        status: existing.status,
+        idempotent: true,
+      };
+    }
+
+    const redemption = redemptionResult.redemption;
+
+    // Step 2: Call ppq.ai
+    try {
+      const ppqResult = await ppqClient.chatCompletion({
+        model,
+        messages: [{ role: 'user', content: prompt }],
+        idempotencyKey,
+      });
+
+      // Step 3: Mark redemption completed
+      const completed = redeem.completeRedemption(db, {
+        redemptionId: redemption.id,
+        providerRef: ppqResult.model,
+        providerResponse: JSON.stringify(ppqResult),
+      });
+
+      // Fetch fresh balance after deduction
+      const updatedPlayer = ledger.getPlayer(db, playerId);
+
+      return {
+        ok: true,
+        redemption_id: completed.id,
+        status: 'completed',
+        content: ppqResult.content,
+        model: ppqResult.model,
+        usage: ppqResult.usage,
+        credits_spent: credits,
+        balance_remaining: updatedPlayer ? updatedPlayer.balance : null,
+      };
+    } catch (ppqErr) {
+      // Step 3b: Provider call failed → mark failed, then refund
+      try {
+        redeem.failRedemption(db, {
+          redemptionId: redemption.id,
+          reason: `ppq_error: ${ppqErr.message}`,
+        });
+      } catch (failErr) {
+        // If fail marking fails, still attempt refund
+      }
+
+      try {
+        redeem.refundRedemption(db, {
+          redemptionId: redemption.id,
+          reason: `ppq_error: ${ppqErr.message}`,
+        });
+      } catch (refundErr) {
+        // Refund failed — critical, log for manual review
+        console.error(`[economy] CRITICAL: refund failed for redemption ${redemption.id}: ${refundErr.message}`);
+        reply.code(500);
+        return { error: 'redemption failed and refund failed — manual review required', redemption_id: redemption.id };
+      }
+
+      reply.code(502);
+      return {
+        error: 'provider request failed — credits refunded',
+        redemption_id: redemption.id,
+        provider_error: ppqErr.message,
+      };
+    }
+  });
+
+  // ─── Get Redemption Status ──────────────────────────────────────
+
+  app.get('/credits/redemptions/:id', async (req, reply) => {
+    let redemptionId;
+    try {
+      redemptionId = validate.validateUuid(req.params.id, 'redemption_id');
+    } catch (err) {
+      reply.code(400);
+      return { error: err.message };
+    }
+
+    const redemption = redeem.getRedemptionStatus(db, redemptionId);
+    if (!redemption) {
+      reply.code(404);
+      return { error: 'redemption not found' };
+    }
+
+    // Optionally verify player ownership if player_id query param provided
+    const { player_id } = req.query;
+    if (player_id) {
+      try {
+        const requestedPlayerId = validate.validateUuid(player_id, 'player_id');
+        if (redemption.player_id !== requestedPlayerId) {
+          reply.code(403);
+          return { error: 'redemption does not belong to this player' };
+        }
+      } catch (err) {
+        reply.code(400);
+        return { error: err.message };
+      }
+    }
+
+    // Parse provider_response for completed redemptions
+    let parsedResponse = null;
+    if (redemption.provider_response) {
+      try { parsedResponse = JSON.parse(redemption.provider_response); } catch { parsedResponse = redemption.provider_response; }
+    }
+
+    return {
+      ok: true,
+      redemption: {
+        id: redemption.id,
+        player_id: redemption.player_id,
+        provider: redemption.provider,
+        amount_micros: redemption.amount_micros,
+        model: redemption.model,
+        prompt: redemption.prompt,
+        status: redemption.status,
+        response: parsedResponse,
+        created_at: redemption.created_at,
+        completed_at: redemption.completed_at,
+      },
+    };
+  });
+
+  // ─── List Player Redemptions ────────────────────────────────────
+
+  app.get('/credits/redemptions', async (req, reply) => {
+    let playerId;
+    try {
+      playerId = validate.validateUuid(req.query.player_id, 'player_id');
+    } catch (err) {
+      reply.code(400);
+      return { error: err.message };
+    }
+
+    const limit = validate.validateLimit(req.query.limit);
+    const offset = validate.validateOffset(req.query.offset);
+
+    const result = redeem.getPlayerRedemptions(db, playerId, { limit, offset });
+
+    return {
+      ok: true,
+      redemptions: result.redemptions,
+      total: result.total,
+      limit: result.limit,
+      offset: result.offset,
+    };
+  });
+
+  // ─── Token Balances ─────────────────────────────────────────────
+
+  app.get('/credits/balances', async (req, reply) => {
+    let playerId;
+    try {
+      playerId = validate.validateUuid(req.query.player_id, 'player_id');
+    } catch (err) {
+      reply.code(400);
+      return { error: err.message };
+    }
+
+    const player = ledger.getPlayer(db, playerId);
+    if (!player) {
+      reply.code(404);
+      return { error: 'player not found' };
+    }
+
+    const balances = redeem.getPlayerTokenBalances(db, playerId);
+
+    return {
+      ok: true,
+      player_id: playerId,
+      balance: player.balance,
+      total_earned: player.total_earned,
+      total_spent: player.total_spent,
+      providers: balances.map(b => ({
+        provider: b.provider,
+        total_redeemed: b.total_redeemed,
+        updated_at: b.updated_at,
+      })),
+    };
+  });
+
+  // ─── Available Models (public, read-only) ───────────────────────
+
+  app.get('/credits/providers', async (req, reply) => {
+    const providers = db.prepare('SELECT id, display_name, enabled, credit_rate, min_redemption, max_redemption FROM providers WHERE enabled = 1').all();
+    return { ok: true, providers };
   });
 
   // ─── Tracking / Analytics ──────────────────────────────────────
@@ -793,6 +1100,141 @@ function createServer({ port = DEFAULT_PORT, host = DEFAULT_HOST, dbPath = ledge
     }
   });
 
+  // ─── Image Upload → ANSI ASCII Creative ─────────────────────────
+  //
+  // Accepts a raw image file (PNG/JPG/GIF/BMP), converts it to colored
+  // ASCII art using the image_to_ansi.py helper, and stores the result as
+  // a logo creative. This lets advertisers upload a normal image and have
+  // it automatically rendered in the CLI game UI.
+  //
+  // POST /portal/campaigns/:id/upload-logo
+  //   Content-Type: multipart/form-data
+  //   Fields: image (file), [width=32], [height=16]
+  //
+  // Response: { ok: true, creative: { id, type: "logo", content: { lines } } }
+
+  app.post('/portal/campaigns/:id/upload-logo', async (req, reply) => {
+    const advertiserId = req.advertiserId;
+    if (!advertiserId) {
+      reply.code(401);
+      return { error: 'unauthorized' };
+    }
+
+    let campaignId;
+    try {
+      campaignId = validate.validateUuid(req.params.id, 'campaign_id');
+    } catch (err) {
+      reply.code(400);
+      return { error: err.message };
+    }
+
+    // Verify campaign ownership
+    const campaign = ledger.getCampaign(db, campaignId);
+    if (!campaign || campaign.advertiser_id !== advertiserId) {
+      reply.code(404);
+      return { error: 'campaign not found' };
+    }
+
+    // Parse multipart form data
+    let imageFile;
+    let targetWidth = 32;
+    let targetHeight = 16;
+    try {
+      const parts = req.parts();
+      for await (const part of parts) {
+        if (part.fieldname === 'image' && part.file) {
+          imageFile = part;
+        } else if (part.fieldname === 'width') {
+          targetWidth = parseInt(await part.value, 10) || 32;
+        } else if (part.fieldname === 'height') {
+          targetHeight = parseInt(await part.value, 10) || 16;
+        }
+      }
+    } catch (err) {
+      reply.code(400);
+      return { error: 'failed to parse upload: ' + err.message };
+    }
+
+    if (!imageFile) {
+      reply.code(400);
+      return { error: 'missing "image" file field' };
+    }
+
+    // Validate image size (max 5MB)
+    const MAX_IMAGE_BYTES = 5 * 1024 * 1024;
+    const chunks = [];
+    let totalBytes = 0;
+    for await (const chunk of imageFile.file) {
+      totalBytes += chunk.length;
+      if (totalBytes > MAX_IMAGE_BYTES) {
+        reply.code(400);
+        return { error: 'image must be 5MB or smaller' };
+      }
+      chunks.push(chunk);
+    }
+    const imageBuffer = Buffer.concat(chunks);
+
+    // Validate dimensions
+    targetWidth = Math.max(8, Math.min(targetWidth, 64));
+    targetHeight = Math.max(4, Math.min(targetHeight, 32));
+    if (targetHeight % 2 !== 0) targetHeight++;
+
+    // Write to temp file
+    const tmpDir = os.tmpdir();
+    const tmpId = randomUUID();
+    const tmpPath = path.join(tmpDir, `signal-rush-upload-${tmpId}.png`);
+    const ansiScript = path.join(__dirname, 'scripts', 'image_to_ansi.py');
+
+    try {
+      fs.writeFileSync(tmpPath, imageBuffer);
+
+      // Run the Python converter
+      const ansiLines = await new Promise((resolve, reject) => {
+        execFile('python3', [ansiScript, tmpPath, String(targetWidth), String(targetHeight)], {
+          timeout: 10000,
+          maxBuffer: 256 * 1024,
+        }, (err, stdout, stderr) => {
+          if (err) {
+            reject(new Error(`image conversion failed: ${err.message}`));
+            return;
+          }
+          try {
+            const data = JSON.parse(stdout);
+            if (!data.lines || !Array.isArray(data.lines)) {
+              reject(new Error('converter returned invalid output'));
+              return;
+            }
+            resolve(data.lines);
+          } catch (parseErr) {
+            reject(new Error(`converter output parse failed: ${parseErr.message}`));
+          }
+        });
+      });
+
+      // Validate the ANSI lines against the same rules as manual logo upload
+      const content = { lines: ansiLines };
+      let contentJson;
+      try {
+        contentJson = validate.validateCreativeContent(content, 'logo');
+      } catch (valErr) {
+        reply.code(400);
+        return { error: valErr.message };
+      }
+
+      // Store as a logo creative
+      const creative = ledger.createCreative(db, { campaignId, type: 'logo', contentJson });
+      reply.code(201);
+      return { ok: true, creative };
+
+    } catch (err) {
+      reply.code(500);
+      return { error: err.message || 'image processing failed' };
+    } finally {
+      // Clean up temp file
+      try { fs.unlinkSync(tmpPath); } catch { /* ignore */ }
+    }
+  });
+
   app.get('/portal/campaigns/:id/creatives', async (req, reply) => {
     const advertiserId = req.advertiserId;
     if (!advertiserId) {
@@ -875,6 +1317,23 @@ function createServer({ port = DEFAULT_PORT, host = DEFAULT_HOST, dbPath = ledge
       reply.code(500);
       return { error: 'deposit failed' };
     }
+  });
+
+  // ─── Game Integration: Active Campaigns with Creatives ────────────
+  // Public endpoint — no auth required. Returns active campaigns with
+  // their approved creatives embedded for the game client to render.
+
+  app.get('/api/game/campaigns', async (req, reply) => {
+    const campaigns = db.prepare(
+      'SELECT id, advertiser_id, name, brand_name, status, placement_type, daily_budget_micros, total_budget_micros, spent_micros, start_date, end_date, created_at FROM campaigns WHERE status = ? ORDER BY created_at DESC LIMIT 10'
+    ).all('active');
+    // Attach approved creatives to each campaign
+    for (const campaign of campaigns) {
+      campaign.creatives = ledger.listCreativesForCampaign(db, campaign.id)
+        .filter(c => c.status === 'approved')
+        .map(c => ({ type: c.type, content: JSON.parse(c.content_json) }));
+    }
+    return { ok: true, campaigns };
   });
 
   // ─── Admin: Campaign Moderation ──────────────────────────────────

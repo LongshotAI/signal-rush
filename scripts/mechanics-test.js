@@ -577,9 +577,14 @@ function testMenuHasSignalRushTitle() {
 }
 
 function testMenuHasPresentedByCallout() {
+  // When a sponsor campaign is active, the menu shows "SPONSORED BY" in the ad block
+  const { setActiveCampaigns, apiCampaignToSponsor } = require('../src/content/sponsors');
+  setActiveCampaigns([apiCampaignToSponsor({ id: 'test-sponsor', name: 'Test', brand_name: 'TestCo', placement_type: 'hud_frame' })]);
   const out = renderMenuFrame(0, { colors: false });
-  assert(out.includes('P R E S E N T E D'), 'menu should have PRESENTED callout');
-  assert(out.includes('P R E S E N T E D   B Y'), 'menu should have the full PRESENTED BY phrase');
+  assert(out.includes('S P O N S O R E D'), 'menu should have SPONSORED callout when sponsor is active');
+  assert(out.includes('S P O N S O R E D   B Y'), 'menu should have the full SPONSORED BY phrase');
+  // Reset
+  setActiveCampaigns([]);
 }
 
 function testMenuHasDoubleLineTitleFrame() {

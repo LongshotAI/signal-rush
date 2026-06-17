@@ -36,11 +36,11 @@ function getExpectedKey() {
 
 /**
  * Check if auth enforcement is enabled.
- * Default: false (auth not enforced) — must explicitly enable.
+ * Default: true (auth enforced) — set ECONOMY_AUTH_ENFORCED=false to disable.
  * @returns {boolean}
  */
 function isAuthEnforced() {
-  return process.env.ECONOMY_AUTH_ENFORCED === 'true';
+  return process.env.ECONOMY_AUTH_ENFORCED !== 'false';
 }
 
 /**

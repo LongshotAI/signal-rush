@@ -56,7 +56,8 @@ function spawnHazard(state) {
     const cell = edges[randInt(0, edges.length - 1, rng)];
     const conflict = state.hazards.some((h) => h.x === cell.x && h.y === cell.y);
     const playerConflict = state.player.x === cell.x && state.player.y === cell.y;
-    if (!conflict && !playerConflict) {
+    const pickupConflict = state.pickups.some((p) => p.x === cell.x && p.y === cell.y);
+    if (!conflict && !playerConflict && !pickupConflict) {
       const hazard = {
         x: cell.x,
         y: cell.y,
@@ -338,8 +339,10 @@ function stepFrogger(state, input) {
       state.message = 'GO!';
       events.push({ type: 'level_started', level: state.level });
     } else if (state.getReadyTicks <= 6) {
-      // Countdown 3..GO! in the last ~6 ticks.
-      state.message = 'READY...';
+      // Countdown aligned with render overlay (render shows "GET READY — {seconds}…"
+      // where seconds = ceil(getReadyTicks / 10)). For ticks <= 6 that's "GET READY — 1…".
+      const seconds = Math.max(0, Math.ceil(state.getReadyTicks / 10));
+      state.message = seconds > 0 ? `GET READY — ${seconds}…` : 'GO!';
     }
     return state;
   }

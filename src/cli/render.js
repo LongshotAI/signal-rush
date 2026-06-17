@@ -5,8 +5,11 @@ const {
   getLabel,
   getCompactLogo,
   getFullLogo,
+  getGameLogo,
   getInterstitial,
   getCampaign,
+  getDeveloper,
+  getActiveCampaign,
 } = require('../content/sponsors');
 
 const COLORS = {
@@ -41,6 +44,12 @@ function visibleLength(s) {
 function paint(code, char, options = {}) {
   if (options.colors === false) return String(char);
   return `${code}${char}${COLORS.reset}`;
+}
+
+// Check if a string contains ANSI escape codes
+function hasAnsi(s) {
+  ANSI_RE.lastIndex = 0;
+  return ANSI_RE.test(s);
 }
 
 function repeat(char, count) {
@@ -534,7 +543,11 @@ function buildInterstitialFrame(state, viewport = { columns: 100, rows: 40 }, op
   // ASCII logo
   const logo = getFullLogo();
   for (const logoLine of logo) {
-    lines.push(center(p(COLORS.bold + COLORS.yellow, logoLine), shellWidth));
+    if (hasAnsi(logoLine)) {
+      lines.push(center(logoLine, shellWidth));
+    } else {
+      lines.push(center(p(COLORS.bold + COLORS.yellow, logoLine), shellWidth));
+    }
   }
 
   lines.push('');
@@ -564,6 +577,13 @@ function buildInterstitialFrame(state, viewport = { columns: 100, rows: 40 }, op
   lines.push('');
   lines.push(center(p(COLORS.dim, repeat('─', shellWidth - 2)), shellWidth));
   lines.push(center(p(COLORS.dim + COLORS.white, 'PRESS ANY KEY TO CONTINUE'), shellWidth));
+  // Developer credit — always visible, even in sponsor interstitial
+  lines.push('');
+  lines.push(center(
+    p(COLORS.dim, 'Developed by ') +
+    p(COLORS.dim + COLORS.white, getDeveloper().brand),
+    shellWidth
+  ));
 
   return lines.join('\n');
 }
@@ -690,6 +710,13 @@ function renderMenuFrame(selection = 0, options = {}) {
     const pad = Math.max(0, innerWidth - vlen);
     return '┃' + content + repeat(' ', pad) + '┃';
   }
+  function framedCentered(content) {
+    const vlen = visibleLength(content);
+    const totalPad = Math.max(0, innerWidth - vlen);
+    const left = Math.floor(totalPad / 2);
+    const right = totalPad - left;
+    return '┃' + repeat(' ', left) + content + repeat(' ', right) + '┃';
+  }
   function dblFramed(content) {
     const vlen = visibleLength(content);
     const pad = Math.max(0, innerWidth - vlen);
@@ -705,7 +732,7 @@ function renderMenuFrame(selection = 0, options = {}) {
   }
 
   const out = [];
-  // Top branding block — double-line frame for the title.
+  // ── Top branding block — game identity (never replaced by ads) ──
   out.push(dblTopBorder);
   out.push(dblFramed(''));
   out.push(dblFramedCentered(
@@ -714,30 +741,66 @@ function renderMenuFrame(selection = 0, options = {}) {
     p(COLORS.dim + COLORS.cyan, '// TERMINAL ARCADE')
   ));
   out.push(dblFramed(''));
-  // Decorative rule under the title
-  out.push(dblFramedCentered(p(COLORS.dim + COLORS.cyan, repeat('·', 24))));
-  out.push(dblFramed(''));
-  // "PRESENTED BY <brand>" — derived from sponsors.js campaign data.
-  // The brand name is uppercased and spaced to match the arcade aesthetic.
-  const brand = getCampaign().brand.toUpperCase(); // e.g. "USP × TEMPLE WORKS"
-  const spacedBrand = brand.split('').join(' ');
-  out.push(dblFramedCentered(
-    p(COLORS.dim + COLORS.white, '> > >') +
-    '  ' +
-    p(COLORS.bold + COLORS.white, 'P R E S E N T E D   B Y') +
-    '  ' +
-    p(COLORS.dim + COLORS.white, '< < <')
-  ));
-  out.push(dblFramed(''));
-  out.push(dblFramedCentered(
-    p(COLORS.bold + COLORS.yellow, '★  ') +
-    p(COLORS.bold + COLORS.white, spacedBrand) +
-    p(COLORS.bold + COLORS.yellow, '  ★')
-  ));
+  // Game's own ASCII art logo — always shown, never replaced by ads
+  const gameLogo = getGameLogo();
+  for (const logoLine of gameLogo) {
+    if (hasAnsi(logoLine)) {
+      out.push(dblFramedCentered(logoLine));
+    } else {
+      out.push(dblFramedCentered(p(COLORS.bold + COLORS.yellow, logoLine)));
+    }
+  }
   out.push(dblFramed(''));
   out.push(dblBotBorder);
 
-  // Mode selector + mini arena preview, side by side.
+  // ── Ad block — compact sponsor placement ───────────────────────
+  // Only shown when there's an active sponsor campaign
+  const campaign = getActiveCampaign();
+  const isSponsorActive = campaign && campaign.id !== 'usp-x-temple-works';
+  if (isSponsorActive) {
+    out.push(sepBorder);
+    out.push(framed(''));
+    // "SPONSORED BY" label
+    out.push(framedCentered(
+      p(COLORS.dim + COLORS.white, '—  S P O N S O R E D   B Y  —')
+    ));
+    out.push(framed(''));
+    // Advertiser's ASCII art logo — preserve their uploaded colors
+    // Skip empty/trailing lines for cleaner presentation
+    const sponsorLogo = campaign.logoFull;
+    if (sponsorLogo && Array.isArray(sponsorLogo)) {
+      // Find the last non-empty line to avoid trailing blank lines
+      let lastNonEmpty = sponsorLogo.length - 1;
+      while (lastNonEmpty > 0) {
+        const visible = sponsorLogo[lastNonEmpty].replace(/\x1b\[[0-9;]*m/g, '').trim();
+        if (visible) break;
+        lastNonEmpty--;
+      }
+      for (let i = 0; i <= lastNonEmpty; i++) {
+        const logoLine = sponsorLogo[i];
+        const visible = logoLine.replace(/\x1b\[[0-9;]*m/g, '').trim();
+        if (!visible) continue; // Skip empty lines
+        if (hasAnsi(logoLine)) {
+          out.push(framedCentered(logoLine));
+        } else {
+          out.push(framedCentered(p(COLORS.bold + COLORS.white, logoLine)));
+        }
+      }
+      out.push(framed(''));
+    }
+    // Sponsor brand name — clean text, not pixel art
+    const sponsorBrand = campaign.brand.toUpperCase();
+    const spacedSponsor = sponsorBrand.split('').join(' ');
+    out.push(framedCentered(
+      p(COLORS.bold + COLORS.yellow, '★  ') +
+      p(COLORS.bold + COLORS.white, spacedSponsor) +
+      p(COLORS.bold + COLORS.yellow, '  ★')
+    ));
+    out.push(framed(''));
+    out.push(botBorder);
+  }
+
+  // ── Mode selector ───────────────────────────────────────────────
   out.push(sepBorder);
   out.push(framed(''));
   out.push(framed(
@@ -824,7 +887,7 @@ function renderMenuFrame(selection = 0, options = {}) {
   out.push('');
   out.push(center(
     p(COLORS.dim + COLORS.white, '© 2026 ') +
-    p(COLORS.bold + COLORS.white, spacedBrand) +
+    p(COLORS.bold + COLORS.white, getDeveloper().spacedBrand) +
     p(COLORS.dim + COLORS.white, '   //   ') +
     p(COLORS.dim + COLORS.cyan, 'SIGNAL RUSH TERMINAL ARCADE'),
     outerWidth + 4
