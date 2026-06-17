@@ -230,7 +230,11 @@ function start(opts = {}) {
       ctx.focused = !!on;
       if (on) {
         ctx.presentation = 'play';
-        ctx.engine.state.getReadyTicks = 0;  // skip past GET READY
+        // NOTE: We skip GET READY here because focus(true) means "the user
+        // is actively playing right now" — the host should only call this
+        // when the player is ready to go. If you want GET READY to run,
+        // use setPresentation('play') instead, which preserves the countdown.
+        ctx.engine.state.getReadyTicks = 0;
       } else {
         ctx.presentation = 'idle';
       }

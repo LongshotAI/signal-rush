@@ -113,14 +113,12 @@ function testBackwardCompatibleMerge() {
   console.log('PASS testBackwardCompatibleMerge');
 }
 
-function testRecordPickupAndCredits() {
+function testRecordPickup() {
   const s = persistence.emptyState();
   const a = persistence.recordPickup(s);
-  const b = persistence.recordCredits(a, 5);
-  const c = persistence.recordCredits(b, 3);
-  assert.equal(c.totalPickups, 1);
-  assert.equal(c.totalCredits, 8);
-  console.log('PASS testRecordPickupAndCredits');
+  const b = persistence.recordPickup(a);
+  assert.equal(b.totalPickups, 2);
+  console.log('PASS testRecordPickup');
 }
 
 function testPathResolution() {
@@ -144,7 +142,7 @@ const tests = [
   testCorruptFileGetsBackedUp,
   testAtomicWriteDoesNotLeaveTmpOnSuccess,
   testBackwardCompatibleMerge,
-  testRecordPickupAndCredits,
+  testRecordPickup,
   testPathResolution,
 ];
 

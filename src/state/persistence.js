@@ -149,16 +149,15 @@ function recordPickup(state) {
   return { ...state, totalPickups: (state.totalPickups || 0) + 1 };
 }
 
-function recordCredits(state, credits) {
-  return { ...state, totalCredits: (state.totalCredits || 0) + Math.max(0, credits) };
-}
+// NOTE: recordCredits() has been removed. The old JSON-based totalCredits
+// field was never wired up and is superseded by the economy.db SQLite ledger
+// (see economy/ledger.js). Credit mutations go through economy/service.js.
 
 module.exports = {
   load,
   save,
   recordRun,
   recordPickup,
-  recordCredits,
   emptyState,
   resolvePath,
   DEFAULT_PATH,

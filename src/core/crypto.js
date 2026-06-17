@@ -25,7 +25,18 @@ const crypto = require('node:crypto');
 
 // Derive a non-secret signing key from a stable machine+user identifier.
 // Stable across runs (same homedir+username → same key) but NOT secret.
+//
+// Override: set SIGNAL_RUSH_HMAC_KEY env var to a hex-encoded 32-byte key
+// for production deployments where real integrity guarantees are needed.
+// When unset, falls back to the machine-derived key (casual/local use).
 function getSigningKey() {
+  const envKey = process.env.SIGNAL_RUSH_HMAC_KEY;
+  if (envKey) {
+    const buf = Buffer.from(envKey, 'hex');
+    if (buf.length === 32) return buf;
+    // Invalid env key length — fall back rather than crash
+    try { process.stderr.write('[signal-rush] WARNING: SIGNAL_RUSH_HMAC_KEY must be 64 hex chars (32 bytes), ignoring\n'); } catch {}
+  }
   const machineId = crypto.createHash('sha256')
     .update(require('node:os').homedir() + ':' + require('node:os').userInfo().username)
     .digest();
