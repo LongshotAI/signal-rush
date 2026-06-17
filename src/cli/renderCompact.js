@@ -19,7 +19,7 @@
 // input. It only renders.
 
 const { GAME_CONFIG, getTickMsForMode } = require('../config/gameConfig');
-const { SPONSOR_CONTENT } = require('../content/sponsors');
+const { SPONSOR_CONTENT, getCompactLogo } = require('../content/sponsors');
 
 const COLORS = {
   reset:   '\x1b[0m',
@@ -72,7 +72,9 @@ function getSponsorSlot(state) {
 }
 
 // Build the title bar: a single line with branding + status pill +
-// partner surface. Adapts to width.
+// compact sponsor logo. Adapts to narrow widths by dropping the logo
+// when there isn't enough room.
+
 function buildTitleLine({ mode, isNewBest, width, stats, presentation }) {
   const title = paint(COLORS.bold + COLORS.cyan, '🏓 SIGNAL RUSH');
   const sep = paint(COLORS.dim, '  ·  ');
@@ -82,23 +84,31 @@ function buildTitleLine({ mode, isNewBest, width, stats, presentation }) {
     : (presentation === 'play'
         ? paint(COLORS.bold + COLORS.green, '● PLAYING')
         : paint(COLORS.dim + COLORS.white, 'idle'));
-  // Right-aligned: "BEST 1200" or "BEST 0"
+  // Right-aligned: "BEST 1200" or "BEST 0" + compact sponsor logo
+  const logo = paint(COLORS.bold + COLORS.yellow, getCompactLogo());
   const best = paint(COLORS.dim, 'BEST ') + paint(COLORS.bold + COLORS.yellow, String(stats?.best || 0));
-  // Combined: title · mode · status ... [spacer] ... best
+  // Combined: title · mode · status ... [spacer] ... best · logo
   const left = `${title}${sep}${modeLabel}${sep}${status}`;
   const leftV = visibleLength(left);
-  const rightV = visibleLength(best);
-  const pad = Math.max(2, width - leftV - rightV);
-  return left + ' '.repeat(pad) + best;
-}
+  const logoV = visibleLength(logo);
+  const bestV = visibleLength(best);
+  const totalRightV = bestV + logoV + 3; // "BEST N" + space + logo
+  const pad = Math.max(2, width - leftV - totalRightV);
 
-// Build the partner surface line. Clean, one line, low-noise.
-function buildPartnerLine({ width }) {
-  const tag = paint(COLORS.dim + COLORS.cyan, 'Partner:');
-  const body = paint(COLORS.dim + COLORS.white, 'Temple Works');
-  // Only one line, dim text, no emoji. Designed to read as a footer,
-  // not a banner.
-  return tag + ' ' + body;
+  // If the line would exceed width, drop the logo to fit
+  if (leftV + totalRightV > width) {
+    // Without logo: just best right-aligned
+    if (leftV + bestV <= width) {
+      const padNoLogo = width - leftV - bestV;
+      return left + ' '.repeat(padNoLogo) + best;
+    }
+    // Extreme narrow: truncate
+    const full = left + ' ' + best;
+    if (visibleLength(full) <= width) return full;
+    return full.slice(0, width);
+  }
+
+  return left + ' '.repeat(pad) + best + ' ' + logo;
 }
 
 // Build a row of mode chips. Caller can mark the active one.
@@ -362,7 +372,6 @@ module.exports = {
   // Exposed for tests
   _internal: {
     buildTitleLine,
-    buildPartnerLine,
     buildModeChips,
     buildCompactAiHuntArena,
     buildCompactFroggerArena,

@@ -1,5 +1,13 @@
 const { GAME_CONFIG } = require('../config/gameConfig');
-const { SPONSOR_CONTENT } = require('../content/sponsors');
+const {
+  SPONSOR_CONTENT,
+  getPresentedBy,
+  getLabel,
+  getCompactLogo,
+  getFullLogo,
+  getInterstitial,
+  getCampaign,
+} = require('../content/sponsors');
 
 const COLORS = {
   reset:   '\x1b[0m',
@@ -16,7 +24,9 @@ const COLORS = {
 
 const ANSI_RE = /\x1b\[[0-9;]*m/g;
 
-const PRESENTED_BY = 'Presented by USP x Temple Works';
+// PRESENTED_BY is derived from sponsors.js (single source of truth).
+// Exported for backward compat with tests that import it from here.
+const PRESENTED_BY = getPresentedBy();
 
 // How many game ticks correspond to one "second" of the GET READY
 // countdown. The config sets getReadyTicks to 30, so each visible
@@ -56,8 +66,7 @@ function padRight(text, width) {
 }
 
 function getSponsorLabel(state) {
-  const labels = SPONSOR_CONTENT.rotatingShellLabels;
-  return labels[state.sponsorLabelIndex % labels.length];
+  return getLabel(state.sponsorLabelIndex || 0);
 }
 
 function buildArena(state, options = {}) {
@@ -383,6 +392,8 @@ function renderFrame(state, viewport = { columns: 100, rows: 40 }, options = {})
 
   const lines = [];
   lines.push(title);
+  // Compact ASCII logo in the HUD header — visible during gameplay
+  lines.push(center(p(COLORS.bold + COLORS.yellow, getCompactLogo()), shellWidth));
   lines.push(center(p(COLORS.dim + COLORS.cyan, PRESENTED_BY), shellWidth));
   lines.push(sponsor);
   lines.push(repeat('=', shellWidth));
@@ -495,6 +506,65 @@ function renderFrame(state, viewport = { columns: 100, rows: 40 }, options = {})
     lines.push(restartMsg);
     lines.push(border);
   }
+
+  return lines.join('\n');
+}
+
+// === INTERSTITIAL FRAME (shown between runs) ===
+//
+// Displayed after game over, before the restart prompt.
+// Shows the sponsor's ASCII logo, a message, and credits earned.
+// Auto-dismisses after 3 seconds or on any keypress.
+
+function buildInterstitialFrame(state, viewport = { columns: 100, rows: 40 }, options = {}) {
+  const p = (code, ch) => paint(code, ch, options);
+  const width = Math.max(80, viewport.columns || 100);
+  const shellWidth = Math.max(width, GAME_CONFIG.width + 8);
+
+  const lines = [];
+
+  // Top border
+  lines.push(center(p(COLORS.dim + COLORS.white, repeat('═', shellWidth - 2)), shellWidth));
+  lines.push('');
+
+  // Spacer to vertically center content
+  const totalContentHeight = 12;
+  const topSpacer = Math.max(2, Math.floor((viewport.rows - totalContentHeight) / 2) - 4);
+  for (let i = 0; i < topSpacer; i++) lines.push('');
+
+  // ASCII logo
+  const logo = getFullLogo();
+  for (const logoLine of logo) {
+    lines.push(center(p(COLORS.bold + COLORS.yellow, logoLine), shellWidth));
+  }
+
+  lines.push('');
+
+  // Tagline
+  const interstitial = getInterstitial();
+  lines.push(center(p(COLORS.bold + COLORS.cyan, interstitial.headline), shellWidth));
+  lines.push(center(p(COLORS.dim + COLORS.white, interstitial.body), shellWidth));
+
+  lines.push('');
+
+  // Credits earned this run
+  const ds = state.deathState;
+  const finalCredits = ds ? ds.finalCredits : state.credits;
+  const finalScore = ds ? ds.finalScore : state.score;
+  lines.push(center(
+    p(COLORS.dim, 'Run Score: ') + p(COLORS.bold + COLORS.yellow, String(finalScore)) +
+    p(COLORS.dim, '   Credits Earned: ') + p(COLORS.bold + COLORS.green, String(finalCredits)),
+    shellWidth
+  ));
+
+  lines.push('');
+
+  // CTA
+  lines.push(center(p(COLORS.dim + COLORS.cyan, interstitial.cta), shellWidth));
+
+  lines.push('');
+  lines.push(center(p(COLORS.dim, repeat('─', shellWidth - 2)), shellWidth));
+  lines.push(center(p(COLORS.dim + COLORS.white, 'PRESS ANY KEY TO CONTINUE'), shellWidth));
 
   return lines.join('\n');
 }
@@ -648,6 +718,10 @@ function renderMenuFrame(selection = 0, options = {}) {
   // Decorative rule under the title
   out.push(dblFramedCentered(p(COLORS.dim + COLORS.cyan, repeat('·', 24))));
   out.push(dblFramed(''));
+  // "PRESENTED BY <brand>" — derived from sponsors.js campaign data.
+  // The brand name is uppercased and spaced to match the arcade aesthetic.
+  const brand = getCampaign().brand.toUpperCase(); // e.g. "USP × TEMPLE WORKS"
+  const spacedBrand = brand.split('').join(' ');
   out.push(dblFramedCentered(
     p(COLORS.dim + COLORS.white, '> > >') +
     '  ' +
@@ -658,9 +732,7 @@ function renderMenuFrame(selection = 0, options = {}) {
   out.push(dblFramed(''));
   out.push(dblFramedCentered(
     p(COLORS.bold + COLORS.yellow, '★  ') +
-    p(COLORS.bold + COLORS.white, 'U S P') +
-    p(COLORS.bold + COLORS.yellow, '  ×  ') +
-    p(COLORS.bold + COLORS.white, 'T E M P L E   W O R K S') +
+    p(COLORS.bold + COLORS.white, spacedBrand) +
     p(COLORS.bold + COLORS.yellow, '  ★')
   ));
   out.push(dblFramed(''));
@@ -753,9 +825,7 @@ function renderMenuFrame(selection = 0, options = {}) {
   out.push('');
   out.push(center(
     p(COLORS.dim + COLORS.white, '© 2026 ') +
-    p(COLORS.bold + COLORS.white, 'U S P') +
-    p(COLORS.dim + COLORS.yellow, '  ×  ') +
-    p(COLORS.bold + COLORS.white, 'T E M P L E   W O R K S') +
+    p(COLORS.bold + COLORS.white, spacedBrand) +
     p(COLORS.dim + COLORS.white, '   //   ') +
     p(COLORS.dim + COLORS.cyan, 'SIGNAL RUSH TERMINAL ARCADE'),
     outerWidth + 4
@@ -787,6 +857,7 @@ function wrapText(text, maxWidth) {
 module.exports = {
   renderFrame,
   renderMenuFrame,
+  buildInterstitialFrame,
   buildMiniArenaPreview,
   buildFroggerGoalBar,
   buildAiHuntMissionBar,

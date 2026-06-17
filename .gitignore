@@ -44,6 +44,15 @@ coverage/
 .cache/
 .turbo/
 
+# Signal Rush runtime data (never commit — contains player balances, transaction history, PII)
+# Economy database files (in economy/ dir for tests, and ~/.signal-rush/ at runtime)
+economy/economy.db
+economy/economy.db-*
+
+# Player identity and event queue (local-only)
+player.json
+event-queue.json
+
 # OpenClaw / agent-forge workspace state
 .openclaw-state/
 sessions/

@@ -865,6 +865,79 @@ function testFroggerGetReadyPreventsDeath() {
   assert.equal(engine.state.timeLeft, GAME_CONFIG.modes.frogger.timePerLevel, 'get-ready should not tick the timer');
 }
 
+function testFroggerGetReadyBlocksLateralMoveIntoCars() {
+  // During GET READY the player can reposition, but should be BLOCKED
+  // from moving onto a road tile that has a car. This prevents the
+  // exploit of repositioning into danger and dying instantly on GO.
+  const engine = createEngine({ mode: 'frogger' });
+  // Place frog on the median (row 10) directly above a road lane
+  engine.state.player.x = 8;
+  engine.state.player.y = 10; // median, safe
+  assert(engine.state.getReadyTicks > 0, 'pre-condition: GET READY should be active');
+  // Row 11 is road with a car at x=8
+  const roadLane = engine.state.lanes.find((l) => l.type === 'road' && l.y === 11);
+  assert(roadLane.vehicles.some((v) => v.x === 8), 'pre-condition: car at x=8, y=11');
+  // Try to move down onto the car — should be blocked
+  engine.step({ move: { x: 0, y: 1 } });
+  assert.equal(engine.state.player.y, 10, 'player should NOT move onto a car during GET READY');
+  assert.equal(engine.state.lives, 3, 'lives should not decrease');
+}
+
+function testFroggerGetReadyBlocksMoveIntoWaterWithoutLog() {
+  // During GET READY the player should be blocked from moving into a
+  // river tile that has no log.
+  const engine = createEngine({ mode: 'frogger' });
+  // Place frog on median (row 10) above river (row 9)
+  // Find a river lane and a column with no log
+  const riverLane = engine.state.lanes.find((l) => l.type === 'river');
+  const logXs = new Set(riverLane.vehicles.map((v) => v.x));
+  let safeX = -1;
+  for (let x = 2; x < GAME_CONFIG.width - 2; x += 1) {
+    if (!logXs.has(x)) { safeX = x; break; }
+  }
+  assert(safeX !== -1, 'pre-condition: should find a log-less column in river');
+  engine.state.player.x = safeX;
+  engine.state.player.y = 10; // median
+  // Move down into river at a log-less column — should be blocked
+  engine.step({ move: { x: 0, y: -1 } });
+  assert.equal(engine.state.player.y, 10, 'player should NOT move into water without log during GET READY');
+  assert.equal(engine.state.lives, 3, 'lives should not decrease');
+}
+
+function testFroggerGetReadyAllowsMoveOntoLog() {
+  // During GET READY the player SHOULD be allowed to move onto a river
+  // tile that has a log — it's safe.
+  const engine = createEngine({ mode: 'frogger' });
+  // Find the river lane directly below the median (row 10)
+  const riverLane = engine.state.lanes.find((l) => l.type === 'river' && l.y === 9);
+  assert(riverLane, 'pre-condition: river lane at row 9');
+  const logX = riverLane.vehicles[0].x;
+  engine.state.player.x = logX;
+  engine.state.player.y = 10; // median
+  // Move down onto the log — should succeed
+  engine.step({ move: { x: 0, y: -1 } });
+  assert.equal(engine.state.player.y, 9, 'player should move onto a log during GET READY');
+}
+
+function testFroggerGetReadyAllowsFreeMoveOnMedian() {
+  // During GET READY the player should be able to move freely on safe
+  // lanes (median, home, spawn zone).
+  const engine = createEngine({ mode: 'frogger' });
+  engine.state.player.x = 28;
+  engine.state.player.y = 21; // median (safe)
+  // Move left and right freely on the median
+  engine.step({ move: { x: -1, y: 0 } });
+  assert.equal(engine.state.player.x, 27, 'should move left on median');
+  engine.step({ move: { x: 1, y: 0 } });
+  assert.equal(engine.state.player.x, 28, 'should move right on median');
+  // Move down to spawn zone (row 22, no lane = safe)
+  engine.step({ move: { x: 0, y: 1 } });
+  assert.equal(engine.state.player.y, 22, 'should move down to spawn zone');
+  // Move back up to median
+  engine.step({ move: { x: 0, y: -1 } });
+  assert.equal(engine.state.player.y, 21, 'should move back up to median');
+}
+
 function testFroggerGetReadyCountdownEndsAfterConfigTicks() {
   // Step the engine getReadyTicks + 1 times and confirm the window ends.
   const engine = createEngine({ mode: 'frogger' });
@@ -1119,6 +1192,10 @@ const tests = [
   testFroggerLevel1SpeedMultiplierSoftensCarSpeeds,
   testFroggerLevel4UsesFullSpeed,
   testFroggerGetReadyPreventsDeath,
+  testFroggerGetReadyBlocksLateralMoveIntoCars,
+  testFroggerGetReadyBlocksMoveIntoWaterWithoutLog,
+  testFroggerGetReadyAllowsMoveOntoLog,
+  testFroggerGetReadyAllowsFreeMoveOnMedian,
   testFroggerGetReadyCountdownEndsAfterConfigTicks,
   testFroggerGetReadyRearmsAfterLifeLoss,
   testFroggerGetReadyRearmsAfterLevelClear,

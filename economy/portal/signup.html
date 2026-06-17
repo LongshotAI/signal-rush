@@ -1,0 +1,118 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Sign Up — Signal Rush Ads</title>
+  <link rel="stylesheet" href="/portal/shared.css">
+</head>
+<body>
+  <div class="auth-shell">
+    <div class="auth-card">
+      <div class="auth-logo">
+        <h1>⚡ Signal Rush</h1>
+        <p>Create your advertiser account</p>
+      </div>
+
+      <div class="card">
+        <form id="signupForm">
+          <div id="alertContainer"></div>
+
+          <div class="form-group">
+            <label for="companyName">Company Name</label>
+            <input type="text" id="companyName" name="companyName" placeholder="Acme Inc." required>
+          </div>
+
+          <div class="form-group">
+            <label for="email">Email</label>
+            <input type="email" id="email" name="email" placeholder="you@company.com" required autocomplete="email">
+          </div>
+
+          <div class="form-group">
+            <label for="password">Password</label>
+            <input type="password" id="password" name="password" placeholder="Min 8 chars, upper + lower + digit" required autocomplete="new-password">
+            <p class="form-hint">At least 8 characters with uppercase, lowercase, and a number.</p>
+          </div>
+
+          <div class="form-group">
+            <label for="confirmPassword">Confirm Password</label>
+            <input type="password" id="confirmPassword" name="confirmPassword" placeholder="Re-enter your password" required autocomplete="new-password">
+          </div>
+
+          <button type="submit" class="btn btn-primary btn-full btn-lg" id="submitBtn">
+            Create Account
+          </button>
+        </form>
+      </div>
+
+      <div class="auth-footer">
+        Already have an account? <a href="/portal/login.html">Log in</a>
+      </div>
+    </div>
+  </div>
+
+  <script src="/portal/api.js"></script>
+  <script>
+    // Redirect if already logged in
+    if (API.isLoggedIn()) {
+      window.location.href = '/portal/dashboard.html';
+    }
+
+    const form = document.getElementById('signupForm');
+    const alertContainer = document.getElementById('alertContainer');
+    const submitBtn = document.getElementById('submitBtn');
+
+    function showAlert(message, type = 'error') {
+      alertContainer.innerHTML = `<div class="alert alert-${type}">${message}</div>`;
+    }
+
+    function clearAlerts() {
+      alertContainer.innerHTML = '';
+    }
+
+    async function handleSubmit(e) {
+      e.preventDefault();
+      clearAlerts();
+
+      const companyName = document.getElementById('companyName').value.trim();
+      const email = document.getElementById('email').value.trim();
+      const password = document.getElementById('password').value;
+      const confirmPassword = document.getElementById('confirmPassword').value;
+
+      if (!companyName || !email || !password || !confirmPassword) {
+        showAlert('Please fill in all fields.');
+        return;
+      }
+
+      if (password !== confirmPassword) {
+        showAlert('Passwords do not match.');
+        return;
+      }
+
+      if (password.length < 8) {
+        showAlert('Password must be at least 8 characters.');
+        return;
+      }
+
+      submitBtn.disabled = true;
+      submitBtn.innerHTML = '<span class="spinner"></span> Creating account…';
+
+      try {
+        const data = await API.signup(email, password, companyName);
+        if (data.ok) {
+          window.location.href = '/portal/dashboard.html';
+        } else {
+          showAlert(data.error || 'Signup failed.');
+        }
+      } catch (err) {
+        showAlert(err.message || 'Signup failed. Please try again.');
+      } finally {
+        submitBtn.disabled = false;
+        submitBtn.textContent = 'Create Account';
+      }
+    }
+
+    form.addEventListener('submit', handleSubmit);
+  </script>
+</body>
+</html>

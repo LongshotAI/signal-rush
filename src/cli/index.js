@@ -1,11 +1,14 @@
 #!/usr/bin/env node
 
+const { randomUUID } = require('crypto');
 const readline = require('node:readline');
 const { GAME_CONFIG, getTickMsForMode } = require('../config/gameConfig');
 const { createEngine } = require('../core/engine');
-const { renderFrame, renderMenuFrame, MENU_MODES } = require('./render');
+const { renderFrame, renderMenuFrame, buildInterstitialFrame, MENU_MODES } = require('./render');
 const { createInputBuffer } = require('./input');
 const { applyMenuKey } = require('./menuKeyHandler');
+const eventBridge = require('../core/eventBridge');
+const { getCampaign, fetchActiveCampaigns, apiCampaignToSponsor, setActiveCampaigns } = require('../content/sponsors');
 
 const args = process.argv.slice(2);
 const isDemo = args.includes('--demo');
@@ -21,6 +24,8 @@ let menuSelection = 0;        // 0 = aiHunt, 1 = frogger
 let menuMode = true;          // true until user picks a mode
 let pendingMenu = false;      // true after game-over + M to schedule return to menu
 let pendingQuit = false;
+let showInterstitial = false; // true when interstitial sponsor card is displayed
+let interstitialTimer = null; // auto-dismiss timer for interstitial
 let timer = null;
 let shuttingDown = false;
 let viewport = {
@@ -28,6 +33,10 @@ let viewport = {
   rows: process.stdout.rows || 40,
 };
 let nextTickAt = 0;
+
+// Economy bridge state — only active when not in demo mode
+let economyPlayerId = null;
+let economySessionId = null;
 
 function enterScreen() {
   process.stdout.write('\x1b[?1049h\x1b[?25l\x1b[H');
@@ -52,7 +61,21 @@ function startEngine(mode) {
   // input buffer toggles the first behaviour on.
   inputBuffer = createInputBuffer({ singleShot: mode === 'frogger' });
   menuMode = false;
+  showInterstitial = false;
+  if (interstitialTimer) {
+    clearTimeout(interstitialTimer);
+    interstitialTimer = null;
+  }
   if (!isDemo) inputBuffer.handleKeypress('up', { name: 'up', sequence: '\x1b[A' });
+
+  // Initialize economy session for this run (only in non-demo mode)
+  if (!isDemo) {
+    if (!economyPlayerId) {
+      economyPlayerId = eventBridge.getPlayerId();
+    }
+    // New session for each run — enables per-run tracking
+    economySessionId = randomUUID();
+  }
 }
 
 function returnToMenu() {
@@ -62,6 +85,11 @@ function returnToMenu() {
   menuMode = true;
   menuSelection = 0;
   pendingMenu = false;
+  showInterstitial = false;
+  if (interstitialTimer) {
+    clearTimeout(interstitialTimer);
+    interstitialTimer = null;
+  }
 }
 
 function draw() {
@@ -69,6 +97,8 @@ function draw() {
   let frame;
   if (menuMode) {
     frame = renderMenuFrame(menuSelection, { colors: useColor });
+  } else if (showInterstitial && engine) {
+    frame = buildInterstitialFrame(engine.state, viewport, { colors: useColor });
   } else {
     frame = renderFrame(engine.state, viewport, { colors: useColor });
   }
@@ -81,6 +111,7 @@ function shutdown(message) {
   if (shuttingDown) return;
   shuttingDown = true;
   if (timer) clearTimeout(timer);
+  if (interstitialTimer) clearTimeout(interstitialTimer);
   if (inputBuffer) process.stdin.off('keypress', inputBuffer.handleKeypress);
   process.stdin.off('keypress', onMenuKey);
   process.stdout.off('resize', refreshViewport);
@@ -142,7 +173,49 @@ function step() {
     shutdown('Exited Signal Rush CLI.');
     return;
   }
+
+  // Capture credits BEFORE step() for diffing — the bridge compares
+  // engine.state.credits after vs before to catch ALL credit changes
+  // (pickups, slots, level clears) regardless of engine events.
+  const creditsBefore = (!isDemo && economyPlayerId && economySessionId)
+    ? engine.state.credits : 0;
+
   engine.step(input);
+
+  // Forward events to economy service (non-demo mode only).
+  // Fire-and-forget: if the economy service is down, events are queued
+  // locally and retried later. Gameplay is NEVER blocked.
+  if (!isDemo && economyPlayerId && economySessionId) {
+    eventBridge.forwardStep(economyPlayerId, economySessionId, engine, creditsBefore)
+      .catch(() => {}); // already handled inside bridge
+  }
+
+  // Log ad impressions from engine events.
+  // sponsor_impression fires every 40 ticks; interstitial_impression fires
+  // when the interstitial is shown. Both are fire-and-forget.
+  if (!isDemo && economyPlayerId) {
+    const events = engine.state.lastEvents || [];
+    for (const event of events) {
+      if (event.type === 'sponsor_impression') {
+        const campaignId = getCampaign().id || null;
+        eventBridge.logAdImpression(economyPlayerId, 'hud_frame', campaignId)
+          .catch(() => {});
+      }
+    }
+  }
+
+  // Trigger interstitial on first game over tick.
+  // The interstitial shows the sponsor card before the restart prompt.
+  if (engine.state.gameOver && !showInterstitial && !pendingMenu) {
+    showInterstitial = true;
+    // Auto-dismiss after 3 seconds if no keypress
+    if (interstitialTimer) clearTimeout(interstitialTimer);
+    interstitialTimer = setTimeout(() => {
+      showInterstitial = false;
+      draw();
+    }, 3000);
+  }
+
   // pendingMenu is set by the M keypress handler at any time (gameplay,
   // pause, game over). Honour it here regardless of gameOver state so
   // the player can always bail back to the menu mid-run.
@@ -217,6 +290,16 @@ function start() {
   process.stdin.resume();
   process.stdin.on('keypress', onMenuKey);
   process.stdin.on('keypress', (seq, key) => {
+    // Interstitial dismiss: any keypress during interstitial shows game-over frame
+    if (showInterstitial) {
+      showInterstitial = false;
+      if (interstitialTimer) {
+        clearTimeout(interstitialTimer);
+        interstitialTimer = null;
+      }
+      draw();
+      return;
+    }
     if (menuMode || !inputBuffer) return;
     if (key && key.name && key.name.toLowerCase() === 'm') {
       // M works at any time — gameplay, pause, or game over — so the
@@ -242,6 +325,21 @@ function start() {
   draw();
   nextTickAt = Date.now() + getTickMsForMode(initialMode || (isDemo ? 'aiHunt' : null));
   scheduleNextTick();
+
+  // Fetch active campaigns from the economy service.
+  // Fire-and-forget: if the service is down or slow, the static CAMPAIGNS
+  // fallback is already in place. The fetch resolves async and updates
+  // the active campaign for all subsequent renders.
+  if (!isDemo) {
+    fetchActiveCampaigns().then((campaigns) => {
+      if (campaigns && campaigns.length > 0) {
+        const sponsorData = campaigns.map((c) => apiCampaignToSponsor(c));
+        setActiveCampaigns(sponsorData);
+      }
+    }).catch(() => {
+      // Static fallback already in place — nothing to do.
+    });
+  }
 }
 
 start();

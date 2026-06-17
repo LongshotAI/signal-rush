@@ -1,0 +1,161 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Account — Signal Rush Ads</title>
+  <link rel="stylesheet" href="/portal/shared.css">
+</head>
+<body>
+  <div id="app"></div>
+
+  <script src="/portal/api.js"></script>
+  <script src="/portal/layout.js"></script>
+  <script>
+    (async function() {
+      if (!Layout.requireAuth()) return;
+
+      const app = document.getElementById('app');
+
+      app.innerHTML = Layout.renderShell({
+        title: 'Account',
+        activePage: 'account',
+        content: '<div class="empty-state"><div class="spinner"></div><p>Loading account…</p></div>'
+      });
+
+      try {
+        const account = await API.getAccountInfo();
+        if (!account) throw new Error('Failed to load account');
+
+        const content = `
+          <div class="stats-grid mb-6">
+            <div class="stat-card">
+              <div class="stat-label">Balance</div>
+              <div class="stat-value">${API.formatCurrency(account.balance_micros)}</div>
+            </div>
+            <div class="stat-card">
+              <div class="stat-label">Status</div>
+              <div class="stat-value" style="font-size: var(--text-lg); color: ${account.status === 'active' ? 'var(--success)' : 'var(--danger)'}">${account.status}</div>
+            </div>
+          </div>
+
+          <!-- Account Info -->
+          <div class="card mb-4">
+            <div class="card-title mb-3">Account Details</div>
+            <div class="form-row">
+              <div>
+                <div class="text-xs text-muted mb-1">Company</div>
+                <div class="text-sm font-medium">${Layout.escapeHtml(account.company_name)}</div>
+              </div>
+              <div>
+                <div class="text-xs text-muted mb-1">Email</div>
+                <div class="text-sm">${Layout.escapeHtml(account.email)}</div>
+              </div>
+            </div>
+            <div class="mt-3">
+              <div class="text-xs text-muted mb-1">API Key</div>
+              <div class="flex gap-2 items-center">
+                <code class="font-mono text-xs bg-bg-tertiary px-2 py-1 rounded flex-1 truncate" id="apiKeyDisplay">••••••••••••••••</code>
+                <button class="btn btn-secondary btn-sm" id="showKeyBtn">Show</button>
+                <button class="btn btn-ghost btn-sm" id="copyKeyBtn">Copy</button>
+              </div>
+              <p class="form-hint">Keep this secret. Use it to authenticate API requests.</p>
+            </div>
+          </div>
+
+          <!-- Deposit -->
+          <div class="card mb-4">
+            <div class="card-title mb-3">Add Funds</div>
+            <form id="depositForm">
+              <div id="depositAlert"></div>
+              <div class="form-row">
+                <div class="form-group">
+                  <label>Amount (micros)</label>
+                  <input type="number" id="depositAmount" min="1" placeholder="1000000 = $1.00" required>
+                </div>
+                <div class="form-group">
+                  <label>&nbsp;</label>
+                  <button type="submit" class="btn btn-primary" id="depositBtn">Deposit</button>
+                </div>
+              </div>
+              <p class="form-hint">1,000,000 micros = $1.00. In production, this would integrate with Stripe.</p>
+            </form>
+          </div>
+
+          <!-- Danger Zone -->
+          <div class="card" style="border-color: rgba(239, 68, 68, 0.3);">
+            <div class="card-title mb-3" style="color: var(--danger)">Danger Zone</div>
+            <p class="text-sm text-muted mb-3">Once you log out, you'll need your API key to access the portal again.</p>
+            <button class="btn btn-danger btn-sm" onclick="API.logout()">Log Out</button>
+          </div>
+        `;
+
+        app.innerHTML = Layout.renderShell({
+          title: 'Account',
+          activePage: 'account',
+          content
+        });
+
+        // Show/Copy API key
+        const apiKeyDisplay = document.getElementById('apiKeyDisplay');
+        const showKeyBtn = document.getElementById('showKeyBtn');
+        const copyKeyBtn = document.getElementById('copyKeyBtn');
+        const apiKey = API.getToken();
+
+        showKeyBtn.addEventListener('click', () => {
+          if (apiKeyDisplay.textContent.startsWith('••••')) {
+            apiKeyDisplay.textContent = apiKey;
+            showKeyBtn.textContent = 'Hide';
+          } else {
+            apiKeyDisplay.textContent = '••••••••••••••••';
+            showKeyBtn.textContent = 'Show';
+          }
+        });
+
+        copyKeyBtn.addEventListener('click', () => {
+          navigator.clipboard.writeText(apiKey).then(() => {
+            copyKeyBtn.textContent = 'Copied!';
+            setTimeout(() => { copyKeyBtn.textContent = 'Copy'; }, 2000);
+          });
+        });
+
+        // Deposit form
+        const depositForm = document.getElementById('depositForm');
+        const depositAlert = document.getElementById('depositAlert');
+        const depositBtn = document.getElementById('depositBtn');
+
+        depositForm.addEventListener('submit', async (e) => {
+          e.preventDefault();
+          depositAlert.innerHTML = '';
+          const amount = parseInt(document.getElementById('depositAmount').value);
+          if (!amount || amount <= 0) {
+            depositAlert.innerHTML = '<div class="alert alert-error">Please enter a valid amount.</div>';
+            return;
+          }
+          depositBtn.disabled = true;
+          depositBtn.innerHTML = '<span class="spinner"></span>';
+          try {
+            const result = await API.depositCredits(amount);
+            depositAlert.innerHTML = `<div class="alert alert-success">Deposited ${API.formatCurrency(amount)}. New balance: ${API.formatCurrency(result.balance_after)}</div>`;
+            document.getElementById('depositAmount').value = '';
+            // Update balance display
+            setTimeout(() => window.location.reload(), 1500);
+          } catch (err) {
+            depositAlert.innerHTML = `<div class="alert alert-error">${err.message}</div>`;
+          } finally {
+            depositBtn.disabled = false;
+            depositBtn.textContent = 'Deposit';
+          }
+        });
+
+      } catch (err) {
+        app.innerHTML = Layout.renderShell({
+          title: 'Account',
+          activePage: 'account',
+          content: `<div class="alert alert-error">Failed to load account: ${err.message}</div>`
+        });
+      }
+    })();
+  </script>
+</body>
+</html>

@@ -1,0 +1,370 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Campaign — Signal Rush Ads</title>
+  <link rel="stylesheet" href="/portal/shared.css">
+</head>
+<body>
+  <div id="app"></div>
+
+  <script src="/portal/api.js"></script>
+  <script src="/portal/layout.js"></script>
+  <script>
+    (async function() {
+      if (!Layout.requireAuth()) return;
+
+      const app = document.getElementById('app');
+      const params = new URLSearchParams(window.location.search);
+      const campaignId = params.get('id');
+
+      if (!campaignId) {
+        window.location.href = '/portal/dashboard.html';
+        return;
+      }
+
+      // Show loading
+      app.innerHTML = Layout.renderShell({
+        title: 'Campaign',
+        activePage: 'campaigns',
+        content: '<div class="empty-state"><div class="spinner"></div><p>Loading campaign…</p></div>'
+      });
+
+      try {
+        const [campaignData, statsData, creativesData] = await Promise.all([
+          API.getCampaign(campaignId),
+          API.getCampaignStats(campaignId).catch(() => null),
+          API.listCreatives(campaignId).catch(() => ({ creatives: [] })),
+        ]);
+
+        if (!campaignData?.campaign) {
+          throw new Error('Campaign not found');
+        }
+
+        const c = campaignData.campaign;
+        const stats = statsData?.stats || {};
+        const creatives = (creativesData?.creatives || []).filter(cr => cr.campaign_id === campaignId);
+
+        // Build creatives list
+        const creativesHtml = creatives.length === 0
+          ? '<div class="empty-state text-sm"><p>No creatives uploaded yet.</p></div>'
+          : `<div class="table-wrapper"><table><thead><tr><th>Type</th><th>Content</th><th>Status</th><th>Reviewed</th></tr></thead><tbody>${creatives.map(cr => {
+              const contentPreview = cr.type === 'label'
+                ? (cr.content_json?.text || JSON.parse(cr.content_json || '{}').text || '—')
+                : cr.type === 'logo'
+                  ? `${(cr.content_json?.lines || JSON.parse(cr.content_json || '{}').lines || []).length} lines`
+                  : (cr.content_json?.message || JSON.parse(cr.content_json || '{}').message || '—');
+              return `<tr>
+                <td>${API.placementLabel(cr.type)}</td>
+                <td class="truncate" style="max-width: 300px">${Layout.escapeHtml(typeof contentPreview === 'string' ? contentPreview : JSON.stringify(contentPreview))}</td>
+                <td><span class="badge badge-${cr.status === 'approved' ? 'active' : cr.status === 'rejected' ? 'rejected' : 'pending'}"><span class="badge-dot"></span>${cr.status}</span></td>
+                <td>${API.formatDateTime(cr.reviewed_at)}</td>
+              </tr>`;
+            }).join('')}</tbody></table></div>`;
+
+        // Build action buttons based on status
+        let actionsHtml = '';
+        if (c.status === 'draft') {
+          actionsHtml = `
+            <button class="btn btn-primary btn-sm" id="submitBtn">Submit for Review</button>
+            <button class="btn btn-danger btn-sm" id="deleteBtn">Delete</button>
+          `;
+        } else if (c.status === 'active') {
+          actionsHtml = `<button class="btn btn-secondary btn-sm" id="pauseBtn">Pause</button>`;
+        } else if (c.status === 'paused') {
+          actionsHtml = `<button class="btn btn-primary btn-sm" id="resumeBtn">Resume</button>`;
+        } else if (c.status === 'rejected') {
+          actionsHtml = `<button class="btn btn-secondary btn-sm" id="reviseBtn">Revise & Resubmit</button>`;
+        }
+
+        const content = `
+          <div class="mb-6">
+            <a href="/portal/dashboard.html" class="text-sm text-muted">← Back to Dashboard</a>
+          </div>
+
+          <!-- Header -->
+          <div class="flex justify-between items-center mb-6">
+            <div>
+              <h2 style="font-size: var(--text-2xl); font-weight: 700;">${Layout.escapeHtml(c.name)}</h2>
+              <p class="text-sm text-muted mt-1">${Layout.escapeHtml(c.brand_name)} · ${API.placementLabel(c.placement_type)}</p>
+            </div>
+            <div class="flex gap-2">
+              <span class="${API.statusClass(c.status)}"><span class="badge-dot"></span>${API.statusLabel(c.status)}</span>
+            </div>
+          </div>
+
+          <!-- Stats -->
+          <div class="stats-grid mb-6">
+            <div class="stat-card">
+              <div class="stat-label">Total Spent</div>
+              <div class="stat-value">${API.formatCurrency(c.spent_micros)}</div>
+            </div>
+            <div class="stat-card">
+              <div class="stat-label">Daily Budget</div>
+              <div class="stat-value">${c.daily_budget_micros > 0 ? API.formatCurrency(c.daily_budget_micros) : 'Unlimited'}</div>
+            </div>
+            <div class="stat-card">
+              <div class="stat-label">Total Budget</div>
+              <div class="stat-value">${c.total_budget_micros > 0 ? API.formatCurrency(c.total_budget_micros) : 'Unlimited'}</div>
+            </div>
+            <div class="stat-card">
+              <div class="stat-label">Impressions</div>
+              <div class="stat-value">${API.formatNumber(stats.impressions)}</div>
+            </div>
+          </div>
+
+          <!-- Dates -->
+          <div class="card mb-4">
+            <div class="card-title mb-3">Schedule</div>
+            <div class="form-row">
+              <div>
+                <div class="text-xs text-muted mb-1">Start Date</div>
+                <div class="text-sm">${c.start_date || 'Immediate'}</div>
+              </div>
+              <div>
+                <div class="text-xs text-muted mb-1">End Date</div>
+                <div class="text-sm">${c.end_date || 'No end date'}</div>
+              </div>
+            </div>
+          </div>
+
+          <!-- Actions -->
+          <div class="card mb-4">
+            <div class="card-title mb-3">Actions</div>
+            <div class="flex gap-2">${actionsHtml}</div>
+          </div>
+
+          <!-- Edit Form -->
+          <div class="card mb-4">
+            <div class="card-title mb-3">Edit Campaign</div>
+            <form id="editForm">
+              <div class="form-row">
+                <div class="form-group">
+                  <label>Campaign Name</label>
+                  <input type="text" id="editName" value="${Layout.escapeHtml(c.name)}">
+                </div>
+                <div class="form-group">
+                  <label>Brand Name</label>
+                  <input type="text" id="editBrand" value="${Layout.escapeHtml(c.brand_name)}">
+                </div>
+              </div>
+              <div class="form-row">
+                <div class="form-group">
+                  <label>Daily Budget (micros)</label>
+                  <input type="number" id="editDailyBudget" value="${c.daily_budget_micros}" min="0">
+                </div>
+                <div class="form-group">
+                  <label>Total Budget (micros)</label>
+                  <input type="number" id="editTotalBudget" value="${c.total_budget_micros}" min="0">
+                </div>
+              </div>
+              <button type="submit" class="btn btn-secondary btn-sm">Save Changes</button>
+            </form>
+          </div>
+
+          <!-- Creatives -->
+          <div class="card">
+            <div class="card-header">
+              <div class="card-title">Creatives</div>
+              <button class="btn btn-secondary btn-sm" id="addCreativeBtn">+ Add Creative</button>
+            </div>
+            ${creativesHtml}
+          </div>
+
+          <!-- Add Creative Modal (hidden by default) -->
+          <div id="creativeModal" class="hidden" style="position: fixed; inset: 0; background: rgba(0,0,0,0.7); display: flex; align-items: center; justify-content: center; z-index: 200;">
+            <div class="card" style="width: 100%; max-width: 500px;">
+              <div class="card-header">
+                <div class="card-title">Upload Creative</div>
+                <button class="btn btn-ghost btn-sm" onclick="document.getElementById('creativeModal').classList.add('hidden')">✕</button>
+              </div>
+              <form id="creativeForm">
+                <div class="form-group">
+                  <label>Type</label>
+                  <select id="creativeType">
+                    <option value="label">Label (sponsor text)</option>
+                    <option value="logo">Logo (ASCII art)</option>
+                    <option value="interstitial">Interstitial (message)</option>
+                  </select>
+                </div>
+                <div class="form-group" id="creativeContentGroup">
+                  <label>Content (JSON)</label>
+                  <textarea id="creativeContent" rows="6" placeholder='{"text": "Your sponsor message"}' style="font-family: var(--font-mono); font-size: var(--text-xs);"></textarea>
+                  <p class="form-hint" id="creativeHint">Enter JSON content for the creative type.</p>
+                </div>
+                <button type="submit" class="btn btn-primary btn-sm">Upload</button>
+              </form>
+            </div>
+          </div>
+        `;
+
+        app.innerHTML = Layout.renderShell({
+          title: c.name,
+          activePage: 'campaigns',
+          content
+        });
+
+        // ── Event Handlers ──────────────────────────────────────
+
+        // Submit for review
+        const submitBtn = document.getElementById('submitBtn');
+        if (submitBtn) {
+          submitBtn.addEventListener('click', async () => {
+            if (!confirm('Submit this campaign for review?')) return;
+            submitBtn.disabled = true;
+            try {
+              await API.submitCampaign(campaignId);
+              window.location.reload();
+            } catch (err) {
+              alert(err.message);
+              submitBtn.disabled = false;
+            }
+          });
+        }
+
+        // Pause
+        const pauseBtn = document.getElementById('pauseBtn');
+        if (pauseBtn) {
+          pauseBtn.addEventListener('click', async () => {
+            pauseBtn.disabled = true;
+            try {
+              await API.pauseCampaign(campaignId);
+              window.location.reload();
+            } catch (err) {
+              alert(err.message);
+              pauseBtn.disabled = false;
+            }
+          });
+        }
+
+        // Resume
+        const resumeBtn = document.getElementById('resumeBtn');
+        if (resumeBtn) {
+          resumeBtn.addEventListener('click', async () => {
+            resumeBtn.disabled = true;
+            try {
+              await API.resumeCampaign(campaignId);
+              window.location.reload();
+            } catch (err) {
+              alert(err.message);
+              resumeBtn.disabled = false;
+            }
+          });
+        }
+
+        // Delete
+        const deleteBtn = document.getElementById('deleteBtn');
+        if (deleteBtn) {
+          deleteBtn.addEventListener('click', async () => {
+            if (!confirm('Delete this campaign? This cannot be undone.')) return;
+            deleteBtn.disabled = true;
+            try {
+              await API.deleteCampaign(campaignId);
+              window.location.href = '/portal/dashboard.html';
+            } catch (err) {
+              alert(err.message);
+              deleteBtn.disabled = false;
+            }
+          });
+        }
+
+        // Revise (rejected → resubmit)
+        const reviseBtn = document.getElementById('reviseBtn');
+        if (reviseBtn) {
+          reviseBtn.addEventListener('click', async () => {
+            reviseBtn.disabled = true;
+            try {
+              // First transition rejected → draft, then draft → pending_review
+              await API.updateCampaign(campaignId, { status: 'draft' });
+              await API.submitCampaign(campaignId);
+              window.location.reload();
+            } catch (err) {
+              alert(err.message);
+              reviseBtn.disabled = false;
+            }
+          });
+        }
+
+        // Edit form
+        const editForm = document.getElementById('editForm');
+        if (editForm) {
+          editForm.addEventListener('submit', async (e) => {
+            e.preventDefault();
+            const updates = {};
+            const name = document.getElementById('editName').value.trim();
+            const brand = document.getElementById('editBrand').value.trim();
+            const dailyBudget = parseInt(document.getElementById('editDailyBudget').value) || 0;
+            const totalBudget = parseInt(document.getElementById('editTotalBudget').value) || 0;
+            if (name !== c.name) updates.name = name;
+            if (brand !== c.brand_name) updates.brand_name = brand;
+            if (dailyBudget !== c.daily_budget_micros) updates.daily_budget_micros = dailyBudget;
+            if (totalBudget !== c.total_budget_micros) updates.total_budget_micros = totalBudget;
+            if (Object.keys(updates).length === 0) return;
+            try {
+              await API.updateCampaign(campaignId, updates);
+              window.location.reload();
+            } catch (err) {
+              alert(err.message);
+            }
+          });
+        }
+
+        // Creative modal
+        const addCreativeBtn = document.getElementById('addCreativeBtn');
+        const creativeModal = document.getElementById('creativeModal');
+        if (addCreativeBtn && creativeModal) {
+          addCreativeBtn.addEventListener('click', () => {
+            creativeModal.classList.remove('hidden');
+            creativeModal.style.display = 'flex';
+          });
+
+          // Update hint based on type
+          const creativeType = document.getElementById('creativeType');
+          const creativeHint = document.getElementById('creativeHint');
+          const hints = {
+            label: 'JSON: {"text": "Your sponsor message"} (max 64 chars)',
+            logo: 'JSON: {"lines": ["line1", "line2"]} (max 8 lines, 40 chars each)',
+            interstitial: 'JSON: {"message": "Your interstitial message"} (max 256 chars)',
+          };
+          creativeType.addEventListener('change', () => {
+            creativeHint.textContent = hints[creativeType.value] || '';
+          });
+          creativeHint.textContent = hints.label;
+        }
+
+        // Creative form
+        const creativeForm = document.getElementById('creativeForm');
+        if (creativeForm) {
+          creativeForm.addEventListener('submit', async (e) => {
+            e.preventDefault();
+            const type = document.getElementById('creativeType').value;
+            const contentRaw = document.getElementById('creativeContent').value.trim();
+            if (!contentRaw) { alert('Please enter creative content.'); return; }
+            let content;
+            try {
+              content = JSON.parse(contentRaw);
+            } catch {
+              alert('Invalid JSON. Please check your input.');
+              return;
+            }
+            try {
+              await API.createCreative(campaignId, type, content);
+              window.location.reload();
+            } catch (err) {
+              alert(err.message);
+            }
+          });
+        }
+
+      } catch (err) {
+        app.innerHTML = Layout.renderShell({
+          title: 'Campaign',
+          activePage: 'campaigns',
+          content: `<div class="alert alert-error">Failed to load campaign: ${err.message}</div><a href="/portal/dashboard.html" class="btn btn-secondary btn-sm mt-4">← Back to Dashboard</a>`
+        });
+      }
+    })();
+  </script>
+</body>
+</html>

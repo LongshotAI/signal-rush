@@ -286,9 +286,11 @@ function stepFrogger(state, input) {
   const events = state.lastEvents = [];
 
   // GET READY window: when getReadyTicks > 0 the level hasn't started yet.
-  // Vehicles don't move, the timer doesn't tick, and the frog can still
-  // hop but no collisions are processed. This gives the player a beat
-  // to read the layout before the action starts.
+  // Vehicles don't move, the timer doesn't tick, and the frog can hop
+  // freely to read the layout — but cannot move into lethal positions
+  // (water without a log, or onto a car). If the player tries, the
+  // move is rejected (position reset to pre-move). This prevents the
+  // exploit of repositioning into danger and dying instantly when GO hits.
   if (state.getReadyTicks > 0) {
     if (input.pause) {
       // Allow toggling pause during GET READY.
@@ -300,11 +302,35 @@ function stepFrogger(state, input) {
     if (state.paused) return state;
     const move = input.move || null;
     if (move) {
-      state.player.x = clamp(state.player.x + move.x, 1, GAME_CONFIG.width - 2);
-      state.player.y = clamp(state.player.y + move.y, 1, GAME_CONFIG.height - 2);
-      state.lastMove = move;
-      state.inputPulse = 2;
-      events.push({ type: 'player_hop', to: { x: state.player.x, y: state.player.y } });
+      const prevX = state.player.x;
+      const prevY = state.player.y;
+      const newX = clamp(state.player.x + move.x, 1, GAME_CONFIG.width - 2);
+      const newY = clamp(state.player.y + move.y, 1, GAME_CONFIG.height - 2);
+      // Check if the new position would be lethal
+      const lane = state.lanes.find((l) => l.y === newY);
+      let isLethal = false;
+      if (lane) {
+        if (lane.type === 'river') {
+          // Lethal if no log at the new position
+          const log = lane.vehicles.find((v) => v.x === newX);
+          if (!log) isLethal = true;
+        } else if (lane.type === 'road') {
+          // Lethal if a car is at the new position
+          const car = lane.vehicles.find((v) => v.x === newX);
+          if (car) isLethal = true;
+        }
+        // home, median, and unknown lane types are safe
+      }
+      if (isLethal) {
+        // Reject the move — player stays put
+        state.message = 'Blocked. Find another route.';
+      } else {
+        state.player.x = newX;
+        state.player.y = newY;
+        state.lastMove = move;
+        state.inputPulse = 2;
+        events.push({ type: 'player_hop', to: { x: state.player.x, y: state.player.y } });
+      }
     }
     if (state.inputPulse > 0) state.inputPulse -= 1;
     state.getReadyTicks -= 1;

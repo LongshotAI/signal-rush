@@ -1,0 +1,165 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Admin — Signal Rush Ads</title>
+  <link rel="stylesheet" href="/portal/shared.css">
+</head>
+<body>
+  <div id="app"></div>
+
+  <script src="/portal/api.js"></script>
+  <script src="/portal/layout.js"></script>
+  <script>
+    (async function() {
+      if (!Layout.requireAuth()) return;
+
+      const app = document.getElementById('app');
+
+      app.innerHTML = Layout.renderShell({
+        title: 'Admin',
+        activePage: 'dashboard',
+        content: '<div class="empty-state"><div class="spinner"></div><p>Loading moderation queue…</p></div>'
+      });
+
+      try {
+        // Load all campaigns for admin view
+        const [allData, pendingData] = await Promise.all([
+          API.adminListCampaigns(),
+          API.adminListCampaigns('pending_review').catch(() => ({ campaigns: [] })),
+        ]);
+
+        const allCampaigns = allData?.campaigns || [];
+        const pendingCampaigns = pendingData?.campaigns || [];
+
+        function renderCampaignRow(c, showActions = false) {
+          return `
+            <tr>
+              <td><a href="/portal/campaign.html?id=${c.id}" class="font-medium">${Layout.escapeHtml(c.name)}</a></td>
+              <td>${Layout.escapeHtml(c.brand_name)}</td>
+              <td>${API.placementLabel(c.placement_type)}</td>
+              <td><span class="${API.statusClass(c.status)}"><span class="badge-dot"></span>${API.statusLabel(c.status)}</span></td>
+              <td>${API.formatCurrency(c.total_budget_micros)}</td>
+              <td>${API.formatDate(c.created_at)}</td>
+              ${showActions ? `
+                <td class="text-right">
+                  <button class="btn btn-primary btn-sm" onclick="approveCampaign('${c.id}')">Approve</button>
+                  <button class="btn btn-danger btn-sm" onclick="rejectCampaign('${c.id}')">Reject</button>
+                </td>
+              ` : ''}
+            </tr>
+          `;
+        }
+
+        const pendingRows = pendingCampaigns.length === 0
+          ? '<tr><td colspan="7"><div class="empty-state"><p>No campaigns pending review.</p></div></td></tr>'
+          : pendingCampaigns.map(c => renderCampaignRow(c, true)).join('');
+
+        const allRows = allCampaigns.length === 0
+          ? '<tr><td colspan="6"><div class="empty-state"><p>No campaigns found.</p></div></td></tr>'
+          : allCampaigns.map(c => renderCampaignRow(c, false)).join('');
+
+        const content = `
+          <div class="stats-grid mb-6">
+            <div class="stat-card">
+              <div class="stat-label">Total Campaigns</div>
+              <div class="stat-value">${API.formatNumber(allCampaigns.length)}</div>
+            </div>
+            <div class="stat-card">
+              <div class="stat-label">Pending Review</div>
+              <div class="stat-value" style="color: var(--warning)">${API.formatNumber(pendingCampaigns.length)}</div>
+            </div>
+            <div class="stat-card">
+              <div class="stat-label">Active</div>
+              <div class="stat-value" style="color: var(--success)">${API.formatNumber(allCampaigns.filter(c => c.status === 'active').length)}</div>
+            </div>
+          </div>
+
+          <!-- Pending Review -->
+          <div class="card mb-4">
+            <div class="card-header">
+              <div>
+                <div class="card-title">Pending Review</div>
+                <div class="card-subtitle">${pendingCampaigns.length} campaign${pendingCampaigns.length !== 1 ? 's' : ''} awaiting moderation</div>
+              </div>
+            </div>
+            <div class="table-wrapper">
+              <table>
+                <thead>
+                  <tr>
+                    <th>Campaign</th>
+                    <th>Brand</th>
+                    <th>Placement</th>
+                    <th>Status</th>
+                    <th>Budget</th>
+                    <th>Created</th>
+                    <th class="text-right">Actions</th>
+                  </tr>
+                </thead>
+                <tbody>${pendingRows}</tbody>
+              </table>
+            </div>
+          </div>
+
+          <!-- All Campaigns -->
+          <div class="card">
+            <div class="card-header">
+              <div class="card-title">All Campaigns</div>
+            </div>
+            <div class="table-wrapper">
+              <table>
+                <thead>
+                  <tr>
+                    <th>Campaign</th>
+                    <th>Brand</th>
+                    <th>Placement</th>
+                    <th>Status</th>
+                    <th>Budget</th>
+                    <th>Created</th>
+                  </tr>
+                </thead>
+                <tbody>${allRows}</tbody>
+              </table>
+            </div>
+          </div>
+        `;
+
+        app.innerHTML = Layout.renderShell({
+          title: 'Admin Moderation',
+          activePage: 'dashboard',
+          content
+        });
+
+        // Expose action functions globally for the inline onclick handlers
+        window.approveCampaign = async (id) => {
+          if (!confirm('Approve this campaign?')) return;
+          try {
+            await API.adminApproveCampaign(id);
+            window.location.reload();
+          } catch (err) {
+            alert(err.message);
+          }
+        };
+
+        window.rejectCampaign = async (id) => {
+          if (!confirm('Reject this campaign?')) return;
+          try {
+            await API.adminRejectCampaign(id);
+            window.location.reload();
+          } catch (err) {
+            alert(err.message);
+          }
+        };
+
+      } catch (err) {
+        app.innerHTML = Layout.renderShell({
+          title: 'Admin',
+          activePage: 'dashboard',
+          content: `<div class="alert alert-error">Failed to load admin data: ${err.message}</div>`
+        });
+      }
+    })();
+  </script>
+</body>
+</html>

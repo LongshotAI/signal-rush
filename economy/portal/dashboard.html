@@ -1,0 +1,123 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Dashboard — Signal Rush Ads</title>
+  <link rel="stylesheet" href="/portal/shared.css">
+</head>
+<body>
+  <div id="app"></div>
+
+  <script src="/portal/api.js"></script>
+  <script src="/portal/layout.js"></script>
+  <script>
+    (async function() {
+      if (!Layout.requireAuth()) return;
+
+      const app = document.getElementById('app');
+
+      // Show loading state
+      app.innerHTML = Layout.renderShell({
+        title: 'Dashboard',
+        activePage: 'dashboard',
+        content: '<div class="empty-state"><div class="spinner"></div><p>Loading campaigns…</p></div>'
+      });
+
+      try {
+        // Fetch campaigns and account info
+        const [campaignsData, accountData] = await Promise.all([
+          API.listCampaigns(50, 0),
+          API.getAccountInfo().catch(() => null),
+        ]);
+
+        const campaigns = campaignsData?.campaigns || [];
+        const total = campaignsData?.total || 0;
+        const account = accountData || API.getAccount();
+
+        // Compute summary stats
+        const activeCount = campaigns.filter(c => c.status === 'active').length;
+        const totalSpent = campaigns.reduce((sum, c) => sum + (c.spent_micros || 0), 0);
+        const totalImpressions = campaigns.reduce((sum, c) => sum + (c.impressions || 0), 0);
+
+        // Build campaign rows
+        const campaignRows = campaigns.length === 0
+          ? `<tr><td colspan="6"><div class="empty-state"><div class="empty-icon">🎯</div><h3>No campaigns yet</h3><p>Create your first campaign to start advertising in Signal Rush.</p><a href="/portal/campaign-new.html" class="btn btn-primary">Create Campaign</a></div></td></tr>`
+          : campaigns.map(c => `
+            <tr>
+              <td><a href="/portal/campaign.html?id=${c.id}" class="font-medium">${Layout.escapeHtml(c.name)}</a></td>
+              <td>${Layout.escapeHtml(c.brand_name)}</td>
+              <td><span class="${API.statusClass(c.status)}"><span class="badge-dot"></span>${API.statusLabel(c.status)}</span></td>
+              <td>${API.formatCurrency(c.spent_micros)}</td>
+              <td>${API.placementLabel(c.placement_type)}</td>
+              <td>${API.formatDate(c.created_at)}</td>
+            </tr>
+          `).join('');
+
+        const content = `
+          <!-- Stats Overview -->
+          <div class="stats-grid">
+            <div class="stat-card">
+              <div class="stat-label">Total Campaigns</div>
+              <div class="stat-value">${API.formatNumber(total)}</div>
+            </div>
+            <div class="stat-card">
+              <div class="stat-label">Active</div>
+              <div class="stat-value" style="color: var(--success)">${API.formatNumber(activeCount)}</div>
+            </div>
+            <div class="stat-card">
+              <div class="stat-label">Total Spent</div>
+              <div class="stat-value">${API.formatCurrency(totalSpent)}</div>
+            </div>
+            <div class="stat-card">
+              <div class="stat-label">Account Balance</div>
+              <div class="stat-value">${API.formatCurrency(account?.balance_micros)}</div>
+            </div>
+          </div>
+
+          <!-- Campaign Table -->
+          <div class="card">
+            <div class="card-header">
+              <div>
+                <div class="card-title">Campaigns</div>
+                <div class="card-subtitle">${total} campaign${total !== 1 ? 's' : ''} total</div>
+              </div>
+              <a href="/portal/campaign-new.html" class="btn btn-primary btn-sm">+ New Campaign</a>
+            </div>
+            <div class="table-wrapper">
+              <table>
+                <thead>
+                  <tr>
+                    <th>Campaign</th>
+                    <th>Brand</th>
+                    <th>Status</th>
+                    <th>Spent</th>
+                    <th>Placement</th>
+                    <th>Created</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  ${campaignRows}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        `;
+
+        app.innerHTML = Layout.renderShell({
+          title: 'Dashboard',
+          activePage: 'dashboard',
+          content
+        });
+
+      } catch (err) {
+        app.innerHTML = Layout.renderShell({
+          title: 'Dashboard',
+          activePage: 'dashboard',
+          content: `<div class="alert alert-error">Failed to load dashboard: ${err.message}</div>`
+        });
+      }
+    })();
+  </script>
+</body>
+</html>

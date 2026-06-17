@@ -1,0 +1,152 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>New Campaign — Signal Rush Ads</title>
+  <link rel="stylesheet" href="/portal/shared.css">
+</head>
+<body>
+  <div id="app"></div>
+
+  <script src="/portal/api.js"></script>
+  <script src="/portal/layout.js"></script>
+  <script>
+    (async function() {
+      if (!Layout.requireAuth()) return;
+
+      const app = document.getElementById('app');
+
+      const content = `
+        <div class="mb-6">
+          <a href="/portal/dashboard.html" class="text-sm text-muted">← Back to Dashboard</a>
+        </div>
+
+        <div class="card">
+          <div class="card-header">
+            <div>
+              <div class="card-title">Create New Campaign</div>
+              <div class="card-subtitle">Set up a new advertising campaign for Signal Rush</div>
+            </div>
+          </div>
+
+          <form id="campaignForm">
+            <div id="alertContainer"></div>
+
+            <div class="form-row">
+              <div class="form-group">
+                <label for="name">Campaign Name *</label>
+                <input type="text" id="name" placeholder="Summer Blast 2026" required>
+              </div>
+              <div class="form-group">
+                <label for="brandName">Brand Name *</label>
+                <input type="text" id="brandName" placeholder="Your Brand" required>
+              </div>
+            </div>
+
+            <div class="form-group">
+              <label for="placementType">Placement Type</label>
+              <select id="placementType">
+                <option value="hud_frame">HUD Frame — displayed during gameplay</option>
+                <option value="interstitial">Interstitial — shown between runs</option>
+                <option value="menu_banner">Menu Banner — shown in main menu</option>
+                <option value="game_over">Game Over — shown on game over screen</option>
+              </select>
+            </div>
+
+            <div class="form-row">
+              <div class="form-group">
+                <label for="dailyBudget">Daily Budget (micros)</label>
+                <input type="number" id="dailyBudget" value="0" min="0">
+                <p class="form-hint">0 = unlimited. 1,000,000 micros = $1.00</p>
+              </div>
+              <div class="form-group">
+                <label for="totalBudget">Total Budget (micros)</label>
+                <input type="number" id="totalBudget" value="0" min="0">
+                <p class="form-hint">0 = unlimited. Campaign auto-completes when exhausted.</p>
+              </div>
+            </div>
+
+            <div class="form-row">
+              <div class="form-group">
+                <label for="startDate">Start Date</label>
+                <input type="date" id="startDate">
+                <p class="form-hint">Leave blank to start immediately.</p>
+              </div>
+              <div class="form-group">
+                <label for="endDate">End Date</label>
+                <input type="date" id="endDate">
+                <p class="form-hint">Leave blank for no end date.</p>
+              </div>
+            </div>
+
+            <div class="flex gap-2 mt-4">
+              <button type="submit" class="btn btn-primary" id="submitBtn">Create Campaign</button>
+              <a href="/portal/dashboard.html" class="btn btn-secondary">Cancel</a>
+            </div>
+          </form>
+        </div>
+      `;
+
+      app.innerHTML = Layout.renderShell({
+        title: 'New Campaign',
+        activePage: 'campaigns',
+        content
+      });
+
+      // Form handler
+      const form = document.getElementById('campaignForm');
+      const alertContainer = document.getElementById('alertContainer');
+      const submitBtn = document.getElementById('submitBtn');
+
+      function showAlert(message, type = 'error') {
+        alertContainer.innerHTML = `<div class="alert alert-${type}">${message}</div>`;
+      }
+
+      form.addEventListener('submit', async (e) => {
+        e.preventDefault();
+        alertContainer.innerHTML = '';
+
+        const name = document.getElementById('name').value.trim();
+        const brandName = document.getElementById('brandName').value.trim();
+        const placementType = document.getElementById('placementType').value;
+        const dailyBudget = parseInt(document.getElementById('dailyBudget').value) || 0;
+        const totalBudget = parseInt(document.getElementById('totalBudget').value) || 0;
+        const startDate = document.getElementById('startDate').value || null;
+        const endDate = document.getElementById('endDate').value || null;
+
+        if (!name || !brandName) {
+          showAlert('Please fill in all required fields.');
+          return;
+        }
+
+        submitBtn.disabled = true;
+        submitBtn.innerHTML = '<span class="spinner"></span> Creating…';
+
+        try {
+          const data = await API.createCampaign({
+            name,
+            brand_name: brandName,
+            placement_type: placementType,
+            daily_budget_micros: dailyBudget,
+            total_budget_micros: totalBudget,
+            start_date: startDate,
+            end_date: endDate,
+          });
+
+          if (data.ok && data.campaign) {
+            window.location.href = `/portal/campaign.html?id=${data.campaign.id}`;
+          } else {
+            showAlert(data.error || 'Failed to create campaign.');
+          }
+        } catch (err) {
+          showAlert(err.message || 'Failed to create campaign.');
+        } finally {
+          submitBtn.disabled = false;
+          submitBtn.textContent = 'Create Campaign';
+        }
+      });
+    })();
+  </script>
+</body>
+</html>
