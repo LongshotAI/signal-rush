@@ -643,6 +643,14 @@ function stepAiHunt(engine, state, input) {
 function createEngine(options = {}) {
   const mode = options.mode || 'aiHunt';
   const seed = options.seed;
+  // RNG factory: controls whether reset() re-randomizes.
+  //   - seed provided: factory creates a fresh mulberry32 from the seed each
+  //     time, so reset() returns the engine to a deterministic starting point.
+  //   - rng provided: factory returns the same caller-managed instance, so
+  //     the caller controls RNG lifecycle. reset() does NOT re-randomize —
+  //     the engine's randomness is whatever the caller's RNG yields next.
+  //     This lets advanced users (e.g. distributed simulations, custom PRNGs)
+  //     keep full control.
   const rngFactory = options.rng
     ? () => options.rng
     : (seed != null ? () => createRNG(seed) : null);
