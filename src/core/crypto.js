@@ -1,32 +1,46 @@
 // Crypto utilities for Signal Rush anti-tamper.
 // Uses Node.js built-in crypto (no external deps).
 // Provides: HMAC signing for state file, run receipt verification.
+//
+// SECURITY MODEL — IMPORTANT
+// ──────────────────────────
+// This module provides INTEGRITY detection, not authentication.
+// The signing key is derived from a public, stable identifier
+// (homedir + username), which means:
+//
+//   ✅ Detects: casual file editing, accidental corruption, state file
+//      rollback, manual score inflation by the user themselves.
+//
+//   ❌ Does NOT detect: a determined attacker who knows your username
+//      (e.g., from Telegram). They can recompute the key and forge
+//      signatures. This is acceptable for the current single-machine,
+//      single-user game model.
+//
+// When credits gain real value, migrate to:
+//   - A real secret in the OS keychain (keytar, libsecret), OR
+//   - Server-authoritative verification (client submits receipt,
+//     server re-simulates and validates the claimed score).
 
 const crypto = require('node:crypto');
 
-// Derive a persistent signing key from a stable machine+user identifier.
-// This key is NOT secret — it's for integrity, not confidentiality.
-// Anyone with file access can verify, but can't forge without the key material.
+// Derive a non-secret signing key from a stable machine+user identifier.
+// Stable across runs (same homedir+username → same key) but NOT secret.
 function getSigningKey() {
   const machineId = crypto.createHash('sha256')
     .update(require('node:os').homedir() + ':' + require('node:os').userInfo().username)
     .digest();
-  // Use first 32 bytes as ed25519 seed
-  return machineId.subarray(0, 32);
+  return machineId.subarray(0, 32); // 32-byte HMAC key
 }
 
-// Generate a keypair from the derived seed (deterministic per machine/user)
-function getKeyPair() {
-  const seed = getSigningKey();
-  // Use crypto.generateKeyPairSync for ed25519 (Node 15+)
-  // For compatibility, we'll use HMAC-SHA256 with the seed as key
-  return seed; // raw 32-byte key for HMAC
+// Return the HMAC key. Named for historical reasons (was once a keypair
+// concept); now just returns the raw 32-byte key derived above.
+function getKey() {
+  return getSigningKey();
 }
 
 // Sign data with HMAC-SHA256 using the derived key
 function sign(data) {
-  const key = getKeyPair();
-  const hmac = crypto.createHmac('sha256', key);
+  const hmac = crypto.createHmac('sha256', getKey());
   hmac.update(data);
   return hmac.digest('hex');
 }

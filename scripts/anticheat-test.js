@@ -192,6 +192,23 @@ function testStateHashing() {
   console.log('  PASS');
 }
 
+function testSecurityModelDocumented() {
+  console.log('Testing: security model is explicitly documented...');
+  // Read the source file and check it has a SECURITY MODEL section
+  const fs = require('node:fs');
+  const path = require('node:path');
+  const source = fs.readFileSync(
+    path.join(__dirname, '..', 'src', 'core', 'crypto.js'),
+    'utf8'
+  );
+  assert(source.includes('SECURITY MODEL'), 'crypto.js should have a SECURITY MODEL section');
+  assert(source.includes('INTEGRITY') || source.includes('integrity'),
+    'SECURITY MODEL should mention integrity');
+  assert(source.includes('NOT') || source.includes('not'),
+    'SECURITY MODEL should note limitations');
+  console.log('  PASS');
+}
+
 // Run all tests
 console.log('\n=== Signal Rush Anti-Cheat Tests ===\n');
 
@@ -204,6 +221,7 @@ try {
   testRunReceiptTamperingDetected();
   testRecordRunWithReceipt();
   testStateHashing();
+  testSecurityModelDocumented();
   cleanup();
   console.log('\n✅ ALL ANTI-CHEAT TESTS PASSED');
 } catch (e) {
