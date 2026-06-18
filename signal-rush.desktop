@@ -1,0 +1,7 @@
+[Desktop Entry]
+Name=Signal Rush
+Comment=Signal Rush Terminal Arcade
+Exec=bash -c 'cd /home/hive/signal-rush && ECONOMY_URL=http://127.0.0.1:8720 node src/cli/index.js; echo "Game exited. Press Enter to close."; read'
+Terminal=true
+Type=Application
+Categories=Game;

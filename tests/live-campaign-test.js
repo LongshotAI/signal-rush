@@ -94,7 +94,7 @@ async function run() {
 
   await test('fetchActiveCampaigns: returns campaigns when service responds', async () => {
     await startMockServer((req, res) => {
-      if (req.url.startsWith('/portal/admin/campaigns')) {
+      if (req.url.startsWith('/api/game/campaigns')) {
         res.writeHead(200, { 'Content-Type': 'application/json' });
         res.end(JSON.stringify({
           ok: true,
@@ -285,7 +285,7 @@ async function run() {
     sponsors.setActiveCampaigns([]);
   });
 
-  await test('integration: setActiveCampaigns with empty array does not change active campaign', async () => {
+  await test('integration: setActiveCampaigns with empty array resets to default', async () => {
     // First set a live campaign
     sponsors.setActiveCampaigns([
       sponsors.apiCampaignToSponsor({ id: 'temp', name: 'Temp', brand_name: 'TempCo', placement_type: 'hud_frame' }),
@@ -293,11 +293,10 @@ async function run() {
     const before = sponsors.getActiveCampaign();
     assert(before.id === 'temp', `expected 'temp', got '${before.id}'`);
 
-    // Setting empty array should NOT change the active campaign
-    // (it's a no-op, not a reset — this is by design)
+    // Setting empty array should reset to static default
     sponsors.setActiveCampaigns([]);
     const after = sponsors.getActiveCampaign();
-    assert(after.id === 'temp', `expected 'temp' (unchanged), got '${after.id}'`);
+    assert(after.id === 'usp-x-temple-works', `expected 'usp-x-temple-works' (reset), got '${after.id}'`);
   });
 
   // ── 4. Backward Compatibility ─────────────────────────────────

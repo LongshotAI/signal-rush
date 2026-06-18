@@ -336,12 +336,21 @@ function validateCreativeContent(value, type) {
     if (!Array.isArray(value.lines) || value.lines.length === 0) {
       throw new Error('logo creative must have a non-empty "lines" array');
     }
-    if (value.lines.length > 8) {
-      throw new Error('logo must have 8 lines or fewer');
+    if (value.lines.length > 24) {
+      throw new Error('logo must have 24 lines or fewer');
     }
+    const ansiRe = /\x1b\[[0-9;]*m/g;
     for (const line of value.lines) {
-      if (typeof line !== 'string' || line.length > 40) {
-        throw new Error('each logo line must be a string of 40 characters or fewer');
+      if (typeof line !== 'string') {
+        throw new Error('each logo line must be a string');
+      }
+      // Validate visible width (excluding ANSI escape codes)
+      const visibleLen = line.replace(ansiRe, '').length;
+      if (visibleLen > 76) {
+        throw new Error('each logo line must be 76 visible characters or fewer');
+      }
+      if (visibleLen === 0) {
+        throw new Error('each logo line must not be empty');
       }
     }
   } else if (type === 'interstitial') {
@@ -354,9 +363,11 @@ function validateCreativeContent(value, type) {
   }
 
   const json = JSON.stringify(value);
-  if (json.length > 4096) {
-    throw new Error('creative content must be 4096 bytes or less when serialized');
-  }
+    // Logo creatives with ANSI art can be larger than text creatives
+    const maxBytes = type === 'logo' ? 8192 : 4096;
+    if (json.length > maxBytes) {
+      throw new Error(`creative content must be ${maxBytes} bytes or less when serialized`);
+    }
   return json;
 }
 
@@ -392,6 +403,75 @@ function validateStatusTransition(currentStatus, newStatus) {
   return newStatus;
 }
 
+/**
+ * Validate a redemption prompt string.
+ * 1-4000 chars. Must be non-empty after trim.
+ * @param {string} value
+ * @returns {string} The validated prompt (trimmed)
+ * @throws {Error} If invalid
+ */
+function validatePrompt(value, maxLength = 4000) {
+  if (typeof value !== 'string') {
+    throw new Error('prompt must be a string');
+  }
+  const trimmed = value.trim();
+  if (trimmed.length === 0) {
+    throw new Error('prompt is required');
+  }
+  if (trimmed.length > maxLength) {
+    throw new Error(`prompt must be ${maxLength} characters or less`);
+  }
+  return trimmed;
+}
+
+/**
+ * Validate a model name string.
+ * 1-128 chars. Alphanumeric + hyphens + dots + slashes.
+ * @param {string} value
+ * @returns {string} The validated model name (trimmed)
+ * @throws {Error} If invalid
+ */
+function validateModelName(value, maxLength = 128) {
+  if (typeof value !== 'string') {
+    throw new Error('model must be a string');
+  }
+  const trimmed = value.trim();
+  if (trimmed.length === 0) {
+    throw new Error('model is required');
+  }
+  if (trimmed.length > maxLength) {
+    throw new Error(`model must be ${maxLength} characters or less`);
+  }
+  if (!/^[a-zA-Z0-9._\-\/]+$/.test(trimmed)) {
+    throw new Error('model must contain only letters, numbers, dots, hyphens, and slashes');
+  }
+  return trimmed;
+}
+
+/**
+ * Validate a provider ID string.
+ * 1-64 chars. Lowercase alphanumeric + hyphens.
+ * @param {string} value
+ * @returns {string} The validated provider ID (trimmed, lowercased)
+ * @throws {Error} If invalid
+ */
+function validateProvider(value, maxLength = 64) {
+  if (typeof value !== 'string') {
+    throw new Error('provider must be a string');
+  }
+  const trimmed = value.trim().toLowerCase();
+  if (trimmed.length === 0) {
+    throw new Error('provider is required');
+  }
+  if (trimmed.length > maxLength) {
+    throw new Error(`provider must be ${maxLength} characters or less`);
+  }
+  if (!/^[a-z0-9\-]+$/.test(trimmed)) {
+    throw new Error('provider must contain only lowercase letters, numbers, and hyphens');
+  }
+  return trimmed;
+}
+
 module.exports = {
   validateUuid,
   validateDisplayName,
@@ -409,6 +489,9 @@ module.exports = {
   validateDateRange,
   validateCreativeContent,
   validateStatusTransition,
+  validatePrompt,
+  validateModelName,
+  validateProvider,
   UUID_RE,
   EMAIL_RE,
 };

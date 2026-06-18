@@ -11,7 +11,6 @@ const {
   buildAiHuntMissionBar,
   visibleLength,
   MENU_MODES,
-  PRESENTED_BY,
 } = require('../src/cli/render');
 const { applyMenuKey } = require('../src/cli/menuKeyHandler');
 const { GAME_CONFIG, getTickMsForMode } = require('../src/config/gameConfig');
@@ -571,18 +570,20 @@ function testMenuBrandingIncludesUSPTempleWorks() {
 
 function testMenuHasSignalRushTitle() {
   const out = renderMenuFrame(0, { colors: false });
-  assert(out.includes('S I G N A L'), 'menu should have spaced SIGNAL title');
-  assert(out.includes('R U S H'), 'menu should have spaced RUSH title');
+  // The menu uses the SGNLRUSH ASCII art logo (Unicode block characters)
+  // Check for the double-frame header and the block-drawing characters that form the logo
+  assert(out.includes('╔══'), 'menu should have double-line top border for logo area');
+  assert(out.includes('███████'), 'menu should have block-character ASCII logo');
   assert(out.includes('TERMINAL ARCADE'), 'menu subtitle should say TERMINAL ARCADE');
 }
 
 function testMenuHasPresentedByCallout() {
-  // When a sponsor campaign is active, the menu shows "SPONSORED BY" in the ad block
+  // When a sponsor campaign is active, the menu shows "SPONSORED BY: BRAND" in the separator line
   const { setActiveCampaigns, apiCampaignToSponsor } = require('../src/content/sponsors');
   setActiveCampaigns([apiCampaignToSponsor({ id: 'test-sponsor', name: 'Test', brand_name: 'TestCo', placement_type: 'hud_frame' })]);
   const out = renderMenuFrame(0, { colors: false });
-  assert(out.includes('S P O N S O R E D'), 'menu should have SPONSORED callout when sponsor is active');
-  assert(out.includes('S P O N S O R E D   B Y'), 'menu should have the full SPONSORED BY phrase');
+  assert(out.includes('SPONSORED BY'), 'menu should have SPONSORED BY when sponsor is active');
+  assert(out.includes('TESTCO'), 'menu should show the sponsor brand name');
   // Reset
   setActiveCampaigns([]);
 }
@@ -655,10 +656,8 @@ function testMenuHasFooterCopyright() {
 function testGameplayFrameIncludesPresentedByUSPTempleWorks() {
   const engine = createEngine();
   const frame = renderFrame(engine.state, { columns: 100, rows: 40 });
-  // ANSI-stripped substring search.
   const stripped = frame.replace(/\x1b\[[0-9;]*m/g, '');
-  assert(stripped.includes(PRESENTED_BY), `gameplay frame should include '${PRESENTED_BY}' line below the title`);
-  assert(stripped.includes('USP'), 'gameplay frame should include USP');
+  assert(stripped.includes('Presented by Temple Works'), 'gameplay frame should include sponsor label');
   assert(stripped.includes('Temple Works'), 'gameplay frame should include Temple Works');
 }
 
@@ -678,7 +677,7 @@ function testGameplayFrameFroggerModeShowsPresentedBy() {
   const stripped = frame.replace(/\x1b\[[0-9;]*m/g, '');
   // Mode is rebranded: was 'SIGNAL RUSH // FROGGER', now 'SIGNAL RUSH // PACKET HOP'.
   assert(stripped.includes('SIGNAL RUSH // PACKET HOP'), 'frogger gameplay title should be SIGNAL RUSH // PACKET HOP');
-  assert(stripped.includes(PRESENTED_BY), 'frogger gameplay frame should also show the presented-by line');
+  assert(stripped.includes('Presented by Temple Works'), 'frogger gameplay frame should also show the sponsor label');
 }
 
 // === MENU KEYPRESS HANDLER (redraw + guard) ===
@@ -735,8 +734,8 @@ function testMenuKeyDisplayIncludesWASDAndVimAlternatives() {
   // The on-screen menu controls should advertise the alternative keys
   // so the user knows they exist if arrows fail on their terminal.
   const out = renderMenuFrame(0, { colors: false });
-  assert(out.includes('W S'), 'menu controls should show WASD fallback');
-  assert(out.includes('K J'), 'menu controls should show vim fallback');
+  assert(out.includes('WS'), 'menu controls should show WASD fallback');
+  assert(out.includes('KJ'), 'menu controls should show vim fallback');
 }
 
 function testMenuKeyEnterSelectsMode() {

@@ -447,9 +447,10 @@ async function run() {
   });
 
   await test('creative: rejects logo with too many lines', async () => {
+    const tooManyLines = Array.from({ length: 17 }, (_, i) => String(i + 1));
     const res = await request('POST', `/portal/campaigns/${creativeCampaignId}/creatives`, {
       type: 'logo',
-      content: { lines: ['1', '2', '3', '4', '5', '6', '7', '8', '9'] },
+      content: { lines: tooManyLines },
     }, { Authorization: `Bearer ${advertiserApiKey}` });
     assert(res.status === 400, `expected 400, got ${res.status}`);
   });

@@ -12,6 +12,21 @@
 
 const http = require('http');
 
+// ─── Signal Rush Game Logo (always constant) ──────────────────────
+// Compact "SGNLRUSH" ASCII art — the game's identity mark.
+// Fits within 76-char inner width. NEVER replaced by sponsor content.
+const GAME_LOGO = [
+  '███████╗ ██████╗ ███╗   ██╗██╗     ██████╗ ██╗   ██╗███████╗██╗  ██╗',
+  '██╔════╝██╔════╝ ████╗  ██║██║     ██╔══██╗██║   ██║██╔════╝██║  ██║',
+  '███████╗██║  ███╗██╔██╗ ██║██║     ██████╔╝██║   ██║███████╗███████║',
+  '╚════██║██║   ██║██║╚██╗██║██║     ██╔══██╗██║   ██║╚════██║██╔══██║',
+  '███████║╚██████╔╝██║ ╚████║███████╗██║  ██║╚██████╔╝███████║██║  ██║',
+  '╚══════╝ ╚═════╝ ╚═╝  ╚═══╝╚══════╝╚═╝  ╚═╝ ╚═════╝ ╚══════╝╚═╝  ╚═╝',
+];
+
+// Compact version for HUD header during gameplay
+const GAME_LOGO_COMPACT = 'SIGNAL RUSH';
+
 const CAMPAIGNS = [
   {
     id: 'usp-x-temple-works',
@@ -21,6 +36,8 @@ const CAMPAIGNS = [
       'Powered by USP',
       'Built by Temple Works × USP',
     ],
+    // Default sponsor logo (used when no client campaign is active).
+    // Shown in the ad placement area, NOT in the game branding area.
     logoFull: [
       '██╗   ██╗███████╗██████╗ ',
       '██║   ██║██╔════╝██╔══██╗',
@@ -65,6 +82,13 @@ function getFullLogo() {
   return getActiveCampaign().logoFull;
 }
 
+// Game logo — always the Signal Rush game logo.
+// This is NEVER replaced by sponsor content. The top header of the menu
+// always shows the game's own branding.
+function getGameLogo() {
+  return GAME_LOGO;
+}
+
 function getInterstitial() {
   return getActiveCampaign().interstitial;
 }
@@ -77,13 +101,37 @@ function getCampaign() {
   return getActiveCampaign();
 }
 
+// ─── Developer Brand (always constant) ─────────────────────────────
+// The developer credit is separate from the sponsor. No matter which
+// campaign is active, the footer always reads "© 2026 USP × TEMPLE WORKS".
+const DEVELOPER = {
+  brand: 'USP × Temple Works',
+  spacedBrand: 'U S P   ×   T E M P L E   W O R K S',
+};
+
+function getDeveloper() {
+  return DEVELOPER;
+}
+
 function setActiveCampaigns(campaigns) {
   if (campaigns && campaigns.length > 0) {
-    activeCampaign = {
-      ...CAMPAIGNS[0],
-      ...campaigns[0],
-      rotatingLabels: campaigns[0].rotatingLabels || CAMPAIGNS[0].rotatingLabels,
-    };
+    const first = campaigns[0];
+    // Check if this is an API-format campaign (has creatives array)
+    // or an internal-format campaign (has logoFull directly)
+    if (first.creatives !== undefined) {
+      // API format — convert to internal sponsor format
+      activeCampaign = apiCampaignToSponsor(first);
+    } else {
+      // Internal format — merge with defaults
+      activeCampaign = {
+        ...CAMPAIGNS[0],
+        ...first,
+        rotatingLabels: first.rotatingLabels || CAMPAIGNS[0].rotatingLabels,
+      };
+    }
+  } else {
+    // Empty array or null → reset to static default
+    activeCampaign = null;
   }
 }
 
@@ -103,15 +151,16 @@ function getEconomyBaseUrl() {
 
 /**
  * Fetch active campaigns from the economy service.
- * @returns {Promise<object[]|null>} Array of campaign objects, or null on failure.
+ * Uses the /api/game/campaigns endpoint which includes approved creatives.
+ * @returns {Promise<object[]|null>} Array of campaign objects with creatives, or null on failure.
  */
 function fetchActiveCampaigns() {
   return new Promise((resolve) => {
-    const url = new URL(`${getEconomyBaseUrl()}/portal/admin/campaigns?status=active`);
+    const url = new URL(`${getEconomyBaseUrl()}/api/game/campaigns`);
     const req = http.request({
       hostname: url.hostname,
       port: url.port,
-      path: url.pathname + url.search,
+      path: url.pathname,
       method: 'GET',
       timeout: CAMPAIGN_FETCH_TIMEOUT_MS,
     }, (res) => {
@@ -137,30 +186,105 @@ function fetchActiveCampaigns() {
 }
 
 /**
+ * Generate a 3-line ASCII block letter from a single character.
+ * Used for live campaign logos when no custom ASCII art is uploaded.
+ * Covers A-Z with recognizable block-letter shapes.
+ */
+function generateLogoFromChar(ch) {
+  const logos = {
+    A: ['█▀█', '█▀█', '▀ ▀'],
+    B: ['█▀▄', '█▀▄', '▀▀ '],
+    C: ['█▀▀', '█  ', '▀▀▀'],
+    D: ['█▀▄', '█ █', '▀▀▀'],
+    E: ['█▀▀', '█▀▀', '▀▀▀'],
+    F: ['█▀▀', '█▀▀', '▀  '],
+    G: ['█▀▀', '█ █', '▀▀▀'],
+    H: ['█ █', '█▀█', '▀ ▀'],
+    I: ['▀█▀', ' █ ', '▀▀▀'],
+    J: ['  █', '█ █', '▀▀ '],
+    K: ['█ ▄', '█▀ ', '▀ ▀'],
+    L: ['█  ', '█  ', '▀▀▀'],
+    M: ['█▄█', '█ █', '▀ ▀'],
+    N: ['█▄█', '█ █', '▀ ▀'],
+    O: ['█▀█', '█ █', '▀▀▀'],
+    P: ['█▀█', '█▀▀', '▀  '],
+    Q: ['█▀█', '█ █', '▀▀█'],
+    R: ['█▀█', '█▀▄', '▀ ▀'],
+    S: ['█▀▀', '▀▀█', '▀▀▀'],
+    T: ['▀█▀', ' █ ', ' ▀ '],
+    U: ['█ █', '█ █', '▀▀▀'],
+    V: ['█ █', '█ █', ' ▀ '],
+    W: ['█ █', '█▄█', '▀ ▀'],
+    X: ['█ █', ' ▀ ', '▀ ▀'],
+    Y: ['█ █', ' ▀ ', ' ▀ '],
+    Z: ['▀▀█', ' ▄ ', '█▀▀'],
+  };
+  return logos[ch] || logos['S'];
+}
+
+/**
  * Convert an API campaign object to the internal sponsor format.
  * The economy service stores campaigns with different field names than
  * the game's internal format. This bridges the gap.
  */
 function apiCampaignToSponsor(apiCampaign) {
+  const brand = apiCampaign.brand_name || apiCampaign.name || 'Sponsor';
+  const firstChar = brand.charAt(0).toUpperCase();
+  // Extract uploaded creatives (if any) from the campaign data.
+  // creatives[] has { type: 'logo'|'label'|'interstitial', content: any }
+  const creatives = apiCampaign.creatives || [];
+  const logoCreative = creatives.find(c => c.type === 'logo');
+  const labelCreative = creatives.find(c => c.type === 'label');
+  const interstitialCreative = creatives.find(c => c.type === 'interstitial');
+
+  // Use uploaded logo art if available, otherwise generate from first letter.
+  // logoCreative.content can be:
+  //   - { lines: string[] } (from economy service creative upload)
+  //   - string[] (array of ASCII art lines, legacy)
+  //   - string (single-line logo, wrap in array)
+  let logoFull;
+  if (logoCreative) {
+    const lc = logoCreative.content;
+    if (lc && typeof lc === 'object' && !Array.isArray(lc) && Array.isArray(lc.lines)) {
+      logoFull = lc.lines; // economy service format: { lines: [...] }
+    } else if (Array.isArray(lc)) {
+      logoFull = lc; // legacy: direct array
+    } else {
+      logoFull = [String(lc)]; // fallback: wrap in array
+    }
+  } else {
+    logoFull = generateLogoFromChar(firstChar);
+  }
+
+  // Use uploaded compact logo if available
+  const logoCompact = labelCreative
+    ? (typeof labelCreative.content === 'string' ? labelCreative.content : labelCreative.content?.text || `[ ${brand} ]`)
+    : `[ ${brand} ]`;
+
+  // Use uploaded interstitial content if available
+  const interstitial = interstitialCreative
+    ? {
+        headline: interstitialCreative.content.headline || 'This run was powered by',
+        body: interstitialCreative.content.body || `${brand} — advertising in Signal Rush.`,
+        cta: interstitialCreative.content.cta || `Campaign: ${apiCampaign.name || 'Live'}`,
+      }
+    : {
+        headline: 'This run was powered by',
+        body: `${brand} — advertising in Signal Rush.`,
+        cta: `Campaign: ${apiCampaign.name || 'Live'}`,
+      };
+
   return {
     id: apiCampaign.id || 'live-campaign',
-    brand: apiCampaign.brand_name || apiCampaign.name || 'Sponsor',
+    brand,
     rotatingLabels: [
-      `Presented by ${apiCampaign.brand_name || 'Sponsor'}`,
-      `Powered by ${apiCampaign.brand_name || 'Sponsor'}`,
-      `${apiCampaign.brand_name || 'Sponsor'} — Signal Rush`,
+      `Presented by ${brand}`,
+      `Powered by ${brand}`,
+      `${brand} — Signal Rush`,
     ],
-    logoFull: [
-      '█▀█ █▀█ █▀█ █▀█',
-      '█▀▀ █▀▀ █▄█ █▄█',
-      '▀  ▀   ▀   ▀  ',
-    ],
-    logoCompact: `[ ${apiCampaign.brand_name || 'SPONSOR'} ]`,
-    interstitial: {
-      headline: 'This run was powered by',
-      body: `${apiCampaign.brand_name || 'Sponsor'} — advertising in Signal Rush.`,
-      cta: `Campaign: ${apiCampaign.name || 'Live'}`,
-    },
+    logoFull,
+    logoCompact,
+    interstitial,
     tagline: `Live campaign: ${apiCampaign.name || 'Active'}`,
     placements: [apiCampaign.placement_type || 'hud_frame'],
     frequencyCapTicks: 40,
@@ -192,6 +316,8 @@ const SPONSOR_CONTENT = {
 };
 
 module.exports = {
+  GAME_LOGO,
+  GAME_LOGO_COMPACT,
   CAMPAIGN,
   CAMPAIGNS,
   getActiveCampaign,
@@ -199,9 +325,11 @@ module.exports = {
   getLabel,
   getCompactLogo,
   getFullLogo,
+  getGameLogo,
   getInterstitial,
   getPresentedBy,
   getCampaign,
+  getDeveloper,
   setActiveCampaigns,
   fetchActiveCampaigns,
   apiCampaignToSponsor,

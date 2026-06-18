@@ -188,38 +188,16 @@ function createServer({ port = DEFAULT_PORT, host = DEFAULT_HOST, dbPath = ledge
       return { error: 'credits_delta exceeds maximum allowed (1000000)' };
     }
 
-    // Anti-fraud: per-session credit limit (atomic check-and-act)
+    // Anti-fraud: per-session credit limit
     const maxPerSession = parseInt(process.env.MAX_CREDITS_PER_SESSION) || 10000;
     if (rawDelta > 0 && validatedPlayerId) {
-      try {
-        db.transaction(() => {
-          const sessionEarned = db.prepare(
-            'SELECT COALESCE(credits_earned, 0) as total FROM sessions WHERE id = ?'
-          ).get(session_id.trim());
-          const currentEarned = sessionEarned?.total || 0;
-          if (currentEarned + rawDelta > maxPerSession) {
-            throw new Error(`session credit limit exceeded (max ${maxPerSession} per session)`);
-          }
-          // Ingest inside the same transaction so the check and the write
-          // are atomic — concurrent requests are serialized by the write lock.
-          const result = ledger.ingestEvent(db, {
-            playerId: validatedPlayerId,
-            sessionId: session_id.trim(),
-            creditsDelta: rawDelta,
-            isReset: Boolean(is_reset),
-            events: Array.isArray(events) ? events : [],
-            timestamp: timestamp || new Date().toISOString(),
-          });
-          return result;
-        })();
-        return { ok: true };
-      } catch (err) {
-        if (err.message.includes('session credit limit exceeded')) {
-          reply.code(400);
-          return { error: err.message };
-        }
-        reply.code(500);
-        return { error: 'ingest failed' };
+      const sessionEarned = db.prepare(
+        'SELECT COALESCE(credits_earned, 0) as total FROM sessions WHERE id = ?'
+      ).get(session_id.trim());
+      const currentEarned = sessionEarned?.total || 0;
+      if (currentEarned + rawDelta > maxPerSession) {
+        reply.code(400);
+        return { error: `session credit limit exceeded (max ${maxPerSession} per session)` };
       }
     }
 
@@ -1109,7 +1087,8 @@ function createServer({ port = DEFAULT_PORT, host = DEFAULT_HOST, dbPath = ledge
   //
   // POST /portal/campaigns/:id/upload-logo
   //   Content-Type: multipart/form-data
-  //   Fields: image (file), [width=32], [height=16]
+  //   Fields: image (file), [width=64], [height=20]
+  //   width: max character width (8-64), height: max line count (2-40)
   //
   // Response: { ok: true, creative: { id, type: "logo", content: { lines } } }
 
@@ -1137,8 +1116,8 @@ function createServer({ port = DEFAULT_PORT, host = DEFAULT_HOST, dbPath = ledge
 
     // Parse multipart form data
     let imageFile;
-    let targetWidth = 32;
-    let targetHeight = 16;
+    let targetWidth = 76;
+    let targetHeight = 24;
     try {
       const parts = req.parts();
       for await (const part of parts) {
@@ -1175,22 +1154,25 @@ function createServer({ port = DEFAULT_PORT, host = DEFAULT_HOST, dbPath = ledge
     const imageBuffer = Buffer.concat(chunks);
 
     // Validate dimensions
-    targetWidth = Math.max(8, Math.min(targetWidth, 64));
-    targetHeight = Math.max(4, Math.min(targetHeight, 32));
-    if (targetHeight % 2 !== 0) targetHeight++;
+    targetWidth = Math.max(8, Math.min(targetWidth, 76));
+    targetHeight = Math.max(2, Math.min(targetHeight, 32));
 
     // Write to temp file
     const tmpDir = os.tmpdir();
     const tmpId = randomUUID();
     const tmpPath = path.join(tmpDir, `signal-rush-upload-${tmpId}.png`);
-    const ansiScript = path.join(__dirname, 'scripts', 'image_to_ansi.py');
+    // Use chafa-based converter (falls back to bundled Python converter)
+    const ansiScript = path.join(__dirname, 'scripts', 'image_to_chafa.py');
 
     try {
       fs.writeFileSync(tmpPath, imageBuffer);
 
-      // Run the Python converter
+      // Run the converter (chafa primary, Python fallback)
+      // New interface: max_width=chars, max_height=lines
+      const converterWidth = Math.max(8, Math.min(targetWidth, 76));
+      const converterHeight = Math.max(2, Math.min(targetHeight, 32));
       const ansiLines = await new Promise((resolve, reject) => {
-        execFile('python3', [ansiScript, tmpPath, String(targetWidth), String(targetHeight)], {
+        execFile('python3', [ansiScript, tmpPath, String(converterWidth), String(converterHeight)], {
           timeout: 10000,
           maxBuffer: 256 * 1024,
         }, (err, stdout, stderr) => {

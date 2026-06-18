@@ -160,3 +160,71 @@ CREATE INDEX IF NOT EXISTS idx_campaigns_advertiser ON campaigns(advertiser_id);
 CREATE INDEX IF NOT EXISTS idx_campaigns_status ON campaigns(status);
 CREATE INDEX IF NOT EXISTS idx_creatives_campaign ON creatives(campaign_id);
 CREATE INDEX IF NOT EXISTS idx_creatives_status ON creatives(status);
+
+-- ─── Token Redemption Tables (Phase 2) ─────────────────────────────
+-- Players redeem earned credits for AI API calls via external providers.
+-- All redemption operations are atomic: credits deducted + redemption record
+-- created in a single transaction. Idempotency keys prevent double-spend.
+
+-- Token redemption requests
+CREATE TABLE IF NOT EXISTS redemptions (
+  id              TEXT PRIMARY KEY,
+  player_id       TEXT NOT NULL REFERENCES players(id),
+  provider        TEXT NOT NULL,
+  amount_micros   INTEGER NOT NULL CHECK(amount_micros > 0),
+  model           TEXT NOT NULL DEFAULT 'gpt-4o-mini',
+  prompt          TEXT NOT NULL,
+  response        TEXT,
+  status          TEXT NOT NULL DEFAULT 'pending' CHECK(status IN ('pending', 'completed', 'failed', 'refunded')),
+  idempotency_key TEXT UNIQUE NOT NULL,
+  provider_ref    TEXT,
+  provider_response TEXT,
+  created_at      TEXT NOT NULL DEFAULT (datetime('now')),
+  completed_at    TEXT
+);
+
+CREATE INDEX IF NOT EXISTS idx_redemptions_player ON redemptions(player_id);
+CREATE INDEX IF NOT EXISTS idx_redemptions_status ON redemptions(status);
+CREATE INDEX IF NOT EXISTS idx_redemptions_idempotency ON redemptions(idempotency_key);
+CREATE INDEX IF NOT EXISTS idx_redemptions_created ON redemptions(created_at DESC);
+
+-- Per-provider token spend tracking (denormalized for fast reads)
+CREATE TABLE IF NOT EXISTS token_balances (
+  player_id       TEXT NOT NULL REFERENCES players(id),
+  provider        TEXT NOT NULL,
+  total_redeemed  INTEGER NOT NULL DEFAULT 0,
+  total_spent     INTEGER NOT NULL DEFAULT 0,
+  updated_at      TEXT NOT NULL DEFAULT (datetime('now')),
+  PRIMARY KEY (player_id, provider)
+);
+
+CREATE INDEX IF NOT EXISTS idx_token_balances_player ON token_balances(player_id);
+
+-- Provider configuration (non-secret only; API keys in env vars)
+CREATE TABLE IF NOT EXISTS providers (
+  id              TEXT PRIMARY KEY,
+  display_name    TEXT NOT NULL,
+  enabled         INTEGER NOT NULL DEFAULT 1 CHECK(enabled IN (0, 1)),
+  credit_rate     INTEGER NOT NULL DEFAULT 1000,
+  min_redemption  INTEGER NOT NULL DEFAULT 100,
+  max_redemption  INTEGER NOT NULL DEFAULT 100000,
+  created_at      TEXT NOT NULL DEFAULT (datetime('now')),
+  updated_at      TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
+-- Redemption audit log (append-only)
+CREATE TABLE IF NOT EXISTS redemption_audit (
+  id              TEXT PRIMARY KEY,
+  redemption_id   TEXT NOT NULL REFERENCES redemptions(id),
+  player_id       TEXT NOT NULL,
+  action          TEXT NOT NULL CHECK(action IN ('created', 'completed', 'failed', 'refunded')),
+  detail          TEXT,
+  created_at      TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
+CREATE INDEX IF NOT EXISTS idx_redemption_audit_redemption ON redemption_audit(redemption_id);
+CREATE INDEX IF NOT EXISTS idx_redemption_audit_player ON redemption_audit(player_id);
+
+-- ─── Seed: ppq.ai provider ──────────────────────────────────────────
+INSERT OR IGNORE INTO providers (id, display_name, enabled, credit_rate, min_redemption, max_redemption)
+VALUES ('ppq', 'ppq.ai', 1, 1000, 100, 100000);

@@ -26,6 +26,8 @@ const COLORS = {
 };
 
 const ANSI_RE = /\x1b\[[0-9;]*m/g;
+// Broader ANSI regex that also covers cursor control sequences like \x1b[?25l/h
+const ANSI_RE_FULL = /\x1b\[[\x30-\x3F]*[\x20-\x2F]*[\x40-\x7E]/g;
 
 // PRESENTED_BY is derived from sponsors.js (single source of truth).
 // Uses a getter so it reflects live campaign changes after startup fetch.
@@ -38,7 +40,7 @@ function getFroggerSecondsDivisor() {
 }
 
 function visibleLength(s) {
-  return s.replace(ANSI_RE, '').length;
+  return s.replace(ANSI_RE_FULL, '').length;
 }
 
 function paint(code, char, options = {}) {
@@ -259,7 +261,7 @@ function buildStatus(state, options = {}) {
   if (state.inputPulse > 0) {
     return { text: 'INPUT LIVE', color: COLORS.bold + COLORS.cyan, paint: p };
   }
-  return { text: 'LIVE', color: COLORS.dim + COLORS.white, paint: p };
+  return { text: 'LIVE', color: COLORS.bold + COLORS.green, paint: p };
 }
 
 function buildHudLeft(state, options = {}) {
@@ -287,7 +289,8 @@ function buildHudLeft(state, options = {}) {
   return (
     `${p(COLORS.dim, 'SCORE')} ${p(COLORS.bold + COLORS.yellow, String(state.score))}` +
     `   ${p(COLORS.dim, 'CHAIN')} ${p(COLORS.bold + COLORS.yellow, 'x' + state.combo.toFixed(1))}` +
-    `   ${p(COLORS.dim, 'HP')} ${p(hpColor, String(hpValue) + '/' + GAME_CONFIG.startHealth)}`
+    `   ${p(COLORS.dim, 'HP')} ${p(hpColor, String(hpValue) + '/' + GAME_CONFIG.startHealth)}` +
+    `   ${p(COLORS.dim, 'BEST')} ${p(COLORS.bold + COLORS.yellow, String(state.bestScore))}`
   );
 }
 
@@ -302,16 +305,15 @@ function buildHudRight(state, options = {}) {
     );
   }
   const dashText = state.dashCooldown === 0
-    ? p(COLORS.bold + COLORS.green, 'READY')
+    ? p(COLORS.bold + COLORS.green, 'RDY')
     : p(COLORS.dim, String(state.dashCooldown));
   const riskText = state.nearMissStreak > 0
-    ? `   ${p(COLORS.dim, 'RISK')} ${p(COLORS.bold + COLORS.magenta, 'x' + state.nearMissStreak)}`
+    ? ` ${p(COLORS.dim, 'RK')} ${p(COLORS.bold + COLORS.magenta, 'x' + state.nearMissStreak)}`
     : '';
   return (
     `${p(COLORS.dim, 'DASH')} ${dashText}` +
     riskText +
-    `   ${p(COLORS.dim, 'CREDITS')} ${p(COLORS.bold + COLORS.yellow, String(state.credits))}` +
-    `   ${p(COLORS.dim, 'BEST')} ${p(COLORS.bold + COLORS.yellow, String(state.bestScore))}`
+    ` ${p(COLORS.dim, 'CR')} ${p(COLORS.bold + COLORS.yellow, String(state.credits))}`
   );
 }
 
@@ -395,14 +397,12 @@ function renderFrame(state, viewport = { columns: 100, rows: 40 }, options = {})
   const status = buildStatus(state, options);
   const statusText = p(status.color, status.text);
 
-  const paddingWidth = Math.max(0, shellWidth - visibleLength(hudLeft) - visibleLength(hudRight) - visibleLength(statusText) - 6);
-  const combinedHud = `${padRight(hudLeft, paddingWidth + visibleLength(hudLeft))}   ${hudRight}   ${statusText}`;
+  const paddingWidth = Math.max(0, shellWidth - visibleLength(hudLeft) - visibleLength(hudRight) - visibleLength(statusText) - 4);
+  const combinedHud = padRight(hudLeft, paddingWidth + visibleLength(hudLeft)) + '  ' + hudRight + '  ' + statusText;
 
   const lines = [];
   lines.push(title);
-  // Compact ASCII logo in the HUD header — visible during gameplay
-  lines.push(center(p(COLORS.bold + COLORS.yellow, getCompactLogo()), shellWidth));
-  lines.push(center(p(COLORS.dim + COLORS.cyan, getPresentedBy()), shellWidth));
+  // Sponsor label — single line, compact, non-redundant
   lines.push(sponsor);
   lines.push(repeat('=', shellWidth));
   lines.push(combinedHud);
@@ -449,14 +449,14 @@ function renderFrame(state, viewport = { columns: 100, rows: 40 }, options = {})
     lines.push(center(p(COLORS.bold + COLORS.yellow, readyText), shellWidth));
   }
 
-  lines.push('');
-  lines.push(center(state.message, shellWidth));
+  lines.push(' ');
+  lines.push(center(p(COLORS.bold + COLORS.yellow, state.message), shellWidth));
   if (state.mode === 'frogger') {
     lines.push(center(p(COLORS.dim, 'FROG=F  LOG==  WATER=~  CAR=><  HOME=_  FILLED=F  GRASS=.'), shellWidth));
     lines.push(center(p(COLORS.dim, 'MOVE WASD/ARROWS | PAUSE P | RESTART R | QUIT Q'), shellWidth));
   } else {
-    lines.push(center(p(COLORS.dim, 'SHIP=A  MOVE=#  INPUT=W  TRAIL=:-|  WARNING=!  ENEMY=o  HEAVY=X  SIGNAL=$'), shellWidth));
-    lines.push(center(p(COLORS.dim, 'MOVE WASD/ARROWS | DASH SPACE | RESTART R | PAUSE P | QUIT Q'), shellWidth));
+    lines.push(center(p(COLORS.dim + COLORS.white, 'SHIP=A  MOVE=#  INPUT=W  TRAIL=:-|  WARNING=!  ENEMY=o  HEAVY=X  SIGNAL=$'), shellWidth));
+    lines.push(center(p(COLORS.dim + COLORS.cyan, 'MOVE WASD/ARROWS | DASH SPACE | RESTART R | PAUSE P | QUIT Q'), shellWidth));
   }
 
   if (state.gameOver) {
@@ -677,11 +677,11 @@ const MENU_MODES = ['aiHunt', 'frogger'];
 function renderMenuFrame(selection = 0, options = {}) {
   const p = (code, ch) => paint(code, ch, options);
   const outerWidth = 78;
-  const innerWidth = outerWidth - 2;  // for the ┃ borders
+  const innerWidth = outerWidth - 2;
   const selectedMode = MENU_MODES[selection] || 'aiHunt';
   const modeLabels = {
     aiHunt:  'AI HUNT MODE',
-    frogger: 'PACKET HOP MODE',  // rebranded: was 'FROGGER MODE'
+    frogger: 'PACKET HOP MODE',
   };
   const modeSubtitles = {
     aiHunt:  'survival arcade with homing hazards',
@@ -704,7 +704,6 @@ function renderMenuFrame(selection = 0, options = {}) {
   const dblTopBorder = '╔' + dbar + '╗';
   const dblBotBorder = '╚' + dbar + '╝';
 
-  // Pad a content string to the inner width and wrap it in a ┃ border.
   function framed(content) {
     const vlen = visibleLength(content);
     const pad = Math.max(0, innerWidth - vlen);
@@ -722,7 +721,6 @@ function renderMenuFrame(selection = 0, options = {}) {
     const pad = Math.max(0, innerWidth - vlen);
     return '║' + content + repeat(' ', pad) + '║';
   }
-  // Same as dblFramed but centers the content within the frame.
   function dblFramedCentered(content) {
     const vlen = visibleLength(content);
     const totalPad = Math.max(0, innerWidth - vlen);
@@ -731,17 +729,53 @@ function renderMenuFrame(selection = 0, options = {}) {
     return '║' + repeat(' ', left) + content + repeat(' ', right) + '║';
   }
 
+  // ── Build sponsor block (integrated, compact, with logo) ──
+  const campaign = getActiveCampaign();
+  const isSponsorActive = campaign && campaign.id !== 'usp-x-temple-works';
+  let sponsorLines = null;
+  if (isSponsorActive) {
+    const sponsorBrand = campaign.brand.toUpperCase();
+    const lines = [];
+    // Sponsor's ASCII logo (from uploaded image) — centered, preserve ANSI colors
+    const sponsorLogo = campaign.logoFull;
+    if (sponsorLogo && Array.isArray(sponsorLogo)) {
+      // Find last non-empty line
+      let lastNonEmpty = sponsorLogo.length - 1;
+      while (lastNonEmpty > 0) {
+        const vis = sponsorLogo[lastNonEmpty].replace(/\x1b\[[0-9;]*m/g, '').trim();
+        if (vis) break;
+        lastNonEmpty--;
+      }
+      // Only show logo if it fits within ~12 lines (keep total sponsor area compact)
+      const maxLogoLines = 12;
+      const logoStart = 0;
+      const logoEnd = Math.min(lastNonEmpty, logoStart + maxLogoLines - 1);
+      for (let i = logoStart; i <= logoEnd; i++) {
+        const logoLine = sponsorLogo[i];
+        const vis = logoLine.replace(/\x1b\[[0-9;]*m/g, '').trim();
+        if (!vis) continue;
+        if (hasAnsi(logoLine)) {
+          lines.push(dblFramedCentered(logoLine));
+        } else {
+          lines.push(dblFramedCentered(p(COLORS.bold + COLORS.white, logoLine)));
+        }
+      }
+    }
+    // "SPONSORED BY BRAND" label line
+    const label = ' SPONSORED BY ' + sponsorBrand + ' ';
+    const labelLen = label.length;
+    const sideLen = Math.max(0, Math.floor((innerWidth - labelLen) / 2));
+    const leftSide = repeat('═', sideLen);
+    const rightSide = repeat('═', innerWidth - labelLen - sideLen);
+    lines.push('╠' + leftSide + p(COLORS.dim + COLORS.yellow, label) + rightSide + '╣');
+    sponsorLines = lines;
+  }
+
   const out = [];
-  // ── Top branding block — game identity (never replaced by ads) ──
+
+  // ── Header: SGNLRUSH ASCII logo ──
   out.push(dblTopBorder);
   out.push(dblFramed(''));
-  out.push(dblFramedCentered(
-    p(COLORS.bold + COLORS.cyan, 'S I G N A L    R U S H') +
-    '   ' +
-    p(COLORS.dim + COLORS.cyan, '// TERMINAL ARCADE')
-  ));
-  out.push(dblFramed(''));
-  // Game's own ASCII art logo — always shown, never replaced by ads
   const gameLogo = getGameLogo();
   for (const logoLine of gameLogo) {
     if (hasAnsi(logoLine)) {
@@ -753,55 +787,16 @@ function renderMenuFrame(selection = 0, options = {}) {
   out.push(dblFramed(''));
   out.push(dblBotBorder);
 
-  // ── Ad block — compact sponsor placement ───────────────────────
-  // Only shown when there's an active sponsor campaign
-  const campaign = getActiveCampaign();
-  const isSponsorActive = campaign && campaign.id !== 'usp-x-temple-works';
-  if (isSponsorActive) {
-    out.push(sepBorder);
-    out.push(framed(''));
-    // "SPONSORED BY" label
-    out.push(framedCentered(
-      p(COLORS.dim + COLORS.white, '—  S P O N S O R E D   B Y  —')
-    ));
-    out.push(framed(''));
-    // Advertiser's ASCII art logo — preserve their uploaded colors
-    // Skip empty/trailing lines for cleaner presentation
-    const sponsorLogo = campaign.logoFull;
-    if (sponsorLogo && Array.isArray(sponsorLogo)) {
-      // Find the last non-empty line to avoid trailing blank lines
-      let lastNonEmpty = sponsorLogo.length - 1;
-      while (lastNonEmpty > 0) {
-        const visible = sponsorLogo[lastNonEmpty].replace(/\x1b\[[0-9;]*m/g, '').trim();
-        if (visible) break;
-        lastNonEmpty--;
-      }
-      for (let i = 0; i <= lastNonEmpty; i++) {
-        const logoLine = sponsorLogo[i];
-        const visible = logoLine.replace(/\x1b\[[0-9;]*m/g, '').trim();
-        if (!visible) continue; // Skip empty lines
-        if (hasAnsi(logoLine)) {
-          out.push(framedCentered(logoLine));
-        } else {
-          out.push(framedCentered(p(COLORS.bold + COLORS.white, logoLine)));
-        }
-      }
-      out.push(framed(''));
+  // ── Sponsor: compact logo + label (if active) ──
+  if (sponsorLines) {
+    for (const line of sponsorLines) {
+      out.push(line);
     }
-    // Sponsor brand name — clean text, not pixel art
-    const sponsorBrand = campaign.brand.toUpperCase();
-    const spacedSponsor = sponsorBrand.split('').join(' ');
-    out.push(framedCentered(
-      p(COLORS.bold + COLORS.yellow, '★  ') +
-      p(COLORS.bold + COLORS.white, spacedSponsor) +
-      p(COLORS.bold + COLORS.yellow, '  ★')
-    ));
-    out.push(framed(''));
-    out.push(botBorder);
+  } else {
+    out.push(sepBorder);
   }
 
   // ── Mode selector ───────────────────────────────────────────────
-  out.push(sepBorder);
   out.push(framed(''));
   out.push(framed(
     p(COLORS.bold + COLORS.cyan, 'SELECT MODE') +
@@ -812,7 +807,6 @@ function renderMenuFrame(selection = 0, options = {}) {
 
   // Render the mode list and the mini preview as parallel columns.
   const previewLines = buildMiniArenaPreview(selectedMode, options);
-  // Mode list lines (we show both options, the selected one with a cursor + highlight).
   const labelFor = (i) => {
     const isSelected = i === selection;
     const tag = isSelected
@@ -826,21 +820,14 @@ function renderMenuFrame(selection = 0, options = {}) {
   const modeLine0 = labelFor(0);
   const modeLine1 = labelFor(1);
 
-  // Build the side-by-side rows: each row has [preview] + [mode list fragment].
-  const leftCol  = '  ' + p(COLORS.dim + COLORS.white, '▌');   // left rail with thin bar
-  const middle   = ' ';                                          // gap between preview and mode list
+  const leftCol  = '  ';
+  const middle   = '  ';
   const rows = [];
-  // Row 0: top of preview + mode line 0
   rows.push(framed(leftCol + previewLines[0] + middle + modeLine0.tag));
-  // Row 1: row 1 of preview + mode line 0 subtitle
   rows.push(framed(leftCol + previewLines[1] + middle + modeLine0.sub));
-  // Row 2: row 2 of preview + blank
   rows.push(framed(leftCol + previewLines[2] + middle));
-  // Row 3: row 3 of preview + mode line 1 (with cursor)
   rows.push(framed(leftCol + previewLines[3] + middle + modeLine1.tag));
-  // Row 4: row 4 of preview + mode line 1 subtitle
   rows.push(framed(leftCol + previewLines[4] + middle + modeLine1.sub));
-  // Rows 5..end: rest of preview
   for (let y = 5; y < previewLines.length; y += 1) {
     rows.push(framed(leftCol + previewLines[y] + middle));
   }
@@ -854,7 +841,6 @@ function renderMenuFrame(selection = 0, options = {}) {
     p(COLORS.bold + COLORS.cyan, modeLabels[selectedMode])
   ));
   out.push(framed(''));
-  // Word-wrap the tagline into lines that fit.
   const tagline = modeTaglines[selectedMode];
   const taglineLines = wrapText(tagline, innerWidth - 4);
   for (const line of taglineLines) {
@@ -865,23 +851,23 @@ function renderMenuFrame(selection = 0, options = {}) {
   out.push(framed(''));
   out.push(botBorder);
 
-  // Controls + footer (under the framed block).
+  // Controls + footer
   out.push('');
   out.push(center(
-    p(COLORS.bold + COLORS.cyan, '↑ ↓') + p(COLORS.dim, '  /  ') +
-    p(COLORS.bold + COLORS.cyan, 'W S') + p(COLORS.dim, '  /  ') +
-    p(COLORS.bold + COLORS.cyan, 'K J') + p(COLORS.dim, '  select     ') +
-    p(COLORS.bold + COLORS.cyan, 'ENTER') + p(COLORS.dim, '  launch     ') +
-    p(COLORS.bold + COLORS.cyan, 'Q') + p(COLORS.dim, '  quit'),
+    p(COLORS.bold + COLORS.cyan, '↑↓') + p(COLORS.dim, ' / ') +
+    p(COLORS.bold + COLORS.cyan, 'WS') + p(COLORS.dim, ' / ') +
+    p(COLORS.bold + COLORS.cyan, 'KJ') + p(COLORS.dim, ' select  ') +
+    p(COLORS.bold + COLORS.cyan, 'ENTER') + p(COLORS.dim, ' launch  ') +
+    p(COLORS.bold + COLORS.cyan, 'Q') + p(COLORS.dim, ' quit'),
     outerWidth + 4
   ));
   out.push(center(
-    p(COLORS.dim, 'Game controls:  ') +
-    p(COLORS.bold + COLORS.white, 'WASD/arrows') + p(COLORS.dim, '  move   ') +
-    p(COLORS.bold + COLORS.white, 'SPACE') + p(COLORS.dim, '  dash   ') +
-    p(COLORS.bold + COLORS.white, 'P') + p(COLORS.dim, '  pause   ') +
-    p(COLORS.bold + COLORS.white, 'R') + p(COLORS.dim, '  restart   ') +
-    p(COLORS.bold + COLORS.white, 'M') + p(COLORS.dim, '  menu'),
+    p(COLORS.dim, 'Game: ') +
+    p(COLORS.bold + COLORS.white, 'WASD') + p(COLORS.dim, ' move  ') +
+    p(COLORS.bold + COLORS.white, 'SPACE') + p(COLORS.dim, ' dash  ') +
+    p(COLORS.bold + COLORS.white, 'P') + p(COLORS.dim, ' pause  ') +
+    p(COLORS.bold + COLORS.white, 'R') + p(COLORS.dim, ' restart  ') +
+    p(COLORS.bold + COLORS.white, 'M') + p(COLORS.dim, ' menu'),
     outerWidth + 4
   ));
   out.push('');
@@ -889,7 +875,7 @@ function renderMenuFrame(selection = 0, options = {}) {
     p(COLORS.dim + COLORS.white, '© 2026 ') +
     p(COLORS.bold + COLORS.white, getDeveloper().spacedBrand) +
     p(COLORS.dim + COLORS.white, '   //   ') +
-    p(COLORS.dim + COLORS.cyan, 'SIGNAL RUSH TERMINAL ARCADE'),
+    p(COLORS.bold + COLORS.cyan, 'SIGNAL RUSH TERMINAL ARCADE'),
     outerWidth + 4
   ));
 

@@ -19,7 +19,7 @@
 // input. It only renders.
 
 const { GAME_CONFIG, getTickMsForMode } = require('../config/gameConfig');
-const { SPONSOR_CONTENT, getCompactLogo } = require('../content/sponsors');
+const { getCompactLogo, getFullLogo, getGameLogo } = require('../content/sponsors');
 
 const COLORS = {
   reset:   '\x1b[0m',

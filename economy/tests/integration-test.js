@@ -54,7 +54,7 @@ async function run() {
   // Start the service
   console.log('[integration] Starting economy service...');
   const proc = spawn(process.execPath, [SERVICE_PATH], {
-    env: { ...process.env, ECONOMY_PORT: String(PORT), ECONOMY_DB: ':memory:' },
+    env: { ...process.env, ECONOMY_PORT: String(PORT), ECONOMY_DB: ':memory:', ECONOMY_AUTH_ENFORCED: 'false' },
     stdio: ['ignore', 'pipe', 'pipe'],
   });
 

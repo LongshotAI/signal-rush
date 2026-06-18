@@ -330,11 +330,22 @@ function start() {
   // Fire-and-forget: if the service is down or slow, the static CAMPAIGNS
   // fallback is already in place. The fetch resolves async and updates
   // the active campaign for all subsequent renders.
+  //
+  // Only campaigns with at least one approved logo creative uploaded will
+  // override the static USP × Temple Works fallback. This ensures the
+  // game always shows a polished sponsor experience — no generic block
+  // letters, no placeholder text.
   if (!isDemo) {
     fetchActiveCampaigns().then((campaigns) => {
       if (campaigns && campaigns.length > 0) {
-        const sponsorData = campaigns.map((c) => apiCampaignToSponsor(c));
-        setActiveCampaigns(sponsorData);
+        // Filter to campaigns with logo creatives BEFORE converting.
+        const withLogos = campaigns.filter(c =>
+          c.creatives && c.creatives.some(cr => cr.type === 'logo')
+        );
+        if (withLogos.length > 0) {
+          const sponsorData = withLogos.map((c) => apiCampaignToSponsor(c));
+          setActiveCampaigns(sponsorData);
+        }
       }
     }).catch(() => {
       // Static fallback already in place — nothing to do.
