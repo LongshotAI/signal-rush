@@ -18,44 +18,29 @@ logs/
 # Build / dist artifacts
 dist/
 build/
-out/
-*.tsbuildinfo
 
-# Editor / OS
+# System / OS files
 .DS_Store
 Thumbs.db
+
+# Debian packages — never commit .deb files
+*.deb
+
+# Python cache
+__pycache__/
+*.pyc
+*.pyo
+
+# Shared libraries — never commit .so files
+*.so
+*.so.*
+
+# IDE
 .idea/
 .vscode/
 *.swp
 *.swo
-*~
 
-# Coverage / test
-coverage/
-.nyc_output/
-*.lcov
-
-# Local state (never publish)
-*.bak
-*.bak_*
+# Temp files
 *.tmp
-*.orig
-*~
-.cache/
-.turbo/
-
-# Signal Rush runtime data (never commit — contains player balances, transaction history, PII)
-# Economy database files (in economy/ dir for tests, and ~/.signal-rush/ at runtime)
-economy/economy.db
-economy/economy.db-*
-
-# Player identity and event queue (local-only)
-player.json
-event-queue.json
-
-# OpenClaw / agent-forge workspace state
-.openclaw-state/
-sessions/
-memory/
-.dreams/
-*.jsonl
+*.bak
