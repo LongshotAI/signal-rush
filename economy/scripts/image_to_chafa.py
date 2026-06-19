@@ -146,6 +146,14 @@ def convert_with_chafa(img_path, max_width=76, max_height=16):
             result.append(re.sub(r'\x1b\[[0-9;?]*[a-zA-Z]', '', tail))
             return ''.join(result)
         lines = [_strip_non_color(l) for l in lines]
+        # Remove lines that are empty after stripping non-color ANSI
+        # (e.g. lines that only contained \x1b[0m reset sequences)
+        lines = [l for l in lines if l.strip()]
+        # Also remove leading/trailing blank lines for clean logo output
+        while lines and not lines[0].strip():
+            lines.pop(0)
+        while lines and not lines[-1].strip():
+            lines.pop()
         return lines if lines else None
 
     except (subprocess.TimeoutExpired, FileNotFoundError, OSError):

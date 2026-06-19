@@ -364,7 +364,8 @@ function validateCreativeContent(value, type) {
 
   const json = JSON.stringify(value);
     // Logo creatives with ANSI art can be larger than text creatives
-    const maxBytes = type === 'logo' ? 8192 : 4096;
+    // 24-bit Braille logos at 76x24 with per-char color need ~15KB
+    const maxBytes = type === 'logo' ? 32768 : 4096;
     if (json.length > maxBytes) {
       throw new Error(`creative content must be ${maxBytes} bytes or less when serialized`);
     }

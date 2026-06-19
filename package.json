@@ -16,6 +16,8 @@
     "test:embedded": "node scripts/embedded-test.js",
     "test:widget": "node scripts/widget-integration-test.js",
     "test:economy": "node scripts/economy-integration-test.js",
+    "bot": "node bot.js",
+    "bot:test": "node --test bot.test.js",
     "verify:frogger-render": "node scripts/verify-frogger-render.js",
     "verify:ai-hunt-polish": "node scripts/verify-ai-hunt-polish.js",
     "sync:github": "bash scripts/safe-sync-github.sh",
@@ -28,7 +30,8 @@
   "dependencies": {
     "@fastify/multipart": "^10.0.0",
     "better-sqlite3": "^12.11.1",
-    "fastify": "^5.8.5"
+    "fastify": "^5.8.5",
+    "grammy": "^1.39.3"
   },
   "devDependencies": {
     "esbuild": "^0.28.1"
