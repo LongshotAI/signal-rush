@@ -71,8 +71,14 @@ function saveQueue() {
   }
 }
 
-function enqueue(payload) {
-  pendingQueue.push(payload);
+function enqueue(payloadOrEndpoint, maybePayload) {
+  // New-style: enqueue('/ads/impression', payload) → {endpoint, payload}
+  // Old-style: enqueue(payload) → {endpoint: '/internal/ingest', payload}
+  if (maybePayload !== undefined) {
+    pendingQueue.push({ endpoint: payloadOrEndpoint, payload: maybePayload });
+  } else {
+    pendingQueue.push({ endpoint: '/internal/ingest', payload: payloadOrEndpoint });
+  }
   saveQueue();
 }
 
@@ -130,11 +136,15 @@ async function flushQueue() {
   pendingQueue = [];
 
   const failed = [];
-  for (const payload of toFlush) {
+  for (const item of toFlush) {
+    // Backward compat: old queue entries are raw payloads, not {endpoint, payload}
+    const { endpoint, payload } = item.endpoint
+      ? item
+      : { endpoint: '/internal/ingest', payload: item };
     try {
-      await postToEconomy(payload);
+      await postToEconomyPayload(endpoint, payload);
     } catch {
-      failed.push(payload);
+      failed.push(item);
     }
   }
 
@@ -218,7 +228,7 @@ async function logAdImpression(playerId, placementType = 'hud_frame', campaignId
   } catch {
     // Economy service is down — queue the impression for later retry
     // so impressions are not silently lost.
-    enqueue(payload);
+    enqueue('/ads/impression', payload);
   }
 }
 

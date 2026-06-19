@@ -195,18 +195,8 @@ function createServer({ port = DEFAULT_PORT, host = DEFAULT_HOST, dbPath = ledge
       return { error: 'credits_delta exceeds maximum allowed (1000000)' };
     }
 
-    // Anti-fraud: per-session credit limit
+    // Anti-fraud: per-session credit limit (passed to ingestEvent for atomic check)
     const maxPerSession = parseInt(process.env.MAX_CREDITS_PER_SESSION) || 10000;
-    if (rawDelta > 0 && validatedPlayerId) {
-      const sessionEarned = db.prepare(
-        'SELECT COALESCE(credits_earned, 0) as total FROM sessions WHERE id = ?'
-      ).get(session_id.trim());
-      const currentEarned = sessionEarned?.total || 0;
-      if (currentEarned + rawDelta > maxPerSession) {
-        reply.code(400);
-        return { error: `session credit limit exceeded (max ${maxPerSession} per session)` };
-      }
-    }
 
     try {
       const result = ledger.ingestEvent(db, {
@@ -216,9 +206,14 @@ function createServer({ port = DEFAULT_PORT, host = DEFAULT_HOST, dbPath = ledge
         isReset: Boolean(is_reset),
         events: Array.isArray(events) ? events : [],
         timestamp: timestamp || new Date().toISOString(),
+        maxPerSession: rawDelta > 0 && validatedPlayerId ? maxPerSession : null,
       });
       return { ok: true, ...result };
     } catch (err) {
+      if (err.message.includes('session credit limit exceeded')) {
+        reply.code(400);
+        return { error: err.message };
+      }
       reply.code(500);
       return { error: 'ingest failed' };
     }
@@ -401,8 +396,10 @@ function createServer({ port = DEFAULT_PORT, host = DEFAULT_HOST, dbPath = ledge
     }
     const amountMicros = credits * prov.credit_rate;
 
-    // Idempotency key from request or generate one
-    const idempotencyKey = req.body?.idempotency_key || `redeem-${playerId}-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
+    // Idempotency key from request or generate a deterministic one from the request content.
+    // Using playerId+credits+model+provider ensures retries of the same redemption produce
+    // the same key, preventing duplicate credit deductions.
+    const idempotencyKey = req.body?.idempotency_key || `redeem-${playerId}-${credits}-${model}-${provider}`;
 
     // Step 1: Deduct credits and create pending redemption
     let redemptionResult;
@@ -709,6 +706,16 @@ function createServer({ port = DEFAULT_PORT, host = DEFAULT_HOST, dbPath = ledge
       }
       impressionCooldowns.set(validatedPlayerId, now);
     }
+    // Session validation: player must have an active session
+    if (validatedPlayerId) {
+      const activeSession = db.prepare(
+        'SELECT 1 FROM sessions WHERE player_id = ? AND ended_at IS NULL'
+      ).get(validatedPlayerId);
+      if (!activeSession) {
+        reply.code(400);
+        return { error: 'no active session' };
+      }
+    }
     // Determine cost server-side — never trust client input
     const cost_micros = resolveImpressionCost(campaign_id);
     try {
@@ -758,7 +765,8 @@ function createServer({ port = DEFAULT_PORT, host = DEFAULT_HOST, dbPath = ledge
     const result = auth.validateAdvertiserAuth(db, req.headers.authorization);
     if (!result.ok) {
       reply.code(401);
-      return { error: result.error || 'unauthorized' };
+      await reply.send({ error: result.error || 'unauthorized' });
+      return reply;
     }
     // Attach accountId to request for downstream use
     req.advertiserId = result.accountId;

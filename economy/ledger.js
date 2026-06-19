@@ -116,7 +116,7 @@ function spendCredits(db, { playerId, amount, reason, eventId = null }) {
 
 // ─── Event Ingestion (called by event bridge) ──────────────────────
 
-function ingestEvent(db, { playerId, sessionId, creditsDelta = 0, isReset = false, events = [], timestamp = null }) {
+function ingestEvent(db, { playerId, sessionId, creditsDelta = 0, isReset = false, events = [], timestamp = null, maxPerSession = null }) {
   if (!sessionId) throw new Error('ingestEvent: sessionId is required');
 
   const ts = timestamp || new Date().toISOString();
@@ -128,6 +128,17 @@ function ingestEvent(db, { playerId, sessionId, creditsDelta = 0, isReset = fals
     if (playerId && !playerExists(db, playerId)) {
       db.prepare('INSERT INTO players (id, display_name) VALUES (?, ?)')
         .run(playerId, `player-${playerId.slice(0, 8)}`);
+    }
+
+    // Anti-fraud: per-session credit limit check (inside the transaction)
+    if (maxPerSession != null && creditsDelta > 0 && playerId) {
+      const sessionRow = db.prepare(
+        'SELECT COALESCE(credits_earned, 0) as total FROM sessions WHERE id = ?'
+      ).get(sessionId);
+      const currentEarned = sessionRow?.total || 0;
+      if (currentEarned + creditsDelta > maxPerSession) {
+        throw new Error(`session credit limit exceeded (max ${maxPerSession} per session)`);
+      }
     }
 
     // Handle credit delta from the bridge diff
