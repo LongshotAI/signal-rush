@@ -734,18 +734,39 @@ function createServer({ port = DEFAULT_PORT, host = DEFAULT_HOST, dbPath = ledge
     }
     // Determine cost server-side — never trust client input
     const cost_micros = resolveImpressionCost(campaign_id);
+    let impressionId;
     try {
-      const id = ledger.logImpression(db, {
+      impressionId = ledger.logImpression(db, {
         campaignId: campaign_id || null,
         playerId: validatedPlayerId,
         placementType: validate.validatePlacementType(placement_type),
         costMicros: validate.validateNonNegativeInt(cost_micros, 'cost_micros'),
       });
-      return { ok: true, impression_id: id };
     } catch (err) {
       reply.code(400);
       return { error: err.message };
     }
+
+    // Charge the campaign if applicable (impression is already logged)
+    if (campaign_id && cost_micros > 0) {
+      try {
+        ledger.chargeCampaign(db, {
+          campaignId: campaign_id,
+          amountMicros: cost_micros,
+        });
+      } catch (err) {
+        const msg = err.message || '';
+        if (msg === 'insufficient advertiser balance') {
+          reply.code(402);
+          return { error: msg, impression_id: impressionId };
+        }
+        // campaign not found, not active, daily/total budget exceeded
+        reply.code(400);
+        return { error: msg, impression_id: impressionId };
+      }
+    }
+
+    return { ok: true, impression_id: impressionId };
   });
 
   // ─── Advertiser Portal ──────────────────────────────────────────
@@ -1057,8 +1078,21 @@ function createServer({ port = DEFAULT_PORT, host = DEFAULT_HOST, dbPath = ledge
   app.post('/portal/campaigns/:id/submit', async (req, reply) => {
     const advertiserId = req.advertiserId;
     if (!advertiserId) {
-      reply.code(401);
-      return { error: 'unauthorized' };
+      // When auth is disabled, look up advertiser by API key if provided
+      const authHeader = req.headers.authorization;
+      if (authHeader && authHeader.startsWith('Bearer ')) {
+        const key = authHeader.split(' ')[1];
+        const account = ledger.getAdvertiserByKey(db, key);
+        if (account) {
+          req.advertiserId = account.id;
+        } else {
+          reply.code(401);
+          return { error: 'unauthorized' };
+        }
+      } else {
+        reply.code(401);
+        return { error: 'unauthorized' };
+      }
     }
 
     let campaignId;

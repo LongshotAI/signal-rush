@@ -1,0 +1,10 @@
+# ngrok config — Signal Rush Mini App tunnel
+version: "3"
+agent:
+  authtoken: "36owfTTRXweTacduMfL165Wkk7H_5Ce1iaRNhzwEJifibPkpE"
+tunnels:
+  signal-rush:
+    proto: http
+    addr: 8720
+    schemes:
+      - https

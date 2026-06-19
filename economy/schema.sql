@@ -98,6 +98,7 @@ CREATE TABLE IF NOT EXISTS advertiser_accounts (
     password_hash TEXT NOT NULL,
     company_name TEXT NOT NULL,
     api_key TEXT NOT NULL UNIQUE,
+    api_key_hash TEXT,
     status TEXT NOT NULL DEFAULT 'active' CHECK(status IN ('active', 'suspended')),
     balance_micros INTEGER DEFAULT 0 CHECK(balance_micros >= 0),
     created_at TEXT DEFAULT (datetime('now'))

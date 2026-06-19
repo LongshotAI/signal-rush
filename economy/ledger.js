@@ -10,7 +10,7 @@ const Database = require('better-sqlite3');
 const path = require('path');
 const fs = require('fs');
 const os = require('os');
-const { randomUUID } = require('crypto');
+const crypto = require('crypto');
 
 const DEFAULT_DB_PATH = path.join(os.homedir(), '.signal-rush', 'economy.db');
 
@@ -33,7 +33,7 @@ function openDb(dbPath = DEFAULT_DB_PATH) {
 // ─── Player Operations ────────────────────────────────────────────
 
 function createPlayer(db, displayName) {
-  const id = randomUUID();
+  const id = crypto.randomUUID();
   db.prepare(
     'INSERT INTO players (id, display_name) VALUES (?, ?)'
   ).run(id, displayName);
@@ -65,7 +65,7 @@ function awardCredits(db, { playerId, amount, reason, eventId = null, sourceEven
       }
     }
 
-    const txId = randomUUID();
+    const txId = crypto.randomUUID();
     db.prepare(
       'INSERT INTO transactions (id, player_id, type, amount, reason, event_id, source_event_types) VALUES (?, ?, ?, ?, ?, ?, ?)'
     ).run(txId, playerId, 'award', amount, reason, eventId, sourceEventTypes);
@@ -99,7 +99,7 @@ function spendCredits(db, { playerId, amount, reason, eventId = null, sinkType =
       }
     }
 
-    const txId = randomUUID();
+    const txId = crypto.randomUUID();
     db.prepare(
       'INSERT INTO transactions (id, player_id, type, amount, reason, event_id) VALUES (?, ?, ?, ?, ?, ?)'
     ).run(txId, playerId, 'spend', amount, reason, eventId);
@@ -110,7 +110,7 @@ function spendCredits(db, { playerId, amount, reason, eventId = null, sinkType =
 
     // Record credit sink entry for analytics
     if (sinkType) {
-      const sinkId = randomUUID();
+      const sinkId = crypto.randomUUID();
       db.prepare(
         'INSERT INTO credit_sinks (id, player_id, sink_type, amount) VALUES (?, ?, ?, ?)'
       ).run(sinkId, playerId, sinkType, amount);
@@ -187,7 +187,7 @@ function ingestEvent(db, { playerId, sessionId, creditsDelta = 0, isReset = fals
     // Store each engine event for analytics
     if (playerId && events && events.length > 0) {
       for (const event of events) {
-        const eventId = randomUUID();
+        const eventId = crypto.randomUUID();
         db.prepare(
           'INSERT OR IGNORE INTO game_events (id, player_id, session_id, event_type, metadata, created_at) VALUES (?, ?, ?, ?, ?, ?)'
         ).run(
@@ -272,7 +272,7 @@ function getSummary(db, playerId) {
 // ─── Ad Impressions ───────────────────────────────────────────────
 
 function logImpression(db, { campaignId = null, playerId = null, placementType = 'hud_frame', costMicros = 0 }) {
-  const id = randomUUID();
+  const id = crypto.randomUUID();
   db.prepare(
     'INSERT INTO ad_impressions (id, campaign_id, player_id, placement_type, cost_micros) VALUES (?, ?, ?, ?, ?)'
   ).run(id, campaignId, playerId, placementType, costMicros);
@@ -305,10 +305,11 @@ function getPlayerSessions(db, playerId, { limit = 10 } = {}) {
 // ─── Advertiser Account Operations ─────────────────────────────────
 
 function createAdvertiserAccount(db, { email, passwordHash, companyName, apiKey }) {
-  const id = randomUUID();
+  const id = crypto.randomUUID();
+  const apiKeyHash = crypto.createHash('sha256').update(apiKey).digest('hex');
   db.prepare(
-    'INSERT INTO advertiser_accounts (id, email, password_hash, company_name, api_key, status, balance_micros) VALUES (?, ?, ?, ?, ?, ?, ?)'
-  ).run(id, email, passwordHash, companyName, apiKey, 'active', 0);
+    'INSERT INTO advertiser_accounts (id, email, password_hash, company_name, api_key, api_key_hash, status, balance_micros) VALUES (?, ?, ?, ?, ?, ?, ?, ?)'
+  ).run(id, email, passwordHash, companyName, apiKey, apiKeyHash, 'active', 0);
   return { id, email, company_name: companyName, api_key: apiKey, status: 'active', balance_micros: 0 };
 }
 
@@ -321,9 +322,10 @@ function getAdvertiserByEmail(db, email) {
 
 function getAdvertiserByKey(db, apiKey) {
   if (!apiKey) return null;
+  const apiKeyHash = crypto.createHash('sha256').update(apiKey).digest('hex');
   return db.prepare(
-    'SELECT id, email, company_name, api_key, status, balance_micros, created_at FROM advertiser_accounts WHERE api_key = ?'
-  ).get(apiKey);
+    'SELECT id, email, company_name, api_key, status, balance_micros, created_at FROM advertiser_accounts WHERE api_key_hash = ?'
+  ).get(apiKeyHash);
 }
 
 function getAdvertiserBalance(db, advertiserId) {
@@ -354,7 +356,7 @@ function depositAdvertiserFunds(db, { advertiserId, amountMicros, reason }) {
 // ─── Campaign Operations ───────────────────────────────────────────
 
 function createCampaign(db, { advertiserId, name, brandName, placementType, dailyBudgetMicros, totalBudgetMicros, startDate, endDate }) {
-  const id = randomUUID();
+  const id = crypto.randomUUID();
   db.prepare(
     'INSERT INTO campaigns (id, advertiser_id, name, brand_name, status, placement_type, daily_budget_micros, total_budget_micros, spent_micros, start_date, end_date) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
   ).run(id, advertiserId, name, brandName, 'draft', placementType, dailyBudgetMicros, totalBudgetMicros, 0, startDate || null, endDate || null);
@@ -441,7 +443,7 @@ function deleteCampaign(db, campaignId, advertiserId) {
 // ─── Creative Operations ───────────────────────────────────────────
 
 function createCreative(db, { campaignId, type, contentJson }) {
-  const id = randomUUID();
+  const id = crypto.randomUUID();
   db.prepare(
     'INSERT INTO creatives (id, campaign_id, type, content_json, status) VALUES (?, ?, ?, ?, ?)'
   ).run(id, campaignId, type, contentJson, 'pending');

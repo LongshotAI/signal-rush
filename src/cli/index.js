@@ -208,6 +208,8 @@ function step() {
   // The interstitial shows the sponsor card before the restart prompt.
   if (engine.state.gameOver && !showInterstitial && !pendingMenu) {
     showInterstitial = true;
+    eventBridge.logAdImpression(economyPlayerId, 'interstitial', getCampaign().id || null)
+      .catch(() => {});
     // Auto-dismiss after 3 seconds if no keypress
     if (interstitialTimer) clearTimeout(interstitialTimer);
     interstitialTimer = setTimeout(() => {

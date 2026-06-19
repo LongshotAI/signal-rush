@@ -117,9 +117,10 @@ function validateAdvertiserAuth(db, authHeader) {
     if (parts.length !== 2 || parts[0] !== 'Bearer' || !parts[1]) {
       return { ok: true, accountId: null };
     }
+    const providedKeyHash = crypto.createHash('sha256').update(parts[1]).digest('hex');
     const account = db.prepare(
-      'SELECT id FROM advertiser_accounts WHERE api_key = ? AND status = \'active\''
-    ).get(parts[1]);
+      'SELECT id FROM advertiser_accounts WHERE api_key_hash = ? AND status = \'active\''
+    ).get(providedKeyHash);
     return { ok: true, accountId: account ? account.id : null };
   }
 
@@ -146,23 +147,26 @@ function validateAdvertiserAuth(db, authHeader) {
   Buffer.from(dummyKey).copy(dummyBuf, 0, 0, MAX_COMPARE_LEN);
   try { crypto.timingSafeEqual(dummyBuf, providedBuf); } catch {}
 
-  // Look up advertiser by api_key
+  // Look up advertiser by api_key_hash
+  const providedKeyHash = crypto.createHash('sha256').update(providedKey).digest('hex');
   const account = providedKey.length > 0
     ? db.prepare(
-        'SELECT id, api_key, status FROM advertiser_accounts WHERE api_key = ?'
-      ).get(providedKey)
+        'SELECT id, api_key_hash, status FROM advertiser_accounts WHERE api_key_hash = ?'
+      ).get(providedKeyHash)
     : null;
 
   if (!account) {
     return { ok: false, error: 'unauthorized' };
   }
 
-  // Constant-time comparison (defense in depth — DB lookup already filtered)
-  // Use fixed-length 64-byte zero-padded buffers
-  const accountBuf = Buffer.alloc(MAX_COMPARE_LEN, 0);
-  Buffer.from(account.api_key).copy(accountBuf, 0, 0, MAX_COMPARE_LEN);
+  // Constant-time comparison (defense in depth — DB lookup already filtered by hash)
+  // Compare the SHA-256 hash of the provided key against the stored hash
+  const providedKeyHashBuf = Buffer.alloc(MAX_COMPARE_LEN, 0);
+  Buffer.from(providedKeyHash).copy(providedKeyHashBuf, 0, 0, MAX_COMPARE_LEN);
+  const accountHashBuf = Buffer.alloc(MAX_COMPARE_LEN, 0);
+  Buffer.from(account.api_key_hash).copy(accountHashBuf, 0, 0, MAX_COMPARE_LEN);
 
-  if (!crypto.timingSafeEqual(accountBuf, providedBuf)) {
+  if (!crypto.timingSafeEqual(providedKeyHashBuf, accountHashBuf)) {
     return { ok: false, error: 'unauthorized' };
   }
 
