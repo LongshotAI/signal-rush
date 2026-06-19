@@ -347,6 +347,71 @@ async function testEventBridgeIntegration() {
   }
 }
 
+async function testServerSideReceiptVerification() {
+  // Test the server-side receipt verification endpoint
+  const dbPath = tmpDbPath();
+  const apiKey = 'verify-key';
+  const playerId = '55555555-5555-5555-5555-555555555555';
+
+  process.env.ECONOMY_API_KEY = apiKey;
+  process.env.ECONOMY_AUTH_ENFORCED = 'true';
+  const { createServer } = require('../economy/service');
+  const { app } = createServer({ port: 0, dbPath });
+  await app.listen();
+  const port = app.server.address().port;
+
+  try {
+    // Create player
+    await httpPost(port, '/players', { display_name: 'VerifyPlayer', player_id: playerId }, apiKey);
+
+    // Play a deterministic game and record inputs
+    const { createEngine } = require('../src/core/engine');
+    const seed = 9999;
+    const engine = createEngine({ mode: 'aiHunt', seed });
+    const inputs = [
+      { move: { x: 1, y: 0 } },
+      { move: { x: 0, y: -1 } },
+      { move: { x: -1, y: 0 } },
+    ];
+    for (const input of inputs) {
+      if (engine.state.gameOver) break;
+      engine.step(input);
+    }
+    const actualScore = engine.state.score;
+    const actualLevel = engine.state.level || 1;
+
+    // Verify with correct claims
+    const verifyRes = await httpPost(port, '/internal/verify-receipt', {
+      seed,
+      mode: 'aiHunt',
+      inputs,
+      claimed_score: actualScore,
+      claimed_level: actualLevel,
+    }, apiKey);
+    assert.equal(verifyRes.status, 200, 'verify-receipt should succeed');
+    assert.equal(verifyRes.body.valid, true, `correct claims should be valid. simulated=${verifyRes.body.simulated_score} claimed=${verifyRes.body.claimed_score}`);
+    assert.equal(verifyRes.body.score_match, true, 'score should match');
+    assert.equal(verifyRes.body.level_match, true, 'level should match');
+
+    // Verify with wrong score (forged receipt)
+    const forgeRes = await httpPost(port, '/internal/verify-receipt', {
+      seed,
+      mode: 'aiHunt',
+      inputs,
+      claimed_score: actualScore + 10000,
+      claimed_level: actualLevel,
+    }, apiKey);
+    assert.equal(forgeRes.status, 200, 'verify should succeed even for forged claims');
+    assert.equal(forgeRes.body.valid, false, 'forged score should be invalid');
+    assert.equal(forgeRes.body.score_match, false, 'forged score should not match');
+
+    console.log('PASS testServerSideReceiptVerification');
+  } finally {
+    await app.close();
+    cleanupFile(dbPath);
+  }
+}
+
 // ── Test runner ────────────────────────────────────────────────────
 
 async function runTests() {
@@ -356,6 +421,7 @@ async function runTests() {
     testSessionCreditLimit,
     testAuthEnforcement,
     testEventBridgeIntegration,
+    testServerSideReceiptVerification,
   ];
 
   let failed = 0;

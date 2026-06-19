@@ -217,6 +217,71 @@ function createServer({ port = DEFAULT_PORT, host = DEFAULT_HOST, dbPath = ledge
     }
   });
 
+  // ─── Run Receipt Verification (server-side authority) ────────────
+  //
+  // Re-simulates a run from its seed and input log to verify the claimed
+  // score and level. This is the server-side authority that prevents
+  // forged receipts — even if a client forges the HMAC signature, the
+  // re-simulation will catch score/level mismatches.
+  //
+  // The engine is loaded via require() inside the handler to avoid
+  // loading it at module init time (it has no DB dependencies).
+
+  app.post('/internal/verify-receipt', async (req, reply) => {
+    const {
+      seed,
+      mode,
+      inputs,
+      claimed_score,
+      claimed_level,
+    } = req.body || {};
+
+    // Basic validation
+    if (seed == null || typeof seed !== 'number') {
+      reply.code(400);
+      return { error: 'seed must be a number' };
+    }
+    if (!mode || !['aiHunt', 'frogger'].includes(mode)) {
+      reply.code(400);
+      return { error: 'mode must be aiHunt or frogger' };
+    }
+    if (!Array.isArray(inputs)) {
+      reply.code(400);
+      return { error: 'inputs must be an array' };
+    }
+
+    // Re-simulate the run
+    try {
+      const { createEngine } = require('../src/core/engine');
+      const engine = createEngine({ seed, mode });
+
+      for (const input of inputs) {
+        if (engine.state.gameOver) break;
+        engine.step(input);
+      }
+
+      const simulatedScore = engine.state.score || 0;
+      const simulatedLevel = engine.state.level || 1;
+
+      const scoreMatch = simulatedScore === claimed_score;
+      const levelMatch = simulatedLevel === claimed_level;
+
+      return {
+        valid: scoreMatch && levelMatch,
+        simulated_score: simulatedScore,
+        simulated_level: simulatedLevel,
+        claimed_score: claimed_score,
+        claimed_level: claimed_level,
+        score_match: scoreMatch,
+        level_match: levelMatch,
+        game_over: engine.state.gameOver,
+      };
+    } catch (err) {
+      reply.code(500);
+      return { error: `verification failed: ${err.message}` };
+    }
+  });
+
   // ─── Credit Operations (manual / admin) ────────────────────────
 
   app.post('/credits/award', async (req, reply) => {
