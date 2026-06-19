@@ -225,6 +225,20 @@ CREATE TABLE IF NOT EXISTS redemption_audit (
 CREATE INDEX IF NOT EXISTS idx_redemption_audit_redemption ON redemption_audit(redemption_id);
 CREATE INDEX IF NOT EXISTS idx_redemption_audit_player ON redemption_audit(player_id);
 
+-- ─── Credit Sinks ───────────────────────────────────────────────────
+-- Tracks every in-game credit spend for analytics and anti-inflation tracking.
+-- Each row represents one credit sink event (entry fee, purchase, boost, etc.)
+CREATE TABLE IF NOT EXISTS credit_sinks (
+  id TEXT PRIMARY KEY,
+  player_id TEXT NOT NULL REFERENCES players(id),
+  sink_type TEXT NOT NULL CHECK(sink_type IN ('daily_challenge_entry', 'cosmetic_purchase', 'score_boost', 'extra_life')),
+  amount INTEGER NOT NULL CHECK(amount > 0),
+  created_at TEXT DEFAULT (datetime('now'))
+);
+
+CREATE INDEX IF NOT EXISTS idx_credit_sinks_player ON credit_sinks(player_id, created_at);
+CREATE INDEX IF NOT EXISTS idx_credit_sinks_type ON credit_sinks(sink_type, created_at);
+
 -- ─── Seed: ppq.ai provider ──────────────────────────────────────────
 INSERT OR IGNORE INTO providers (id, display_name, enabled, credit_rate, min_redemption, max_redemption)
 VALUES ('ppq', 'ppq.ai', 1, 1000, 100, 100000);

@@ -109,6 +109,7 @@ function awardNearMisses(state, events) {
     ? `Near miss +${gained}. Thread the signal.`
     : `Near misses x${nearCount} +${gained}. Risk pays.`;
   events.push({ type: 'near_miss', count: nearCount, score: gained, streak: state.nearMissStreak });
+  state.credits += Math.max(1, Math.floor(gained / 25));
 }
 
 function resetState(state) {
@@ -660,6 +661,7 @@ function stepAiHunt(engine, state, input) {
   });
 
   state.score += Math.floor(GAME_CONFIG.baseScorePerTick * state.combo);
+  state.credits += 1;
 
   if (safeWindowActive && state.tick === 1) {
     state.message = 'Calibration window live. Test movement, reversals, and dash.';

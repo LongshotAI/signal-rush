@@ -27,7 +27,10 @@ function createServer({ port = DEFAULT_PORT, host = DEFAULT_HOST, dbPath = ledge
   const app = Fastify({ logger: false }); // quiet logging for MVP
   const db = ledger.openDb(dbPath);
 
-  // ─── Multipart Upload Support ──────────────────────────────────
+  // ─── In-Memory Service State ────────────────────────────────────
+  const serviceState = {
+    adminAwardDaily: new Map(), // date (YYYY-MM-DD) → total credits awarded
+  };
   // Required for image upload endpoint (POST /portal/campaigns/:id/upload-logo)
   app.register(require('@fastify/multipart'), {
     limits: {
@@ -306,6 +309,14 @@ function createServer({ port = DEFAULT_PORT, host = DEFAULT_HOST, dbPath = ledge
       reply.code(400);
       return { error: `award amount exceeds per-transaction maximum (${maxPerTx})` };
     }
+    // Anti-fraud: daily admin award cap
+    const maxPerDay = parseInt(process.env.MAX_ADMIN_AWARD_PER_DAY) || 50000;
+    const today = new Date().toISOString().slice(0, 10); // YYYY-MM-DD
+    const dailyAwarded = serviceState.adminAwardDaily.get(today) || 0;
+    if (dailyAwarded + amount > maxPerDay) {
+      reply.code(429);
+      return { error: 'daily admin award limit exceeded' };
+    }
     try {
       const result = ledger.awardCredits(db, {
         playerId,
@@ -313,6 +324,9 @@ function createServer({ port = DEFAULT_PORT, host = DEFAULT_HOST, dbPath = ledge
         reason,
         eventId: req.body?.idempotency_key || null,
       });
+      // Track daily admin award total
+      const current = serviceState.adminAwardDaily.get(today) || 0;
+      serviceState.adminAwardDaily.set(today, current + amount);
       return result;
     } catch (err) {
       reply.code(400);
@@ -321,11 +335,12 @@ function createServer({ port = DEFAULT_PORT, host = DEFAULT_HOST, dbPath = ledge
   });
 
   app.post('/credits/spend', async (req, reply) => {
-    let playerId, amount, reason;
+    let playerId, amount, reason, sinkType;
     try {
       playerId = validate.validateUuid(req.body?.player_id, 'player_id');
       amount = validate.validateAmount(req.body?.amount, 'amount');
       reason = validate.validateReason(req.body?.reason);
+      sinkType = validate.validateSinkType(req.body?.sink_type);
     } catch (err) {
       reply.code(400);
       return { error: err.message };
@@ -342,6 +357,7 @@ function createServer({ port = DEFAULT_PORT, host = DEFAULT_HOST, dbPath = ledge
         amount,
         reason,
         eventId: req.body?.idempotency_key || null,
+        sinkType,
       });
       return result;
     } catch (err) {

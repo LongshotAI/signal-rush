@@ -412,6 +412,87 @@ async function testServerSideReceiptVerification() {
   }
 }
 
+async function testSpendCredits() {
+  const dbPath = tmpDbPath();
+  const apiKey = 'spend-test-key';
+
+  process.env.ECONOMY_API_KEY = apiKey;
+  process.env.ECONOMY_AUTH_ENFORCED = 'true';
+  const { createServer } = require('../economy/service');
+  const { app } = createServer({ port: 0, dbPath });
+  await app.listen();
+  const port = app.server.address().port;
+
+  try {
+    // Create player (server generates the UUID)
+    const createRes = await httpPost(port, '/players', { display_name: 'SpendPlayer' });
+    assert.equal(createRes.status, 201, 'player creation should succeed');
+    const playerId = createRes.body.id;
+
+    // Award 100 credits via admin endpoint
+    const awardRes = await httpPost(port, '/credits/award', {
+      player_id: playerId,
+      amount: 100,
+      reason: 'test award',
+    }, apiKey);
+    assert.equal(awardRes.status, 200, `award should succeed, got ${awardRes.status}: ${JSON.stringify(awardRes.body)}`);
+
+    // Spend 10 credits on daily_challenge_entry
+    const spendRes1 = await httpPost(port, '/credits/spend', {
+      player_id: playerId,
+      amount: 10,
+      reason: 'daily challenge entry fee',
+      sink_type: 'daily_challenge_entry',
+    }, apiKey);
+    assert.equal(spendRes1.status, 200, 'spend should succeed');
+    assert.equal(spendRes1.body.player.balance, 90, `balance should be 90 after spending 10, got ${spendRes1.body.player.balance}`);
+
+    // Spend 20 credits on score_boost
+    const spendRes2 = await httpPost(port, '/credits/spend', {
+      player_id: playerId,
+      amount: 20,
+      reason: 'score boost purchase',
+      sink_type: 'score_boost',
+    }, apiKey);
+    assert.equal(spendRes2.status, 200, 'second spend should succeed');
+    assert.equal(spendRes2.body.player.balance, 70, `balance should be 70 after spending 20, got ${spendRes2.body.player.balance}`);
+
+    // Try to spend more than balance (should fail with 409)
+    const failRes = await httpPost(port, '/credits/spend', {
+      player_id: playerId,
+      amount: 999,
+      reason: 'too expensive',
+      sink_type: 'cosmetic_purchase',
+    }, apiKey);
+    assert.equal(failRes.status, 409, 'overspend should return 409');
+
+    // Try invalid sink_type (should fail with 400)
+    const invalidRes = await httpPost(port, '/credits/spend', {
+      player_id: playerId,
+      amount: 5,
+      reason: 'bad sink',
+      sink_type: 'invalid_type',
+    }, apiKey);
+    assert.equal(invalidRes.status, 400, 'invalid sink_type should return 400');
+
+    // Verify credit_sinks table has entries
+    const ledger = require('../economy/ledger');
+    const db = ledger.openDb(dbPath);
+    const sinks = db.prepare('SELECT * FROM credit_sinks WHERE player_id = ? ORDER BY created_at').all(playerId);
+    assert.equal(sinks.length, 2, `should have 2 credit_sinks entries, got ${sinks.length}`);
+    assert.equal(sinks[0].sink_type, 'daily_challenge_entry', 'first sink should be daily_challenge_entry');
+    assert.equal(sinks[0].amount, 10, 'first sink amount should be 10');
+    assert.equal(sinks[1].sink_type, 'score_boost', 'second sink should be score_boost');
+    assert.equal(sinks[1].amount, 20, 'second sink amount should be 20');
+    db.close();
+
+    console.log('PASS testSpendCredits');
+  } finally {
+    await app.close();
+    cleanupFile(dbPath);
+  }
+}
+
 // ── Test runner ────────────────────────────────────────────────────
 
 async function runTests() {
@@ -422,6 +503,7 @@ async function runTests() {
     testAuthEnforcement,
     testEventBridgeIntegration,
     testServerSideReceiptVerification,
+    testSpendCredits,
   ];
 
   let failed = 0;

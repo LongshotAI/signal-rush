@@ -80,7 +80,7 @@ function awardCredits(db, { playerId, amount, reason, eventId = null, sourceEven
   return tx();
 }
 
-function spendCredits(db, { playerId, amount, reason, eventId = null }) {
+function spendCredits(db, { playerId, amount, reason, eventId = null, sinkType = null }) {
   if (amount <= 0) throw new Error('spendCredits: amount must be positive');
 
   const tx = db.transaction(() => {
@@ -107,6 +107,14 @@ function spendCredits(db, { playerId, amount, reason, eventId = null }) {
     db.prepare(
       'UPDATE players SET balance = balance - ?, total_spent = total_spent + ? WHERE id = ?'
     ).run(amount, amount, playerId);
+
+    // Record credit sink entry for analytics
+    if (sinkType) {
+      const sinkId = randomUUID();
+      db.prepare(
+        'INSERT INTO credit_sinks (id, player_id, sink_type, amount) VALUES (?, ?, ?, ?)'
+      ).run(sinkId, playerId, sinkType, amount);
+    }
 
     return { idempotent: false, player: getPlayer(db, playerId) };
   });

@@ -473,6 +473,20 @@ function validateProvider(value, maxLength = 64) {
   return trimmed;
 }
 
+/**
+ * Validate a credit sink type string.
+ * @param {string} value
+ * @returns {string} The validated sink type
+ * @throws {Error} If invalid
+ */
+function validateSinkType(value) {
+  const allowed = ['daily_challenge_entry', 'cosmetic_purchase', 'score_boost', 'extra_life'];
+  if (typeof value !== 'string' || !allowed.includes(value)) {
+    throw new Error(`sink_type must be one of: ${allowed.join(', ')}`);
+  }
+  return value;
+}
+
 module.exports = {
   validateUuid,
   validateDisplayName,
@@ -493,6 +507,7 @@ module.exports = {
   validatePrompt,
   validateModelName,
   validateProvider,
+  validateSinkType,
   UUID_RE,
   EMAIL_RE,
 };

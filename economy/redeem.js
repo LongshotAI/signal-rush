@@ -63,7 +63,7 @@ function redeemCredits(db, {
     }
 
     // Check daily redemption limit
-    const maxPerDay = parseInt(process.env.MAX_REDEMPTION_PER_DAY) || 100000;
+    const maxPerDay = parseInt(process.env.MAX_REDEMPTION_PER_DAY) || 1000000;
     const today = new Date().toISOString().split('T')[0];
     const dailyTotal = db.prepare(
       "SELECT COALESCE(SUM(amount_micros), 0) as total FROM redemptions WHERE player_id = ? AND status != 'failed' AND status != 'refunded' AND date(created_at) = ?"
