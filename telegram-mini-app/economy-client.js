@@ -50,6 +50,9 @@ export class EconomyClient {
    * POST /telegram/auth
    */
   async auth(initData) {
+    if (!initData || typeof initData !== 'string') {
+      return { ok: false, error: 'initData is required' };
+    }
     const result = await this._fetch('/telegram/auth', {
       method: 'POST',
       body: { initData },
@@ -73,7 +76,14 @@ export class EconomyClient {
    * GET /credits/balances?player_id=...
    */
   async getBalance(playerId) {
-    return this._fetch(`/credits/balances?player_id=${encodeURIComponent(playerId)}`);
+    const result = await this._fetch(`/credits/balances?player_id=${encodeURIComponent(playerId)}`);
+    // Normalize response: server may return { balance } or { balances: [...] }
+    if (result.ok) {
+      if (result.balance == null && result.balances?.length > 0) {
+        result.balance = result.balances[0].balance || result.balances[0].amount || 0;
+      }
+    }
+    return result;
   }
 
   /**

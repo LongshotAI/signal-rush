@@ -124,6 +124,10 @@ function validateInitData(initDataString, botToken) {
 
   const now = Math.floor(Date.now() / 1000);
   const maxAge = 86400; // 24 hours in seconds
+  // Reject future auth_date (clock skew > 60s)
+  if (authDate > now + 60) {
+    return { ok: false, error: 'initData auth_date is in the future' };
+  }
   if (now - authDate > maxAge) {
     return { ok: false, error: 'initData expired' };
   }

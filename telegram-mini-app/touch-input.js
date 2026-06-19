@@ -276,13 +276,14 @@ function _attachCanvasGestures() {
   });
 
   // Tap-to-move: tap on a canvas quadrant to move that direction
-  let _tapStartX = 0;
-  let _tapStartY = 0;
+  // Use Map keyed by touch identifier for multi-touch safety
+  const _tapStarts = new Map();
 
   _addListener(_canvasEl, 'touchstart', (e) => {
-    const touch = e.touches[0];
-    _tapStartX = touch.clientX;
-    _tapStartY = touch.clientY;
+    for (let i = 0; i < e.changedTouches.length; i++) {
+      const touch = e.changedTouches[i];
+      _tapStarts.set(touch.identifier, { x: touch.clientX, y: touch.clientY });
+    }
   }, { passive: false });
 
   _addListener(_canvasEl, 'touchend', (e) => {
@@ -290,8 +291,12 @@ function _attachCanvasGestures() {
     if (_dragActive) return;
 
     const touch = e.changedTouches[0];
-    const dx = touch.clientX - _tapStartX;
-    const dy = touch.clientY - _tapStartY;
+    const start = _tapStarts.get(touch.identifier);
+    _tapStarts.delete(touch.identifier);
+    if (!start) return;
+
+    const dx = touch.clientX - start.x;
+    const dy = touch.clientY - start.y;
 
     // If finger moved less than 10px, treat as tap
     if (Math.abs(dx) < 10 && Math.abs(dy) < 10) {

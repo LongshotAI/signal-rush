@@ -93,9 +93,9 @@ bot.command('stats', async (ctx) => {
       '',
       `👤 Player: ${player.username || 'Anonymous'}`,
       `🆔 Telegram ID: \`${telegramId}\``,
-      `💰 Credits: ${player.credits ?? 0}`,
-      `🏆 Best Score: ${player.bestScore ?? 0}`,
-      `🎮 Games Played: ${player.gamesPlayed ?? 0}`,
+      `💰 Credits: ${player.balance ?? 0}`,
+      `📈 Total Earned: ${player.total_earned ?? 0}`,
+      `📉 Total Spent: ${player.total_spent ?? 0}`,
     ];
     await ctx.reply(lines.join('\n'), { parse_mode: 'Markdown' });
   } catch (err) {

@@ -79,10 +79,6 @@ let touchMove = null;
 let dpr = 1;
 let ctx = null;
 
-// Previous state for detecting events (pickup collection, damage)
-let prevHealth = null;
-let prevPickupCount = null;
-
 // DOM refs
 let canvasEl = null;
 let hudEl   = null;
@@ -169,7 +165,9 @@ export async function init(containerSelector = '#game-container') {
   });
   container.appendChild(hudEl);
 
-  // Wire keyboard
+  // Wire keyboard (remove first to prevent double-registration on re-init)
+  window.removeEventListener('keydown', onKeyDown);
+  window.removeEventListener('keyup',   onKeyUp);
   window.addEventListener('keydown', onKeyDown);
   window.addEventListener('keyup',   onKeyUp);
 
@@ -267,16 +265,27 @@ function _buildModeSelector(containerSelector) {
   }
 
   // Insert before the game container
-  container.parentNode.insertBefore(bar, container);
+  if (container.parentNode) {
+    container.parentNode.insertBefore(bar, container);
+  }
 }
 
 function _createEngine() {
+  // Guard: engine bundle must be loaded
+  if (typeof createEngine !== 'function') {
+    console.error('[SignalRush] Engine bundle not loaded — cannot create engine');
+    return;
+  }
+
+  // End previous session if active (e.g., mode switch mid-game)
+  if (sessionManager && sessionManager.active && engine) {
+    sessionManager.endSession(engine.state);
+  }
+
   engine = createEngine({ mode: currentMode, seed: Date.now() });
   lastTickTime = 0;
   gameOverCooldown = false;
   touchMove = null;
-  prevHealth = null;
-  prevPickupCount = null;
   lastReceiptResult = null;
   hideMainButton();
 
@@ -319,6 +328,8 @@ function currentMove() {
 
 // ── Game loop ────────────────────────────────────────────────────────────────
 
+let _submitting = false;
+
 function loop(timestamp) {
   rafId = requestAnimationFrame(loop);
 
@@ -332,18 +343,22 @@ function loop(timestamp) {
       if (state.gameOver && !gameOverCooldown) {
         gameOverCooldown = true;
 
-        // Submit receipt to economy
-        _submitReceipt();
+        // Submit receipt to economy (async, but guard against restart)
+        if (!_submitting) {
+          _submitting = true;
+          _submitReceipt().finally(() => { _submitting = false; });
+        }
 
-        // Show Telegram MainButton for restart
+        // Show Telegram MainButton for restart (disabled while submitting)
         showMainButton('⚡ Play Again', () => {
+          if (_submitting) return; // guard: don't restart mid-submission
           _createEngine();
           hideMainButton();
         }, { color: '#00ff88', textColor: '#000000' });
 
         // Allow restart with Enter or Space
         if (keys.has('Enter') || keys.has('Space')) {
-          engine.reset();
+          _createEngine();
           gameOverCooldown = false;
           hideMainButton();
         }
@@ -427,7 +442,7 @@ async function _submitReceipt() {
           events: [{ type: 'game_complete', score: receipt.score, level: receipt.level }],
         });
         if (ingestResult.ok) {
-          creditBalance = ingestResult.new_balance ?? creditBalance + creditsEarned;
+          creditBalance = ingestResult.new_balance ?? ingestResult.balance ?? creditBalance + creditsEarned;
           if (redemptionUI) redemptionUI.updateBalance(creditBalance);
         }
       }
@@ -603,6 +618,17 @@ function drawHUD(state) {
     ? `<button id="hud-redeem-btn" style="background:none;border:1px solid rgba(0,255,136,0.3);color:#00ff88;padding:2px 8px;border-radius:4px;cursor:pointer;font-family:inherit;font-size:11px;margin-left:6px;">💰 Redeem</button>`
     : '';
 
+  // Wire redeem button once via event delegation
+  if (!hudEl._redeemWired) {
+    hudEl.addEventListener('click', (e) => {
+      if (e.target && e.target.id === 'hud-redeem-btn') {
+        e.stopPropagation();
+        if (redemptionUI) redemptionUI.toggle();
+      }
+    });
+    hudEl._redeemWired = true;
+  }
+
   hudEl.innerHTML = `
     <span style="color:${C.hudAccent}">SCORE</span> ${state.score}
     <span style="margin:0 8px;color:rgba(255,255,255,0.2)">│</span>
@@ -616,15 +642,6 @@ function drawHUD(state) {
     <span style="margin:0 8px;color:rgba(255,255,255,0.2)">│</span>
     <span style="color:#ffdd44">${creditDisplay}</span>${redeemBtn}
   `;
-
-  // Wire redeem button
-  const btn = hudEl.querySelector('#hud-redeem-btn');
-  if (btn) {
-    btn.addEventListener('click', (e) => {
-      e.stopPropagation();
-      if (redemptionUI) redemptionUI.toggle();
-    });
-  }
 }
 
 function drawGameOver(state) {

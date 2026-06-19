@@ -149,7 +149,7 @@ export class RedemptionUI {
 
       if (result.ok) {
         this.updateBalance(result.balance_remaining ?? this.balance - credits);
-        this._showResult(`✅ AI Response (${result.model}):\n\n${result.content}`);
+        this._showResult(`✅ AI Response (${result.model || model}):\n\n${result.content}`);
         this.el.querySelector('#redeem-prompt').value = '';
       } else {
         this._showResult(`❌ ${result.error || 'Redemption failed'}`);
