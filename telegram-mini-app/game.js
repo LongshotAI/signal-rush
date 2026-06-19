@@ -16,8 +16,15 @@ import {
   closeMiniApp,
   isTelegramMode,
 } from './telegram-sdk.js';
+import { EconomyClient } from './economy-client.js';
+import { SessionManager } from './session-manager.js';
+import { RedemptionUI } from './redemption-ui.js';
 
 const { createEngine } = engineBundle.default || engineBundle;
+
+// ── Economy Config ────────────────────────────────────────────────────────────
+
+const ECONOMY_BASE_URL = 'http://localhost:8720';
 
 // ── Configuration ────────────────────────────────────────────────────────────
 
@@ -81,6 +88,16 @@ let canvasEl = null;
 let hudEl   = null;
 let modeSelectorEl = null;
 
+// ── Economy State ─────────────────────────────────────────────────────────────
+
+let economyClient = null;
+let sessionManager = null;
+let redemptionUI = null;
+let playerId = null;
+let creditBalance = 0;
+let lastReceiptResult = null;
+let economyOnline = false;
+
 // ── Initialisation ──────────────────────────────────────────────────────────
 
 export async function init(containerSelector = '#game-container') {
@@ -92,6 +109,22 @@ export async function init(containerSelector = '#game-container') {
   // Init Telegram Mini App SDK
   const tgInfo = await initTelegramMiniApp();
   console.log('[SignalRush] Telegram mode:', tgInfo.isTelegramMode);
+
+  // Init economy client
+  economyClient = new EconomyClient({ baseUrl: ECONOMY_BASE_URL });
+
+  // If we have Telegram initData, authenticate with economy
+  if (tgInfo.initData) {
+    const authResult = await economyClient.auth(tgInfo.initData);
+    if (authResult.ok && authResult.player) {
+      playerId = authResult.player.id;
+      creditBalance = authResult.player.balance || 0;
+      economyOnline = true;
+      console.log('[SignalRush] Economy online, player:', playerId);
+    } else if (authResult.offline) {
+      console.log('[SignalRush] Economy offline — playing without credits');
+    }
+  }
 
   // Detect device pixel ratio for crisp rendering
   dpr = window.devicePixelRatio || 1;
@@ -244,7 +277,20 @@ function _createEngine() {
   touchMove = null;
   prevHealth = null;
   prevPickupCount = null;
+  lastReceiptResult = null;
   hideMainButton();
+
+  // Start economy session
+  sessionManager = new SessionManager();
+  if (economyOnline) {
+    sessionManager.startSession(currentMode, engine.state.seed || Date.now());
+  }
+
+  // Init redemption UI on first engine create
+  if (!redemptionUI && playerId) {
+    redemptionUI = new RedemptionUI();
+    redemptionUI.init(economyClient, playerId, creditBalance);
+  }
 }
 
 // ── Keyboard ─────────────────────────────────────────────────────────────────
@@ -286,6 +332,9 @@ function loop(timestamp) {
       if (state.gameOver && !gameOverCooldown) {
         gameOverCooldown = true;
 
+        // Submit receipt to economy
+        _submitReceipt();
+
         // Show Telegram MainButton for restart
         showMainButton('⚡ Play Again', () => {
           _createEngine();
@@ -304,11 +353,15 @@ function loop(timestamp) {
         const pickupsBefore = state.pickups.length;
 
         // Merge keyboard and touch input
-        // Keyboard takes priority; touch provides fallback
         let move = currentMove();
         if (!move && touchMove) {
           move = touchMove;
-          touchMove = null; // consume
+          touchMove = null;
+        }
+
+        // Record input for receipt
+        if (sessionManager) {
+          sessionManager.recordInput(move, state.tick);
         }
 
         engine.step({ move });
@@ -342,6 +395,49 @@ function _detectEvents(healthBefore, pickupsBefore) {
   // Game over
   if (state.gameOver) {
     hapticFeedback('error');
+  }
+}
+
+// ── Economy Receipt ───────────────────────────────────────────────────────────
+
+async function _submitReceipt() {
+  if (!sessionManager || !economyOnline || !economyClient) return;
+
+  const receipt = sessionManager.endSession(engine.state);
+  if (!receipt) return;
+
+  try {
+    // Submit for server-side verification
+    const verifyResult = await economyClient.submitReceipt({
+      seed: receipt.seed,
+      mode: receipt.mode,
+      inputs: receipt.inputs,
+      claimedScore: receipt.score,
+      claimedLevel: receipt.level,
+    });
+
+    if (verifyResult.ok && verifyResult.valid) {
+      // Receipt verified — award credits
+      const creditsEarned = Math.floor(receipt.score / 10);
+      if (creditsEarned > 0) {
+        const ingestResult = await economyClient.submitCredits({
+          playerId,
+          sessionId: receipt.sessionId,
+          creditsDelta: creditsEarned,
+          events: [{ type: 'game_complete', score: receipt.score, level: receipt.level }],
+        });
+        if (ingestResult.ok) {
+          creditBalance = ingestResult.new_balance ?? creditBalance + creditsEarned;
+          if (redemptionUI) redemptionUI.updateBalance(creditBalance);
+        }
+      }
+      lastReceiptResult = { ok: true, creditsEarned, score: receipt.score };
+    } else {
+      lastReceiptResult = { ok: false, reason: 'receipt rejected by server' };
+    }
+  } catch (err) {
+    console.error('[SignalRush] Receipt submission failed:', err.message);
+    lastReceiptResult = { ok: false, reason: err.message };
   }
 }
 
@@ -502,6 +598,10 @@ function drawPickup(p) {
 function drawHUD(state) {
   const healthHearts = '♥'.repeat(Math.max(0, state.player.health));
   const healthEmpty = '♡'.repeat(Math.max(0, 8 - state.player.health));
+  const creditDisplay = economyOnline ? `💰${creditBalance}` : '—';
+  const redeemBtn = playerId
+    ? `<button id="hud-redeem-btn" style="background:none;border:1px solid rgba(0,255,136,0.3);color:#00ff88;padding:2px 8px;border-radius:4px;cursor:pointer;font-family:inherit;font-size:11px;margin-left:6px;">💰 Redeem</button>`
+    : '';
 
   hudEl.innerHTML = `
     <span style="color:${C.hudAccent}">SCORE</span> ${state.score}
@@ -513,7 +613,18 @@ function drawHUD(state) {
     <span style="color:${C.hudDanger}">${healthHearts}</span><span style="color:rgba(255,51,85,0.3)">${healthEmpty}</span>
     <span style="margin:0 8px;color:rgba(255,255,255,0.2)">│</span>
     <span style="opacity:0.6">TICK ${state.tick}</span>
+    <span style="margin:0 8px;color:rgba(255,255,255,0.2)">│</span>
+    <span style="color:#ffdd44">${creditDisplay}</span>${redeemBtn}
   `;
+
+  // Wire redeem button
+  const btn = hudEl.querySelector('#hud-redeem-btn');
+  if (btn) {
+    btn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      if (redemptionUI) redemptionUI.toggle();
+    });
+  }
 }
 
 function drawGameOver(state) {
@@ -535,6 +646,24 @@ function drawGameOver(state) {
   ctx.font = '14px monospace';
   ctx.fillStyle = 'rgba(255,255,255,0.6)';
   ctx.fillText('Press ENTER or SPACE to restart', CANVAS_W / 2, CANVAS_H / 2 + 62);
+
+  // Show receipt result
+  if (lastReceiptResult) {
+    ctx.font = '12px monospace';
+    if (lastReceiptResult.ok) {
+      ctx.fillStyle = '#00ff88';
+      ctx.fillText(
+        `✅ Receipt verified — +${lastReceiptResult.creditsEarned} credits`,
+        CANVAS_W / 2, CANVAS_H / 2 + 88
+      );
+    } else {
+      ctx.fillStyle = 'rgba(255,255,255,0.4)';
+      ctx.fillText(
+        `⚠️ ${lastReceiptResult.reason || 'Receipt not submitted'}`,
+        CANVAS_W / 2, CANVAS_H / 2 + 88
+      );
+    }
+  }
 }
 
 function drawPaused() {
@@ -555,10 +684,19 @@ export function destroy() {
   window.removeEventListener('keydown', onKeyDown);
   window.removeEventListener('keyup',   onKeyUp);
   destroyTouchInput();
+  if (redemptionUI) {
+    redemptionUI.hide();
+    redemptionUI = null;
+  }
   if (canvasEl && canvasEl.parentNode) {
     canvasEl.parentNode.innerHTML = '';
   }
   engine = null;
+  sessionManager = null;
+  economyClient = null;
+  playerId = null;
+  creditBalance = 0;
+  economyOnline = false;
 }
 
 // ── Auto-init when not imported as a module (standalone <script> tag) ───────
