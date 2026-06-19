@@ -5,9 +5,11 @@
 // 1. Service-to-service: shared secret via ECONOMY API_KEY env var (for CLI→economy bridge)
 // 2. Advertiser API keys: looked up in advertiser_accounts table (for portal clients)
 //
-// When ECONOMY_AUTH_ENFORCED='true', requests must include
-// Authorization: Bearer <token>. The token is checked against both
-// the shared secret and the advertiser_accounts table.
+// When ECONOMY_AUTH_ENFORCED is set to anything other than 'false',
+// requests must include Authorization: Bearer <token>.
+// The token is checked against both the shared secret and the
+// advertiser_accounts table.
+// To disable auth: set ECONOMY_AUTH_ENFORCED=false.
 //
 // Design decisions:
 // - Uses constant-time comparison to prevent timing attacks
@@ -57,37 +59,37 @@ function validateAuth(authHeader) {
   }
 
   const expectedKey = getExpectedKey();
-  if (!expectedKey) {
-    // Auth is enforced but no key configured — deny everything
-    return { ok: false, error: 'server misconfigured: no API key' };
-  }
 
-  if (!authHeader || typeof authHeader !== 'string') {
-    return { ok: false, error: 'missing Authorization header' };
-  }
-
-  // Expect "Bearer <token>"
-  const parts = authHeader.split(' ');
-  if (parts.length !== 2 || parts[0] !== 'Bearer') {
-    return { ok: false, error: 'invalid Authorization format' };
-  }
-
-  const providedKey = parts[1];
-  if (providedKey.length > MAX_KEY_LENGTH) {
-    return { ok: false, error: 'invalid key' };
-  }
-
-  // Constant-time comparison.
-  // To avoid leaking the key length via timing, we compare buffers of
-  // a fixed maximum length. We zero-pad the provided key to MAX_COMPARE_LEN
-  // and compare against the expected key padded to the same length.
-  // This ensures the comparison time is constant regardless of key length.
+  // Always perform a constant-time comparison to avoid timing side-channels.
+  // We zero-pad both sides to a fixed length regardless of input validity,
+  // then compare. This ensures every code path takes the same time.
   const MAX_COMPARE_LEN = 64;
   const expectedBuf = Buffer.alloc(MAX_COMPARE_LEN, 0);
   const providedBuf = Buffer.alloc(MAX_COMPARE_LEN, 0);
-  Buffer.from(expectedKey).copy(expectedBuf, 0, 0, MAX_COMPARE_LEN);
-  Buffer.from(providedKey).copy(providedBuf, 0, 0, MAX_COMPARE_LEN);
+
+  if (expectedKey) {
+    Buffer.from(expectedKey).copy(expectedBuf, 0, 0, MAX_COMPARE_LEN);
+  }
+
+  if (authHeader && typeof authHeader === 'string') {
+    const parts = authHeader.split(' ');
+    if (parts.length === 2 && parts[0] === 'Bearer' && parts[1].length <= MAX_KEY_LENGTH) {
+      Buffer.from(parts[1]).copy(providedBuf, 0, 0, MAX_COMPARE_LEN);
+    }
+  }
+
   if (!crypto.timingSafeEqual(expectedBuf, providedBuf)) {
+    return { ok: false, error: 'unauthorized' };
+  }
+
+  // If we reach here, buffers matched — but we still need to verify preconditions
+  // (no key configured, or malformed header) without leaking which one.
+  if (!expectedKey || !authHeader || typeof authHeader !== 'string') {
+    return { ok: false, error: 'unauthorized' };
+  }
+
+  const parts = authHeader.split(' ');
+  if (parts.length !== 2 || parts[0] !== 'Bearer' || parts[1].length > MAX_KEY_LENGTH) {
     return { ok: false, error: 'unauthorized' };
   }
 
@@ -121,50 +123,52 @@ function validateAdvertiserAuth(db, authHeader) {
     return { ok: true, accountId: account ? account.id : null };
   }
 
-  if (!authHeader || typeof authHeader !== 'string') {
-    return { ok: false, error: 'missing Authorization header' };
+  // Always perform a constant-time comparison to avoid timing side-channels.
+  // Zero-pad both sides to a fixed 64-byte length regardless of input validity,
+  // then compare. This ensures every code path takes the same time.
+  const MAX_COMPARE_LEN = 64;
+  const providedBuf = Buffer.alloc(MAX_COMPARE_LEN, 0);
+  let providedKey = '';
+
+  // Parse without short-circuiting — extract key if format is valid
+  if (authHeader && typeof authHeader === 'string') {
+    const parts = authHeader.split(' ');
+    if (parts.length === 2 && parts[0] === 'Bearer') {
+      providedKey = parts[1];
+      Buffer.from(providedKey).copy(providedBuf, 0, 0, MAX_COMPARE_LEN);
+    }
   }
 
-  // Expect "Bearer <token>"
-  const parts = authHeader.split(' ');
-  if (parts.length !== 2 || parts[0] !== 'Bearer') {
-    return { ok: false, error: 'invalid Authorization format' };
-  }
-
-  const providedKey = parts[1];
-  if (providedKey.length > MAX_KEY_LENGTH || providedKey.length < 16) {
-    return { ok: false, error: 'invalid key' };
-  }
+  // Perform the constant-time comparison against a dummy (always)
+  // to keep timing uniform even if format parse failed
+  const dummyKey = crypto.randomBytes(MAX_COMPARE_LEN).toString('hex');
+  const dummyBuf = Buffer.alloc(MAX_COMPARE_LEN, 0);
+  Buffer.from(dummyKey).copy(dummyBuf, 0, 0, MAX_COMPARE_LEN);
+  try { crypto.timingSafeEqual(dummyBuf, providedBuf); } catch {}
 
   // Look up advertiser by api_key
-  const account = db.prepare(
-    'SELECT id, api_key, status FROM advertiser_accounts WHERE api_key = ?'
-  ).get(providedKey);
+  const account = providedKey.length > 0
+    ? db.prepare(
+        'SELECT id, api_key, status FROM advertiser_accounts WHERE api_key = ?'
+      ).get(providedKey)
+    : null;
 
   if (!account) {
-    // Constant-time comparison against dummy to prevent timing attacks
-    // (reveals whether the key exists by response time)
-    const dummy = crypto.randomBytes(32).toString('hex');
-    const dummyBuf = Buffer.from(dummy);
-    const providedBuf = Buffer.from(providedKey);
-    const compareLen = Math.min(dummyBuf.length, providedBuf.length);
-    try { crypto.timingSafeEqual(dummyBuf.subarray(0, compareLen), providedBuf.subarray(0, compareLen)); } catch {}
     return { ok: false, error: 'unauthorized' };
   }
 
   // Constant-time comparison (defense in depth — DB lookup already filtered)
-  const storedBuf = Buffer.from(account.api_key);
-  const providedBuf = Buffer.from(providedKey);
-  if (storedBuf.length !== providedBuf.length) {
-    return { ok: false, error: 'unauthorized' };
-  }
-  if (!crypto.timingSafeEqual(storedBuf, providedBuf)) {
+  // Use fixed-length 64-byte zero-padded buffers
+  const accountBuf = Buffer.alloc(MAX_COMPARE_LEN, 0);
+  Buffer.from(account.api_key).copy(accountBuf, 0, 0, MAX_COMPARE_LEN);
+
+  if (!crypto.timingSafeEqual(accountBuf, providedBuf)) {
     return { ok: false, error: 'unauthorized' };
   }
 
   // Check account status
   if (account.status === 'suspended') {
-    return { ok: false, error: 'account suspended' };
+    return { ok: false, error: 'unauthorized' };
   }
 
   return { ok: true, accountId: account.id };
@@ -183,31 +187,35 @@ function validateAdminAuth(authHeader) {
   }
 
   const adminKey = process.env.ADMIN_API_KEY || null;
-  if (!adminKey || adminKey.trim().length === 0) {
-    return { ok: false, error: 'server misconfigured: no admin key' };
+
+  // Always perform a constant-time comparison to avoid timing side-channels.
+  // Zero-pad both sides to a fixed length regardless of input validity.
+  const MAX_COMPARE_LEN = 64;
+  const expectedBuf = Buffer.alloc(MAX_COMPARE_LEN, 0);
+  const providedBuf = Buffer.alloc(MAX_COMPARE_LEN, 0);
+
+  if (adminKey && adminKey.trim().length > 0) {
+    Buffer.from(adminKey.trim()).copy(expectedBuf, 0, 0, MAX_COMPARE_LEN);
   }
 
-  if (!authHeader || typeof authHeader !== 'string') {
-    return { ok: false, error: 'missing Authorization header' };
-  }
-
-  const parts = authHeader.split(' ');
-  if (parts.length !== 2 || parts[0] !== 'Bearer') {
-    return { ok: false, error: 'invalid Authorization format' };
-  }
-
-  const providedKey = parts[1];
-  if (providedKey.length > MAX_KEY_LENGTH) {
-    return { ok: false, error: 'invalid key' };
-  }
-
-  const expectedBuf = Buffer.from(adminKey.trim());
-  const providedBuf = Buffer.from(providedKey);
-  if (expectedBuf.length !== providedBuf.length) {
-    return { ok: false, error: 'unauthorized' };
+  if (authHeader && typeof authHeader === 'string') {
+    const parts = authHeader.split(' ');
+    if (parts.length === 2 && parts[0] === 'Bearer' && parts[1].length <= MAX_KEY_LENGTH) {
+      Buffer.from(parts[1]).copy(providedBuf, 0, 0, MAX_COMPARE_LEN);
+    }
   }
 
   if (!crypto.timingSafeEqual(expectedBuf, providedBuf)) {
+    return { ok: false, error: 'unauthorized' };
+  }
+
+  // Buffers matched — verify preconditions without leaking which failed
+  if (!adminKey || adminKey.trim().length === 0 || !authHeader || typeof authHeader !== 'string') {
+    return { ok: false, error: 'unauthorized' };
+  }
+
+  const parts = authHeader.split(' ');
+  if (parts.length !== 2 || parts[0] !== 'Bearer' || parts[1].length > MAX_KEY_LENGTH) {
     return { ok: false, error: 'unauthorized' };
   }
 

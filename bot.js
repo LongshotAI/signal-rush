@@ -153,6 +153,9 @@ bot.start({
   onStart: (botInfo) => {
     console.log(`[Signal Rush Bot] @${botInfo.username} is running`);
   },
+}).catch((err) => {
+  console.error('[Signal Rush Bot] Failed to start:', err.message);
+  process.exit(1);
 });
 
 // Graceful shutdown

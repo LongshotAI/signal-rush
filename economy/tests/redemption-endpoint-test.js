@@ -146,7 +146,7 @@ async function httpRequest(port, { method = 'GET', path, body = null, headers = 
 async function runTests() {
   // Set env for test
   process.env.ECONOMY_API_KEY = 'test-secret-key';
-  process.env.ECONOMY_AUTH_ENFORCED = 'false'; // disable auth for simpler testing
+  process.env.ECONOMY_AUTH_ENFORCED='false'; // disable auth for simpler testing
   process.env.PPQ_DEFAULT_MODEL = 'gpt-4o-mini';
   process.env.MAX_REDEMPTION_PER_DAY = '100000000'; // 100M micros = 100K credits daily limit for tests
   process.env.MAX_REDEMPTION_PER_TX = '10000';

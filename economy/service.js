@@ -16,6 +16,7 @@ const auth = require('./auth');
 const rateLimit = require('./rateLimit');
 const redeem = require('./redeem');
 const ppqClient = require('./ppq-client');
+const telegramRoutes = require('./routes/telegram');
 const { execFile } = require('child_process');
 
 
@@ -37,8 +38,9 @@ function createServer({ port = DEFAULT_PORT, host = DEFAULT_HOST, dbPath = ledge
 
   // ─── Auth Enforcement Hook ──────────────────────────────────────
   // Protects all /internal/*, /credits/*, and /ads/* endpoints.
-  // When ECONOMY_AUTH_ENFORCED='true', requests must include
-  // Authorization: Bearer <ECONOMY_API_KEY>.
+  // When ECONOMY_AUTH_ENFORCED is set to anything other than 'false',
+  // requests must include Authorization: Bearer <ECONO...EY>.
+  // To disable auth: set ECONOMY_AUTH_ENFORCED=false.
 
   const protectedPrefixes = ['/internal/', '/credits/', '/ads/'];
 
@@ -71,6 +73,10 @@ function createServer({ port = DEFAULT_PORT, host = DEFAULT_HOST, dbPath = ledge
       return { error: 'rate limit exceeded', retry_after_seconds: retryAfter };
     }
   });
+
+  // ─── Telegram Mini App Routes ────────────────────────────────────
+
+  telegramRoutes.register(app, { db });
 
   // ─── Health Check ──────────────────────────────────────────────
 
@@ -667,8 +673,22 @@ function createServer({ port = DEFAULT_PORT, host = DEFAULT_HOST, dbPath = ledge
 
   // ─── Ad Impression Endpoint ────────────────────────────────────
 
+  // In-memory rate limiter: player_id → last impression timestamp (ms)
+  const impressionCooldowns = new Map();
+  const IMPRESSION_COOLDOWN_MS = 5000; // 1 impression per 5 seconds per player
+
+  // Server-side cost lookup: campaign_id → cost in micros
+  // For house ads (no campaign), cost is 0.
+  // For campaign ads, use AD_COST_MICROS_PER_IMPRESSION env var (default 0).
+  function resolveImpressionCost(campaignId) {
+    if (!campaignId) return 0;
+    const configured = parseInt(process.env.AD_COST_MICROS_PER_IMPRESSION || '0', 10);
+    if (!Number.isFinite(configured) || configured < 0) return 0;
+    return configured;
+  }
+
   app.post('/ads/impression', async (req, reply) => {
-    const { campaign_id, player_id, placement_type = 'hud_frame', cost_micros = 0 } = req.body || {};
+    const { campaign_id, player_id, placement_type = 'hud_frame' } = req.body || {};
     let validatedPlayerId = null;
     if (player_id) {
       try {
@@ -678,6 +698,18 @@ function createServer({ port = DEFAULT_PORT, host = DEFAULT_HOST, dbPath = ledge
         return { error: err.message };
       }
     }
+    // Rate limit: max 1 impression per 5 seconds per player_id
+    if (validatedPlayerId) {
+      const now = Date.now();
+      const last = impressionCooldowns.get(validatedPlayerId);
+      if (last && (now - last) < IMPRESSION_COOLDOWN_MS) {
+        reply.code(429);
+        return { error: 'rate_limited', retry_after_ms: IMPRESSION_COOLDOWN_MS - (now - last) };
+      }
+      impressionCooldowns.set(validatedPlayerId, now);
+    }
+    // Determine cost server-side — never trust client input
+    const cost_micros = resolveImpressionCost(campaign_id);
     try {
       const id = ledger.logImpression(db, {
         campaignId: campaign_id || null,
@@ -1516,6 +1548,62 @@ function createServer({ port = DEFAULT_PORT, host = DEFAULT_HOST, dbPath = ledge
       '.ico': 'image/x-icon',
     };
     reply.header('Content-Type', contentTypes[ext] || 'application/octet-stream');
+    return fs.createReadStream(filePath);
+  });
+
+  // ─── Telegram Mini App Static Files ─────────────────────────────
+  // Serve the game Mini App from telegram-mini-app/ directory.
+
+  const miniAppDir = path.join(__dirname, '..', 'telegram-mini-app');
+
+  app.get('/mini-app', async (req, reply) => {
+    reply.redirect('/mini-app/index.html');
+  });
+
+  app.get('/mini-app/*', async (req, reply) => {
+    const reqPath = req.params['*'] || 'index.html';
+    const filePath = path.join(miniAppDir, reqPath);
+    // Security: prevent directory traversal
+    if (!filePath.startsWith(miniAppDir)) {
+      reply.code(403);
+      return { error: 'forbidden' };
+    }
+    if (!fs.existsSync(filePath) || !fs.statSync(filePath).isFile()) {
+      reply.code(404);
+      return { error: 'not found' };
+    }
+    const ext = path.extname(filePath).toLowerCase();
+    const contentTypes = {
+      '.html': 'text/html; charset=utf-8',
+      '.css': 'text/css; charset=utf-8',
+      '.js': 'application/javascript; charset=utf-8',
+      '.mjs': 'application/javascript; charset=utf-8',
+      '.json': 'application/json; charset=utf-8',
+      '.png': 'image/png',
+      '.jpg': 'image/jpeg',
+      '.svg': 'image/svg+xml',
+      '.ico': 'image/x-icon',
+      '.wasm': 'application/wasm',
+    };
+    reply.header('Content-Type', contentTypes[ext] || 'application/octet-stream');
+    return fs.createReadStream(filePath);
+  });
+
+  // Also serve the engine bundle from dist/ at /dist/
+  const distDir = path.join(__dirname, '..', 'dist');
+
+  app.get('/dist/*', async (req, reply) => {
+    const reqPath = req.params['*'] || '';
+    const filePath = path.join(distDir, reqPath);
+    if (!filePath.startsWith(distDir)) {
+      reply.code(403);
+      return { error: 'forbidden' };
+    }
+    if (!fs.existsSync(filePath) || !fs.statSync(filePath).isFile()) {
+      reply.code(404);
+      return { error: 'not found' };
+    }
+    reply.header('Content-Type', 'application/javascript; charset=utf-8');
     return fs.createReadStream(filePath);
   });
 

@@ -164,6 +164,17 @@ async function forwardStep(playerId, sessionId, engine, creditsBefore) {
   // Detect reset: engine sets credits to 0 on new game / restart
   const isReset = (creditsAfter === 0 && creditsBefore > 0);
 
+  // Forward sponsor impressions to the ad system
+  for (const event of events) {
+    if (event.type === 'sponsor_impression') {
+      try {
+        await logAdImpression(playerId, 'hud_frame', event.campaign_id || null);
+      } catch {
+        // Never block the game loop — impressions are best-effort
+      }
+    }
+  }
+
   const payload = {
     player_id: playerId,
     session_id: sessionId,
