@@ -1233,7 +1233,73 @@ const tests = [
   // M key handling
   testMenuKeyEnterFromGameplayReturnsToMenu,
   testMKeySetsPendingMenuRegardlessOfGameOver,
+  // Ad impression accuracy
+  testAdImpressionOnlyWhenNotPaused,
+  testAdImpressionOnlyWhenNotGameOver,
+  testAdImpressionFiresEvery40Ticks,
 ];
+
+// ── Ad impression accuracy tests ──────────────────────────────────
+
+function testAdImpressionOnlyWhenNotPaused() {
+  const { createEngine } = require('../src/core/engine');
+  const engine = createEngine({ mode: 'aiHunt', seed: 42 });
+
+  // Run to tick 40 (first impression tick)
+  for (let i = 0; i < 40; i++) engine.step({});
+
+  // Verify impressions are firing
+  const events40 = engine.state.lastEvents.filter(e => e.type === 'sponsor_impression');
+  assert(events40.length > 0, 'should have impressions by tick 40');
+
+  // Now pause
+  engine.step({ pause: true });
+  assert(engine.state.paused, 'should be paused');
+
+  // Run 40 more ticks while paused — no new impressions
+  const labelBefore = engine.state.sponsorLabelIndex;
+  for (let i = 0; i < 40; i++) engine.step({});
+  assert.equal(engine.state.sponsorLabelIndex, labelBefore,
+    'sponsor label index should not advance while paused');
+}
+
+function testAdImpressionOnlyWhenNotGameOver() {
+  const { createEngine } = require('../src/core/engine');
+  const engine = createEngine({ mode: 'aiHunt', seed: 42 });
+
+  // Force game over
+  engine.state.gameOver = true;
+  engine.state.player.health = 0;
+
+  const labelBefore = engine.state.sponsorLabelIndex;
+
+  // Run 80 ticks (2 impression cycles)
+  for (let i = 0; i < 80; i++) engine.step({});
+
+  assert.equal(engine.state.sponsorLabelIndex, labelBefore,
+    'sponsor label index should not advance when game over');
+}
+
+function testAdImpressionFiresEvery40Ticks() {
+  const { createEngine } = require('../src/core/engine');
+  const engine = createEngine({ mode: 'aiHunt', seed: 42 });
+
+  let impressionCount = 0;
+  const totalTicks = 200;
+
+  for (let i = 0; i < totalTicks; i++) {
+    if (engine.state.gameOver) break; // stop counting if game ends
+    engine.step({});
+    if (engine.state.lastEvents.some(e => e.type === 'sponsor_impression')) {
+      impressionCount++;
+    }
+  }
+
+  // Impressions fire at ticks 40, 80, 120, 160 (and 200 if game hasn't ended)
+  // With seed 42, the player survives past tick 160, so we expect at least 4
+  assert(impressionCount >= 4,
+    `should have at least 4 impressions in ${totalTicks} ticks, got ${impressionCount}`);
+}
 
 for (const test of tests) {
   test();

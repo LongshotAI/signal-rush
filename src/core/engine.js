@@ -683,7 +683,10 @@ function stepAiHunt(engine, state, input) {
     state.message = `Score surge ${GAME_CONFIG.scoreMilestones[reachedMilestoneIndex]}. Pressure rising.`;
   }
 
-  if (state.tick % GAME_CONFIG.sponsorImpressionEveryTicks === 0) {
+  // Only emit sponsor impressions when the game is actively being played
+  // (not paused, not game over). This ensures ad billing accuracy —
+  // impressions are only counted when the HUD is actually visible.
+  if (!state.paused && !state.gameOver && state.tick % GAME_CONFIG.sponsorImpressionEveryTicks === 0) {
     state.sponsorLabelIndex = (state.sponsorLabelIndex + 1) % 3;
     events.push({ type: 'sponsor_impression' });
   }

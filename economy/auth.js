@@ -77,13 +77,16 @@ function validateAuth(authHeader) {
     return { ok: false, error: 'invalid key' };
   }
 
-  // Constant-time comparison
-  const expectedBuf = Buffer.from(expectedKey);
-  const providedBuf = Buffer.from(providedKey);
-  if (expectedBuf.length !== providedBuf.length) {
-    return { ok: false, error: 'unauthorized' };
-  }
-
+  // Constant-time comparison.
+  // To avoid leaking the key length via timing, we compare buffers of
+  // a fixed maximum length. We zero-pad the provided key to MAX_COMPARE_LEN
+  // and compare against the expected key padded to the same length.
+  // This ensures the comparison time is constant regardless of key length.
+  const MAX_COMPARE_LEN = 64;
+  const expectedBuf = Buffer.alloc(MAX_COMPARE_LEN, 0);
+  const providedBuf = Buffer.alloc(MAX_COMPARE_LEN, 0);
+  Buffer.from(expectedKey).copy(expectedBuf, 0, 0, MAX_COMPARE_LEN);
+  Buffer.from(providedKey).copy(providedBuf, 0, 0, MAX_COMPARE_LEN);
   if (!crypto.timingSafeEqual(expectedBuf, providedBuf)) {
     return { ok: false, error: 'unauthorized' };
   }
