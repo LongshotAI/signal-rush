@@ -226,6 +226,48 @@ function testDirectRNGInjectionPreservesCallerControl() {
   console.log('  PASS');
 }
 
+// ── Daily challenge seed tests ─────────────────────────────────────
+
+function testDailyChallengeSeedIsDeterministic() {
+  console.log('Testing: daily challenge seed is deterministic...');
+  const { getDailyChallengeSeed } = require('../src/core/rng');
+  const date = new Date('2026-06-18');
+  const seed1 = getDailyChallengeSeed(date);
+  const seed2 = getDailyChallengeSeed(date);
+  assert.equal(seed1, seed2, 'same date should produce same seed');
+  console.log('  PASS');
+}
+
+function testDailyChallengeSeedDiffersByDate() {
+  console.log('Testing: daily challenge seed differs by date...');
+  const { getDailyChallengeSeed } = require('../src/core/rng');
+  const date1 = new Date('2026-06-18');
+  const date2 = new Date('2026-06-19');
+  const seed1 = getDailyChallengeSeed(date1);
+  const seed2 = getDailyChallengeSeed(date2);
+  assert.notEqual(seed1, seed2, 'different dates should produce different seeds');
+  console.log('  PASS');
+}
+
+function testDailyChallengeProducesIdenticalRuns() {
+  console.log('Testing: daily challenge produces identical runs...');
+  const { getDailyChallengeSeed } = require('../src/core/rng');
+  const date = new Date('2026-06-18');
+  const seed = getDailyChallengeSeed(date);
+
+  const engine1 = createEngine({ mode: 'aiHunt', seed });
+  const engine2 = createEngine({ mode: 'aiHunt', seed });
+
+  for (let i = 0; i < 100; i++) {
+    if (engine1.state.gameOver || engine2.state.gameOver) break;
+    engine1.step({ move: { x: 1, y: 0 } });
+    engine2.step({ move: { x: 1, y: 0 } });
+    assert.equal(engine1.state.score, engine2.state.score,
+      `scores should match at step ${i}`);
+  }
+  console.log('  PASS');
+}
+
 // Run all tests
 console.log('\n=== Signal Rush Determinism Tests ===\n');
 
@@ -241,6 +283,10 @@ try {
   testFallbackToMathRandom();
   testSeedBasedResetCreatesFreshRNG();
   testDirectRNGInjectionPreservesCallerControl();
+  // Daily challenge seed tests
+  testDailyChallengeSeedIsDeterministic();
+  testDailyChallengeSeedDiffersByDate();
+  testDailyChallengeProducesIdenticalRuns();
   console.log('\n✅ ALL DETERMINISM TESTS PASSED');
 } catch (e) {
   console.error('\n❌ TEST FAILED:', e.message);

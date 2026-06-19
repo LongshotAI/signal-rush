@@ -35,9 +35,25 @@ function randInt(rng, min, max) {
   return Math.floor(rng() * (max - min + 1)) + min;
 }
 
+// Get the daily challenge seed for a given date.
+// All players on the same date get the same seed, enabling fair competition.
+// Returns a numeric seed derived from hashing 'signal-rush-YYYY-MM-DD'.
+function getDailyChallengeSeed(date = new Date()) {
+  const dateStr = date.toISOString().slice(0, 10); // YYYY-MM-DD
+  // Use the same djb2 hash as createRNG for strings, but return the
+  // numeric seed (not the RNG function).
+  let hash = 5381;
+  const str = `signal-rush-${dateStr}`;
+  for (let i = 0; i < str.length; i += 1) {
+    hash = ((hash << 5) + hash) ^ str.charCodeAt(i);
+  }
+  return hash >>> 0;
+}
+
 module.exports = {
   createRNG,
   defaultRNG,
   randInt,
   mulberry32,
+  getDailyChallengeSeed,
 };
