@@ -52,7 +52,8 @@ function createServer({ port = DEFAULT_PORT, host = DEFAULT_HOST, dbPath = ledge
     const result = auth.validateAuth(req.headers.authorization);
     if (!result.ok) {
       reply.code(401);
-      return { error: 'unauthorized' };
+      await reply.send({ error: 'unauthorized' });
+      return reply;
     }
   });
 
@@ -744,7 +745,8 @@ function createServer({ port = DEFAULT_PORT, host = DEFAULT_HOST, dbPath = ledge
       const result = auth.validateAdminAuth(req.headers.authorization);
       if (!result.ok) {
         reply.code(401);
-        return { error: 'unauthorized' };
+        await reply.send({ error: 'unauthorized' });
+        return reply;
       }
       return;
     }
