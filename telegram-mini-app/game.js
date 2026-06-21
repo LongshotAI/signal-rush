@@ -54,12 +54,17 @@ const C = {
   gridLine:    'rgba(255,255,255,0.06)',
   player:      '#00ff88',
   playerGlow:  'rgba(0,255,136,0.35)',
+  playerShield:'rgba(0,180,255,0.30)',
   playerTrail: 'rgba(0,255,136,0.15)',
   hazard:      '#ff3355',
   hazardGlow:  'rgba(255,51,85,0.30)',
+  hazardPatrol:'#ff8844',
+  hazardPatrolGlow:'rgba(255,136,68,0.30)',
   pickup:      '#ffdd44',
   pickupGlow:  'rgba(255,221,68,0.30)',
   pickupPulse: 'rgba(255,221,68,0.12)',
+  pickupShield:'#44bbff',
+  pickupShieldGlow:'rgba(68,187,255,0.35)',
   hudBg:       'rgba(0,0,0,0.70)',
   hudText:     '#ffffff',
   hudAccent:   '#00ff88',
@@ -738,6 +743,22 @@ function drawPlayer(player, invulnerable) {
   const cy = player.y * CELL_SIZE + CELL_SIZE / 2;
   const r = CELL_SIZE * 0.42;
 
+  // Shield ring (when player has shield charges)
+  if (player.shield > 0) {
+    const shieldPulse = 0.7 + 0.3 * Math.sin(Date.now() / 250);
+    ctx.beginPath();
+    ctx.arc(cx, cy, r * 1.5, 0, Math.PI * 2);
+    ctx.strokeStyle = `rgba(0,180,255,${0.25 * shieldPulse})`;
+    ctx.lineWidth = 2.5;
+    ctx.stroke();
+    // Inner shield glow
+    const shieldGlow = ctx.createRadialGradient(cx, cy, r * 0.5, cx, cy, r * 1.8);
+    shieldGlow.addColorStop(0, 'rgba(0,180,255,0.08)');
+    shieldGlow.addColorStop(1, 'rgba(0,180,255,0)');
+    ctx.fillStyle = shieldGlow;
+    ctx.fillRect(cx - r * 2.5, cy - r * 2.5, r * 5, r * 5);
+  }
+
   // Glow
   const glow = ctx.createRadialGradient(cx, cy, r * 0.3, cx, cy, r * 2.2);
   glow.addColorStop(0, C.playerGlow);
@@ -772,22 +793,54 @@ function drawHazard(h) {
   const r = CELL_SIZE * 0.38;
   const pulse = 0.9 + 0.1 * Math.sin(Date.now() / 200 + h.x);
 
+  // Patrol hazards are orange, homing are red
+  const isPatrol = h.behavior === 'patrol';
+  const hazardColor = isPatrol ? C.hazardPatrol : C.hazard;
+  const hazardGlowCol = isPatrol ? C.hazardPatrolGlow : C.hazardGlow;
+  const hazardShape = isPatrol ? 'square' : 'diamond';
+
   // Glow
   const glow = ctx.createRadialGradient(cx, cy, r * 0.2 * pulse, cx, cy, r * 2 * pulse);
-  glow.addColorStop(0, C.hazardGlow);
+  glow.addColorStop(0, hazardGlowCol);
   glow.addColorStop(1, 'rgba(255,51,85,0)');
   ctx.fillStyle = glow;
   ctx.fillRect(cx - r * 2.5 * pulse, cy - r * 2.5 * pulse, r * 5 * pulse, r * 5 * pulse);
 
-  // Diamond shape
-  ctx.beginPath();
-  ctx.moveTo(cx, cy - r * pulse);
-  ctx.lineTo(cx + r * pulse, cy);
-  ctx.lineTo(cx, cy + r * pulse);
-  ctx.lineTo(cx - r * pulse, cy);
-  ctx.closePath();
-  ctx.fillStyle = C.hazard;
-  ctx.fill();
+  // Shape
+  ctx.fillStyle = hazardColor;
+  if (hazardShape === 'square') {
+    ctx.fillRect(cx - r * 0.65, cy - r * 0.65, r * 1.3, r * 1.3);
+  } else {
+    // Diamond (existing)
+    ctx.beginPath();
+    ctx.moveTo(cx, cy - r * pulse);
+    ctx.lineTo(cx + r * pulse, cy);
+    ctx.lineTo(cx, cy + r * pulse);
+    ctx.lineTo(cx - r * pulse, cy);
+    ctx.closePath();
+    ctx.fill();
+  }
+
+  // Direction indicator for patrol hazards
+  if (isPatrol && h.dirX) {
+    const arrowSize = 3;
+    ctx.fillStyle = 'rgba(255,255,255,0.20)';
+    if (h.dirX > 0) {
+      ctx.beginPath();
+      ctx.moveTo(cx + r * 0.6, cy - arrowSize);
+      ctx.lineTo(cx + r * 0.6 + arrowSize, cy);
+      ctx.lineTo(cx + r * 0.6, cy + arrowSize);
+      ctx.closePath();
+      ctx.fill();
+    } else if (h.dirX < 0) {
+      ctx.beginPath();
+      ctx.moveTo(cx - r * 0.6, cy - arrowSize);
+      ctx.lineTo(cx - r * 0.6 - arrowSize, cy);
+      ctx.lineTo(cx - r * 0.6, cy + arrowSize);
+      ctx.closePath();
+      ctx.fill();
+    }
+  }
 }
 
 function drawPickup(p) {
@@ -796,11 +849,25 @@ function drawPickup(p) {
   const pulse = 0.8 + 0.2 * Math.sin(Date.now() / 250 + p.x + p.y);
   const r = CELL_SIZE * 0.32 * pulse;
 
-  // Visual variety based on pickup value — high-value pickups glow different colors
-  const isHighValue = p.value >= 35;
-  const isSuperValue = p.value >= 45;
-  const pickupColor = isSuperValue ? '#ff88ff' : isHighValue ? '#00ddff' : C.pickup;
-  const pickupGlowCol = isSuperValue ? 'rgba(255,136,255,0.35)' : isHighValue ? 'rgba(0,221,255,0.30)' : C.pickupGlow;
+  // Check pickup type
+  const isShield = p.type === 'shield';
+  const isHighValue = !isShield && p.value >= 35;
+  const isSuperValue = !isShield && p.value >= 45;
+
+  let pickupColor, pickupGlowCol;
+  if (isShield) {
+    pickupColor = C.pickupShield;
+    pickupGlowCol = C.pickupShieldGlow;
+  } else if (isSuperValue) {
+    pickupColor = '#ff88ff';
+    pickupGlowCol = 'rgba(255,136,255,0.35)';
+  } else if (isHighValue) {
+    pickupColor = '#00ddff';
+    pickupGlowCol = 'rgba(0,221,255,0.30)';
+  } else {
+    pickupColor = C.pickup;
+    pickupGlowCol = C.pickupGlow;
+  }
 
   // Glow
   const glow = ctx.createRadialGradient(cx, cy, r * 0.2, cx, cy, r * 2.5);
@@ -815,8 +882,23 @@ function drawPickup(p) {
   ctx.fillStyle = pickupColor;
   ctx.fill();
 
-  // Extra visual flair for super value pickups — pulsing ring
-  if (isSuperValue) {
+  // Shield pickup icon
+  if (isShield) {
+    // Small shield icon inside the pickup
+    ctx.fillStyle = '#fff';
+    ctx.font = `bold ${Math.max(7, r * 1.2)}px monospace`;
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText('🛡', cx, cy + 1);
+
+    // Pulsing ring
+    const ringPulse = 0.6 + 0.4 * Math.sin(Date.now() / 150 + p.x);
+    ctx.strokeStyle = `rgba(68,187,255,${0.35 * ringPulse})`;
+    ctx.lineWidth = 1.5;
+    ctx.beginPath();
+    ctx.arc(cx, cy, r * 1.7, 0, Math.PI * 2);
+    ctx.stroke();
+  } else if (isSuperValue) {
     const ringPulse = 0.6 + 0.4 * Math.sin(Date.now() / 180 + p.x);
     ctx.strokeStyle = `rgba(255,136,255,${0.3 * ringPulse})`;
     ctx.lineWidth = 1.5;
@@ -832,8 +914,8 @@ function drawPickup(p) {
     ctx.stroke();
   }
 
-  // Value indicator
-  if (r > 5) {
+  // Value indicator (only for credit pickups)
+  if (r > 5 && !isShield) {
     ctx.fillStyle = '#000';
     ctx.font = `bold ${Math.max(8, r)}px monospace`;
     ctx.textAlign = 'center';
@@ -862,6 +944,15 @@ function drawHUD(state) {
   const dangerIcon = nearbyThreat > 0
     ? `<span style="color:${C.hudDanger};font-size:10px;font-weight:bold">⚠${nearbyThreat > 1 ? nearbyThreat : ''}</span>`
     : '';
+  // Shield indicator
+  const shieldDisplay = state.player?.shield > 0
+    ? `<span style="color:#44bbff;font-size:10px">🛡${state.player.shield}</span>`
+    : '';
+  // Streak indicator
+  const streakCount = state.consecutivePickups || 0;
+  const streakDisplay = streakCount > 2
+    ? `<span style="color:#ffdd44;font-size:9px">⚡${streakCount}</span>`
+    : '';
 
   const sponsorDisplay = activeSponsor
     ? `<span style="color:rgba(255,255,255,0.35);font-size:10px;margin-left:4px">| ${activeSponsor.brand_name}</span>`
@@ -875,7 +966,9 @@ function drawHUD(state) {
       <span style="color:rgba(255,255,255,0.25)">|</span>
       <span style="color:${C.hudDanger};font-size:10px">${healthHearts}</span>
       <span style="color:rgba(255,51,85,0.2);font-size:10px">${healthEmpty}</span>
+      ${shieldDisplay}
       <span style="flex:1"></span>
+      ${streakDisplay}
       ${dangerIcon}
       <span style="color:${C.hudAccent};font-size:10px">${modeIcon}</span>
       ${creditDisplay ? `<span style="color:#ffdd44;font-size:10px">${creditDisplay}</span>` : ''}

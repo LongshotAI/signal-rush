@@ -37,6 +37,9 @@ function spawnPickup(state) {
     value: randInt(GAME_CONFIG.pickupValueMin, GAME_CONFIG.pickupValueMax, rng),
     ttl: randInt(GAME_CONFIG.pickupTtlMin, GAME_CONFIG.pickupTtlMax, rng),
   };
+  // Deterministic pickup type — no RNG shift
+  const typeSeed = (state.tick * 11 + cell.x * 17 + cell.y * 23) % 100;
+  pickup.type = typeSeed >= GAME_CONFIG.pickupTypes.shieldThreshold ? 'shield' : 'credit';
   state.pickups.push(pickup);
   return pickup;
 }
@@ -63,6 +66,15 @@ function spawnHazard(state) {
         y: cell.y,
         kind: rng() < 0.18 ? 'corruptor' : 'packet',
       };
+      // Deterministic behavior selection — no extra RNG call needed.
+      // Hash is derived from tick + position so same seed = same result.
+      const behaviorSeed = (state.tick * 7 + cell.x * 13 + cell.y * 31 + (state.hazards.length + 1) * 37) % 100;
+      hazard.behavior = behaviorSeed >= GAME_CONFIG.hazardBehavior.patrolThreshold ? 'patrol' : 'homing';
+      // Patrol direction: deterministic from position (so it's consistent per seed)
+      if (hazard.behavior === 'patrol') {
+        hazard.dirX = (cell.x + cell.y + state.tick) % 2 === 0 ? 1 : -1;
+        hazard.dirY = 0;
+      }
       state.hazards.push(hazard);
       return hazard;
     }
@@ -109,7 +121,6 @@ function awardNearMisses(state, events) {
     ? `Near miss +${gained}. Thread the signal.`
     : `Near misses x${nearCount} +${gained}. Risk pays.`;
   events.push({ type: 'near_miss', count: nearCount, score: gained, streak: state.nearMissStreak });
-  state.credits += Math.max(1, Math.floor(gained / 25));
 }
 
 function resetState(state) {
@@ -145,6 +156,9 @@ function resetStateAiHunt(state) {
   state.trail = null;
   state.inputPulse = 0;
   state.moveFlash = 0;
+  state.consecutivePickups = 0;
+  state.comboDecayTimer = 0;
+  state.shieldPickupActive = false;
   for (let i = 0; i < GAME_CONFIG.initialPickupCount; i += 1) {
     spawnPickup(state);
   }
@@ -604,9 +618,25 @@ function stepAiHunt(engine, state, input) {
   }
 
   for (const hazard of state.hazards) {
-    const next = moveToward(player.x, player.y, hazard.x, hazard.y);
-    hazard.x = clamp(next.x, 1, GAME_CONFIG.width - 2);
-    hazard.y = clamp(next.y, 1, GAME_CONFIG.height - 2);
+    if (hazard.behavior === 'patrol') {
+      // Patrol hazard: moves in a fixed direction, bounces off edges
+      const newX = hazard.x + (hazard.dirX || 1);
+      const newY = hazard.y + (hazard.dirY || 0);
+      // Bounce off walls
+      if (newX < 1 || newX > GAME_CONFIG.width - 2) {
+        hazard.dirX = -(hazard.dirX || 1);
+      }
+      if (newY < 1 || newY > GAME_CONFIG.height - 2) {
+        hazard.dirY = -(hazard.dirY || 0);
+      }
+      hazard.x = clamp(hazard.x + (hazard.dirX || 1), 1, GAME_CONFIG.width - 2);
+      hazard.y = clamp(hazard.y + (hazard.dirY || 0), 1, GAME_CONFIG.height - 2);
+    } else {
+      // Homing: moves toward player (existing behavior)
+      const next = moveToward(player.x, player.y, hazard.x, hazard.y);
+      hazard.x = clamp(next.x, 1, GAME_CONFIG.width - 2);
+      hazard.y = clamp(next.y, 1, GAME_CONFIG.height - 2);
+    }
   }
 
   let lethal = false;
@@ -615,6 +645,27 @@ function stepAiHunt(engine, state, input) {
     if (!hit) return true;
     if (state.invulnerable > 0) return false;
     const damage = hazard.kind === 'corruptor' ? 2 : 1;
+    // Shield absorbs damage first
+    if (state.player.shield > 0) {
+      const absorbed = Math.min(state.player.shield, damage);
+      state.player.shield -= absorbed;
+      const remaining = damage - absorbed;
+      if (remaining > 0) {
+        player.health -= remaining;
+      }
+      state.combo = 1;
+      state.nearMissStreak = 0;
+      state.invulnerable = GAME_CONFIG.invulnerableTicks;
+      events.push({ type: 'shield_blocked', absorbed, remaining });
+      state.message = `Shield blocked ${absorbed}. ${state.player.shield} charges left.`;
+      if (player.health <= 0) {
+        lethal = true;
+        state.deathState = createDeathState(state, hazard.kind);
+        state.message = `Destroyed through shield. Final score ${state.score}. Press r.`;
+        return false;
+      }
+      return false;
+    }
     player.health -= damage;
     state.combo = 1;
     state.nearMissStreak = 0;
@@ -639,9 +690,25 @@ function stepAiHunt(engine, state, input) {
 
   awardNearMisses(state, events);
 
+  let collectedAny = false;
+
   state.pickups = state.pickups.filter((pickup) => {
     if (pickup.x === player.x && pickup.y === player.y) {
+      collectedAny = true;
       events.push({ type: 'pickup_collected', value: pickup.value });
+
+      if (pickup.type === 'shield') {
+        // Shield pickup: grants shield charges instead of score/credits
+        const shieldGain = GAME_CONFIG.pickupTypes.shieldCharges;
+        state.player.shield = Math.min(5, (state.player.shield || 0) + shieldGain);
+        state.consecutivePickups += 1;
+        state.comboDecayTimer = 0;
+        state.message = `🛡 Shield +${shieldGain}. ${state.player.shield} charges.`;
+        events.push({ type: 'shield_pickup', shieldGain, total: state.player.shield });
+        return false;
+      }
+
+      // Credit pickup (existing behavior)
       const priorCombo = state.combo;
       state.combo = Math.min(9.9, Number((state.combo + 0.3).toFixed(1)));
       if (state.combo !== priorCombo) {
@@ -653,6 +720,17 @@ function stepAiHunt(engine, state, input) {
       state.credits += credits;
       events.push({ type: 'credits_awarded', credits });
       state.message = `Signal secured +${gained}. Keep moving.`;
+
+      // Consecutive pickup streak
+      state.consecutivePickups += 1;
+      state.comboDecayTimer = 0;
+      if (state.consecutivePickups > 0 && state.consecutivePickups % 5 === 0) {
+        const streakBonus = 50 + state.consecutivePickups * 5;
+        state.score += streakBonus;
+        state.message = `⚡ Streak x${state.consecutivePickups}! +${streakBonus} bonus.`;
+        events.push({ type: 'streak_bonus', count: state.consecutivePickups, bonus: streakBonus });
+      }
+
       return false;
     }
     pickup.ttl -= 1;
@@ -661,7 +739,16 @@ function stepAiHunt(engine, state, input) {
   });
 
   state.score += Math.floor(GAME_CONFIG.baseScorePerTick * state.combo);
-  state.credits += 1;
+
+  // Combo decay: combo decreases when player is not collecting pickups
+  // Resets timer on collect, decays 0.05/tick otherwise
+  if (!collectedAny && state.combo > 1 && state.tick > GAME_CONFIG.hazardRamp.safeStartTicks) {
+    state.comboDecayTimer += 1;
+    if (state.comboDecayTimer >= 1) {
+      state.combo = Math.max(1, Number((state.combo - GAME_CONFIG.comboDecay).toFixed(2)));
+      state.comboDecayTimer = 0;
+    }
+  }
 
   if (safeWindowActive && state.tick === 1) {
     state.message = 'Calibration window live. Test movement, reversals, and dash.';

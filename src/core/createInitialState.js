@@ -5,6 +5,7 @@ function createPlayer() {
     x: Math.floor(GAME_CONFIG.width / 2),
     y: Math.floor(GAME_CONFIG.height / 2),
     health: GAME_CONFIG.startHealth,
+    shield: 0,
   };
 }
 
@@ -34,6 +35,9 @@ function createAiHuntState() {
     lastMilestoneIndex: -1,
     sponsorLabelIndex: 0,
     nearMissStreak: 0,
+    consecutivePickups: 0,
+    comboDecayTimer: 0,
+    shieldPickupActive: false,
   };
 }
 

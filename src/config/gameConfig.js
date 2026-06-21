@@ -52,6 +52,29 @@ const GAME_CONFIG = {
   scoreMilestones: [100, 250, 500, 900, 1400],
   sponsorImpressionEveryTicks: 40,
 
+  // ── Hazard behavior variety ──────────────────────────────────────────
+  // When a hazard spawns, a deterministic hash decides its movement style.
+  // Values in [0, 100) — lower threshold = less common.
+  // homing: tracks player (existing default)
+  // patrol: moves in a fixed direction, bounces off edges
+  hazardBehavior: {
+    patrolThreshold: 70,  // >=70 → patrol behavior (30% of spawns)
+  },
+
+  // ── Pickup type variety ──────────────────────────────────────────────
+  // When a pickup spawns, type is chosen deterministically.
+  // credit: existing behavior (score × combo)
+  // shield: adds shield charges to the player
+  pickupTypes: {
+    shieldThreshold: 70,  // >=70 → shield pickup (30% of spawns)
+    shieldCharges: 2,     // shield pickups grant this many charges
+  },
+
+  // ── Combo decay ──────────────────────────────────────────────────────
+  // Combo decreases by this amount per tick when no pickup is collected.
+  // Creates urgency to keep collecting.
+  comboDecay: 0.05,
+
   // Mode-specific configurations.
   // The engine reads from `modes[modeName]` when constructing initial state.
   modes: {
