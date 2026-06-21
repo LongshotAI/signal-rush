@@ -7,7 +7,7 @@
  */
 
 import engineBundle from '/dist/signal-rush-engine.mjs';
-import { initTouchInput, destroyTouchInput } from './touch-input.js';
+import { initTouchInput, destroyTouchInput, getDPadState } from './touch-input.js';
 import {
   initTelegramMiniApp,
   hapticFeedback,
@@ -24,23 +24,27 @@ const { createEngine } = engineBundle.default || engineBundle;
 
 // ── Economy Config ────────────────────────────────────────────────────────────
 
-const ECONOMY_BASE_URL = 'http://localhost:8720';
+const ECONOMY_BASE_URL = '';
 
 // ── Configuration ────────────────────────────────────────────────────────────
 
 const CANVAS_COLS = 56;   // GAME_CONFIG.width
 const CANVAS_ROWS = 28;   // GAME_CONFIG.height
-const CELL_SIZE   = 18;   // pixels per grid cell
-const CANVAS_W    = CANVAS_COLS * CELL_SIZE;
-const CANVAS_H    = CANVAS_ROWS * CELL_SIZE;
+let CELL_SIZE   = 18;     // pixels per grid cell (overridden on mobile)
+let CANVAS_W    = 1008;
+let CANVAS_H    = 504;
 
 const TICK_MS = 120; // Engine tick rate (ms per engine step)
 
-const GAME_MODES = ['aiHunt', 'frogger', 'packetHop'];
+// Two modes: both use the aiHunt engine underneath (packetHop mode TBD in engine)
+const GAME_MODES = ['aiHunt', 'packetHop'];
 const GAME_MODE_LABELS = {
   aiHunt:    'AI Hunt',
-  frogger:   'Frogger',
   packetHop: 'Packet Hop',
+};
+const GAME_MODE_TAGLINES = {
+  aiHunt:    'Dodge AI. Chase pickups. Survive.',
+  packetHop: 'Cross the grid. Reach the goal.',
 };
 
 // Colours
@@ -70,16 +74,13 @@ let currentMode = 'aiHunt';
 let lastTickTime = 0;
 let rafId = null;
 let keys = new Set();
-let gameOverCooldown = false; // prevents accidental restart
+let gameOverCooldown = false;
 
-// Touch move queue — moves from touch input are consumed on the next tick
 let touchMove = null;
 
-// High-DPI scaling
 let dpr = 1;
 let ctx = null;
 
-// DOM refs
 let canvasEl = null;
 let hudEl   = null;
 let modeSelectorEl = null;
@@ -93,6 +94,60 @@ let playerId = null;
 let creditBalance = 0;
 let lastReceiptResult = null;
 let economyOnline = false;
+let activeSponsor = null;
+let sponsorLogoImage = null;
+let interstitialImpressionLogged = false;
+
+// ── Visual Effects State ──────────────────────────────────────────────────────
+
+let stars = [];
+let starsFar = [];
+let starfieldFrame = 0;
+let nearMissFlash = 0;        // frames remaining for near-miss flash overlay
+let comboScale = 1;           // current combo text scale (1 = normal)
+let comboTargetScale = 1;
+
+function initStarfield(count = 60) {
+  stars = [];
+  starsFar = [];
+  for (let i = 0; i < count; i++) {
+    stars.push({
+      x: Math.random(),
+      y: Math.random(),
+      r: 0.3 + Math.random() * 1.2,
+      speed: 0.2 + Math.random() * 0.6,
+      phase: Math.random() * Math.PI * 2,
+    });
+  }
+  // Far layer — smaller, slower, more numerous
+  for (let i = 0; i < count * 0.6; i++) {
+    starsFar.push({
+      x: Math.random(),
+      y: Math.random(),
+      r: 0.15 + Math.random() * 0.4,
+      speed: 0.05 + Math.random() * 0.15,
+      phase: Math.random() * Math.PI * 2,
+    });
+  }
+}
+
+function drawStarfield() {
+  starfieldFrame++;
+
+  // Far layer (parallax background)
+  for (const s of starsFar) {
+    const alpha = 0.1 + 0.25 * (0.5 + 0.5 * Math.sin(starfieldFrame * 0.01 * s.speed + s.phase));
+    ctx.fillStyle = `rgba(150,180,255,${alpha})`;
+    ctx.fillRect(s.x * CANVAS_W, s.y * CANVAS_H, s.r, s.r);
+  }
+
+  // Near layer (foreground)
+  for (const s of stars) {
+    const alpha = 0.15 + 0.5 * (0.5 + 0.5 * Math.sin(starfieldFrame * 0.02 * s.speed + s.phase));
+    ctx.fillStyle = `rgba(255,255,255,${alpha})`;
+    ctx.fillRect(s.x * CANVAS_W, s.y * CANVAS_H, s.r, s.r);
+  }
+}
 
 // ── Initialisation ──────────────────────────────────────────────────────────
 
@@ -102,14 +157,37 @@ export async function init(containerSelector = '#game-container') {
     throw new Error(`Container "${containerSelector}" not found`);
   }
 
-  // Init Telegram Mini App SDK
   const tgInfo = await initTelegramMiniApp();
-  console.log('[SignalRush] Telegram mode:', tgInfo.isTelegramMode);
+
+  // Expand to fill the Telegram WebView
+  if (window.Telegram?.WebApp) {
+    window.Telegram.WebApp.expand();
+  }
+
+  // Calculate cell size — fill available width, clamp height
+  const vw = window.innerWidth || 390;
+  const vh = window.innerHeight || 700;
+  // Reserve room: header(~50) + mode-bar(~36) + HUD(~30) + touch-area(~140) + margins
+  const availableW = vw - 12;
+  const availableH = Math.max(vh - 170, 250);
+
+  CELL_SIZE = Math.max(7, Math.min(18, Math.floor(availableW / CANVAS_COLS)));
+  let calcH = CANVAS_ROWS * CELL_SIZE;
+  if (calcH > availableH) {
+    CELL_SIZE = Math.max(5, Math.floor(availableH / CANVAS_ROWS));
+    calcH = CANVAS_ROWS * CELL_SIZE;
+  }
+  CANVAS_W = CANVAS_COLS * CELL_SIZE;
+  CANVAS_H = calcH;
+  console.log(`[SignalRush] Canvas: ${CANVAS_W}x${CANVAS_H} (${CELL_SIZE}px/cell)`);
+
+  // Init starfield
+  initStarfield();
 
   // Init economy client
   economyClient = new EconomyClient({ baseUrl: ECONOMY_BASE_URL });
 
-  // If we have Telegram initData, authenticate with economy
+  // If we have Telegram initData, authenticate
   if (tgInfo.initData) {
     const authResult = await economyClient.auth(tgInfo.initData);
     if (authResult.ok && authResult.player) {
@@ -118,17 +196,33 @@ export async function init(containerSelector = '#game-container') {
       economyOnline = true;
       console.log('[SignalRush] Economy online, player:', playerId);
     } else if (authResult.offline) {
-      console.log('[SignalRush] Economy offline — playing without credits');
+      console.log('[SignalRush] Economy offline');
     }
   }
 
-  // Detect device pixel ratio for crisp rendering
+  // Fetch active campaigns
+  economyClient.fetchActiveCampaigns().then(result => {
+    if (result.ok && result.campaigns && result.campaigns.length > 0) {
+      activeSponsor = result.campaigns[0];
+      console.log('[SignalRush] Active sponsor:', activeSponsor.brand_name);
+      if (activeSponsor.id) {
+        const img = new Image();
+        img.crossOrigin = 'anonymous';
+        img.onload = () => { sponsorLogoImage = img; };
+        img.onerror = () => {};
+        img.src = '/api/campaigns/' + activeSponsor.id + '/logo';
+      }
+    }
+  }).catch(() => {});
+
   dpr = window.devicePixelRatio || 1;
 
   // Build DOM
   container.innerHTML = '';
   container.style.position = 'relative';
-  container.style.display = 'inline-block';
+  container.style.display = 'flex';
+  container.style.justifyContent = 'center';
+  container.style.alignItems = 'flex-start';
 
   canvasEl = document.createElement('canvas');
   canvasEl.width  = CANVAS_W * dpr;
@@ -138,7 +232,7 @@ export async function init(containerSelector = '#game-container') {
   canvasEl.style.display = 'block';
   canvasEl.style.borderRadius = '8px';
   canvasEl.style.boxShadow = '0 0 40px rgba(0,255,136,0.10)';
-  canvasEl.style.touchAction = 'none'; // prevent browser zoom/scroll
+  canvasEl.style.touchAction = 'none';
   container.appendChild(canvasEl);
 
   ctx = canvasEl.getContext('2d');
@@ -151,12 +245,12 @@ export async function init(containerSelector = '#game-container') {
     top: '0',
     left: '0',
     right: '0',
-    padding: '8px 12px',
+    padding: '6px 10px',
     display: 'flex',
     justifyContent: 'space-between',
     alignItems: 'center',
     fontFamily: "'JetBrains Mono', 'SF Mono', 'Fira Code', monospace",
-    fontSize: '13px',
+    fontSize: '11px',
     color: C.hudText,
     background: C.hudBg,
     borderRadius: '8px 8px 0 0',
@@ -165,13 +259,13 @@ export async function init(containerSelector = '#game-container') {
   });
   container.appendChild(hudEl);
 
-  // Wire keyboard (remove first to prevent double-registration on re-init)
+  // Wire keyboard
   window.removeEventListener('keydown', onKeyDown);
   window.removeEventListener('keyup',   onKeyUp);
   window.addEventListener('keydown', onKeyDown);
   window.addEventListener('keyup',   onKeyUp);
 
-  // Initialise touch input
+  // Init touch input
   initTouchInput(canvasEl, (move) => {
     touchMove = move;
   });
@@ -180,13 +274,11 @@ export async function init(containerSelector = '#game-container') {
   currentMode = 'aiHunt';
   _createEngine();
 
-  // Hide Telegram MainButton initially
   hideMainButton();
 
-  // Build mode selector UI
+  // Build mode selector
   _buildModeSelector(containerSelector);
 
-  // Kick off render loop
   rafId = requestAnimationFrame(loop);
 
   return engine;
@@ -198,7 +290,6 @@ function _buildModeSelector(containerSelector) {
   const container = document.querySelector(containerSelector);
   if (!container) return;
 
-  // If a mode-selector bar already exists above the game-container, reuse it.
   let bar = document.getElementById('mode-selector-bar');
   if (!bar) {
     bar = document.createElement('div');
@@ -211,24 +302,34 @@ function _buildModeSelector(containerSelector) {
     display: 'flex',
     gap: '8px',
     justifyContent: 'center',
-    marginBottom: '12px',
+    marginBottom: '10px',
     flexWrap: 'wrap',
   });
+
+  // Update subtitle when mode changes
+  function updateTagline(mode) {
+    const subtitle = document.getElementById('game-subtitle');
+    if (subtitle) {
+      subtitle.textContent = GAME_MODE_TAGLINES[mode] || 'Dodge noise. Collect credits. Survive.';
+    }
+  }
 
   for (const mode of GAME_MODES) {
     const chip = document.createElement('button');
     chip.textContent = GAME_MODE_LABELS[mode] || mode;
     chip.dataset.mode = mode;
+
+    const isActive = mode === currentMode;
     Object.assign(chip.style, {
-      padding: '6px 16px',
-      borderRadius: '20px',
-      border: '1px solid rgba(255,255,255,0.15)',
-      background: mode === currentMode ? 'rgba(0,255,136,0.15)' : 'rgba(255,255,255,0.05)',
-      color: mode === currentMode ? '#00ff88' : 'rgba(255,255,255,0.5)',
+      padding: '5px 16px',
+      borderRadius: '18px',
+      border: isActive ? '1px solid rgba(0,255,136,0.4)' : '1px solid rgba(255,255,255,0.15)',
+      background: isActive ? 'rgba(0,255,136,0.15)' : 'rgba(255,255,255,0.05)',
+      color: isActive ? '#00ff88' : 'rgba(255,255,255,0.5)',
       fontFamily: "'JetBrains Mono', 'SF Mono', 'Fira Code', monospace",
       fontSize: '12px',
       cursor: 'pointer',
-      transition: 'background 0.2s, color 0.2s, border-color 0.2s',
+      transition: 'all 0.2s',
       touchAction: 'manipulation',
       userSelect: 'none',
       WebkitUserSelect: 'none',
@@ -239,14 +340,14 @@ function _buildModeSelector(containerSelector) {
       currentMode = mode;
       hapticFeedback('light');
 
-      // Update chip styles
       for (const sibling of bar.querySelectorAll('button')) {
-        const isActive = sibling.dataset.mode === mode;
-        sibling.style.background = isActive ? 'rgba(0,255,136,0.15)' : 'rgba(255,255,255,0.05)';
-        sibling.style.color      = isActive ? '#00ff88' : 'rgba(255,255,255,0.5)';
-        sibling.style.borderColor = isActive ? 'rgba(0,255,136,0.3)' : 'rgba(255,255,255,0.15)';
+        const sa = sibling.dataset.mode === mode;
+        sibling.style.background = sa ? 'rgba(0,255,136,0.15)' : 'rgba(255,255,255,0.05)';
+        sibling.style.color      = sa ? '#00ff88' : 'rgba(255,255,255,0.5)';
+        sibling.style.borderColor = sa ? 'rgba(0,255,136,0.4)' : 'rgba(255,255,255,0.15)';
       }
 
+      updateTagline(mode);
       _createEngine();
     });
 
@@ -264,38 +365,40 @@ function _buildModeSelector(containerSelector) {
     bar.appendChild(chip);
   }
 
-  // Insert before the game container
   if (container.parentNode) {
     container.parentNode.insertBefore(bar, container);
   }
 }
 
 function _createEngine() {
-  // Guard: engine bundle must be loaded
   if (typeof createEngine !== 'function') {
-    console.error('[SignalRush] Engine bundle not loaded — cannot create engine');
+    console.error('[SignalRush] Engine bundle not loaded');
     return;
   }
 
-  // End previous session if active (e.g., mode switch mid-game)
   if (sessionManager && sessionManager.active && engine) {
     sessionManager.endSession(engine.state);
   }
 
-  engine = createEngine({ mode: currentMode, seed: Date.now() });
+  // Two modes: AI Hunt (aiHunt engine) | Packet Hop (frogger engine)
+  const isFrogger = currentMode === 'packetHop';
+  const engineMode = currentMode === 'packetHop' ? 'frogger' : currentMode;
+  engine = createEngine({ mode: engineMode, seed: Date.now() });
   lastTickTime = 0;
   gameOverCooldown = false;
   touchMove = null;
   lastReceiptResult = null;
+  interstitialImpressionLogged = false;
+  nearMissFlash = 0;
+  comboScale = 1;
+  comboTargetScale = 1;
   hideMainButton();
 
-  // Start economy session
   sessionManager = new SessionManager();
   if (economyOnline) {
     sessionManager.startSession(currentMode, engine.state.seed || Date.now());
   }
 
-  // Init redemption UI on first engine create
   if (!redemptionUI && playerId) {
     redemptionUI = new RedemptionUI();
     redemptionUI.init(economyClient, playerId, creditBalance);
@@ -306,7 +409,6 @@ function _createEngine() {
 
 function onKeyDown(e) {
   keys.add(e.code);
-  // Prevent scrolling with arrows/space
   if (['ArrowUp','ArrowDown','ArrowLeft','ArrowRight','Space'].includes(e.code)) {
     e.preventDefault();
   }
@@ -333,7 +435,7 @@ let _submitting = false;
 function loop(timestamp) {
   rafId = requestAnimationFrame(loop);
 
-  // Run engine.step() on the configured tick cadence
+  // Run engine.step() on configured tick cadence
   if (timestamp - lastTickTime >= TICK_MS) {
     lastTickTime = timestamp;
 
@@ -343,45 +445,51 @@ function loop(timestamp) {
       if (state.gameOver && !gameOverCooldown) {
         gameOverCooldown = true;
 
-        // Submit receipt to economy (async, but guard against restart)
+        if (!interstitialImpressionLogged && economyOnline && playerId) {
+          interstitialImpressionLogged = true;
+          economyClient.logAdImpression({
+            campaignId: activeSponsor?.id || null,
+            playerId,
+            placementType: 'interstitial',
+          }).catch(() => {});
+        }
+
         if (!_submitting) {
           _submitting = true;
           _submitReceipt().finally(() => { _submitting = false; });
         }
 
-        // Show Telegram MainButton for restart (disabled while submitting)
         showMainButton('⚡ Play Again', () => {
-          if (_submitting) return; // guard: don't restart mid-submission
+          if (_submitting) return;
           _createEngine();
           hideMainButton();
         }, { color: '#00ff88', textColor: '#000000' });
 
-        // Allow restart with Enter or Space
         if (keys.has('Enter') || keys.has('Space')) {
           _createEngine();
           gameOverCooldown = false;
           hideMainButton();
         }
       } else if (!state.gameOver) {
-        // Track previous state for event detection
         const healthBefore = state.player.health;
         const pickupsBefore = state.pickups.length;
 
-        // Merge keyboard and touch input
         let move = currentMove();
         if (!move && touchMove) {
           move = touchMove;
           touchMove = null;
         }
+        // Poll D-pad state every tick for continuous movement
+        if (!move) {
+          move = getDPadState();
+        }
 
-        // Record input for receipt
         if (sessionManager) {
           sessionManager.recordInput(move, state.tick);
         }
 
         engine.step({ move });
 
-        // Detect events for haptic feedback
         _detectEvents(healthBefore, pickupsBefore);
       }
     }
@@ -390,24 +498,31 @@ function loop(timestamp) {
   render();
 }
 
-/**
- * Detect pickup collection and damage events and trigger haptic feedback.
- */
 function _detectEvents(healthBefore, pickupsBefore) {
   if (!engine) return;
   const state = engine.state;
 
-  // Pickup collected: fewer pickups than before
+  // Near miss detection
+  const nearMissCount = state.lastEvents ? state.lastEvents.filter(e => e.type === 'near_miss').length : 0;
+  if (nearMissCount > 0) {
+    nearMissFlash = Math.max(nearMissFlash, 6); // flash for 6 frames
+  }
+
+  // Combo scale animation
+  if (state.combo > 1) {
+    comboTargetScale = 1.2;
+  }
+  comboScale += (comboTargetScale - comboScale) * 0.3;
+  comboTargetScale = 1;
+
   if (state.pickups.length < pickupsBefore) {
     hapticFeedback('light');
   }
 
-  // Damage taken: health decreased
   if (state.player.health < healthBefore) {
     hapticFeedback('heavy');
   }
 
-  // Game over
   if (state.gameOver) {
     hapticFeedback('error');
   }
@@ -422,7 +537,6 @@ async function _submitReceipt() {
   if (!receipt) return;
 
   try {
-    // Submit for server-side verification
     const verifyResult = await economyClient.submitReceipt({
       seed: receipt.seed,
       mode: receipt.mode,
@@ -432,7 +546,6 @@ async function _submitReceipt() {
     });
 
     if (verifyResult.ok && verifyResult.valid) {
-      // Receipt verified — award credits
       const creditsEarned = Math.floor(receipt.score / 10);
       if (creditsEarned > 0) {
         const ingestResult = await economyClient.submitCredits({
@@ -448,7 +561,7 @@ async function _submitReceipt() {
       }
       lastReceiptResult = { ok: true, creditsEarned, score: receipt.score };
     } else {
-      lastReceiptResult = { ok: false, reason: 'receipt rejected by server' };
+      lastReceiptResult = { ok: false, reason: 'receipt rejected' };
     }
   } catch (err) {
     console.error('[SignalRush] Receipt submission failed:', err.message);
@@ -461,44 +574,107 @@ async function _submitReceipt() {
 function render() {
   if (!ctx || !engine) return;
   const state = engine.state;
-  const G = state; // shorthand
+  const G = state;
+  const isFrogger = currentMode === 'packetHop';
 
   // Clear
   ctx.fillStyle = C.bg;
   ctx.fillRect(0, 0, CANVAS_W, CANVAS_H);
 
-  // Draw grid
-  drawGrid();
+  // Starfield background
+  drawStarfield();
 
-  // Draw border wall
-  drawBorder();
+  if (isFrogger) {
+    // ── FROGGER RENDER ──────────────────────────────────────
+    drawFroggerLanes(state);
 
-  // Draw pickups (under player)
-  state.pickups.forEach((p) => drawPickup(p));
+    // Draw home slots at top
+    drawHomeSlots(state);
 
-  // Draw hazards
-  state.hazards.forEach((h) => drawHazard(h));
+    // Draw player as frog
+    drawFrogPlayer(state);
 
-  // Draw trail
-  if (G.trail) {
-    ctx.fillStyle = C.playerTrail;
-    ctx.fillRect(G.trail.x * CELL_SIZE, G.trail.y * CELL_SIZE, CELL_SIZE, CELL_SIZE);
+    // Draw HUD (frogger style)
+    drawFroggerHUD(state);
+
+    // Get Ready overlay
+    if (state.getReadyTicks > 0 && !state.gameOver) {
+      drawGetReady(state);
+    }
+
+    // Game-over overlay
+    if (state.gameOver) {
+      drawFroggerGameOver(state);
+    }
+  } else {
+    // ── AI HUNT RENDER ──────────────────────────────────────
+    // Decay near miss flash
+    if (nearMissFlash > 0) nearMissFlash -= 1;
+
+    // Draw grid
+    drawGrid();
+
+    // Draw border
+    drawBorder();
+
+    // Draw pickups (under player)
+    state.pickups.forEach((p) => drawPickup(p));
+
+    // Draw hazards
+    state.hazards.forEach((h) => drawHazard(h));
+
+    // Danger zone pulse — subtle ring around player when hazards nearby
+    const nearbyHazards = state.hazards.filter(h => {
+      const dx = Math.abs(h.x - state.player.x);
+      const dy = Math.abs(h.y - state.player.y);
+      return dx <= 3 && dy <= 3;
+    });
+    if (nearbyHazards.length > 0 && !state.gameOver) {
+      const dangerIntensity = Math.min(1, nearbyHazards.length * 0.3);
+      const dangerPulse = 0.3 + 0.7 * (0.5 + 0.5 * Math.sin(Date.now() / 150));
+      const cx = state.player.x * CELL_SIZE + CELL_SIZE / 2;
+      const cy = state.player.y * CELL_SIZE + CELL_SIZE / 2;
+      const dangerGrad = ctx.createRadialGradient(cx, cy, CELL_SIZE * 1.5, cx, cy, CELL_SIZE * 4);
+      dangerGrad.addColorStop(0, `rgba(255,51,85,0)`);
+      dangerGrad.addColorStop(0.5, `rgba(255,51,85,${0.06 * dangerIntensity * dangerPulse})`);
+      dangerGrad.addColorStop(1, `rgba(255,51,85,0)`);
+      ctx.fillStyle = dangerGrad;
+      ctx.fillRect(cx - CELL_SIZE * 5, cy - CELL_SIZE * 5, CELL_SIZE * 10, CELL_SIZE * 10);
+    }
+
+    // Draw trail
+    if (G.trail) {
+      ctx.fillStyle = C.playerTrail;
+      ctx.fillRect(G.trail.x * CELL_SIZE, G.trail.y * CELL_SIZE, CELL_SIZE, CELL_SIZE);
+    }
+
+    // Draw player
+    drawPlayer(state.player, G.invulnerable > 0);
+
+    // Near miss flash overlay
+    if (nearMissFlash > 0) {
+      const flashAlpha = 0.15 * (nearMissFlash / 6);
+      ctx.fillStyle = `rgba(0,255,136,${flashAlpha})`;
+      ctx.fillRect(0, 0, CANVAS_W, CANVAS_H);
+    }
+
+    // HUD
+    drawHUD(state);
+
+    // Game-over overlay
+    if (state.gameOver) {
+      drawGameOver(state);
+    }
   }
 
-  // Draw player
-  drawPlayer(state.player, G.invulnerable > 0);
-
-  // Draw HUD
-  drawHUD(state);
-
-  // Game-over overlay
-  if (state.gameOver) {
-    drawGameOver(state);
-  }
-
-  // Paused overlay
+  // Paused overlay (both modes)
   if (G.paused && !state.gameOver) {
     drawPaused();
+  }
+
+  // Sponsor badge during gameplay
+  if (activeSponsor && !state.gameOver && state.tick > 5) {
+    drawSponsorBadge();
   }
 }
 
@@ -520,9 +696,41 @@ function drawGrid() {
 }
 
 function drawBorder() {
+  // Outer glow
+  const glow = ctx.createLinearGradient(0, 0, CANVAS_W, 0);
+  glow.addColorStop(0, 'rgba(255,51,85,0.08)');
+  glow.addColorStop(0.5, 'rgba(0,255,136,0.08)');
+  glow.addColorStop(1, 'rgba(255,51,85,0.08)');
+  ctx.strokeStyle = glow;
+  ctx.lineWidth = 3;
+  ctx.strokeRect(CELL_SIZE - 1, CELL_SIZE - 1, (CANVAS_COLS - 2) * CELL_SIZE + 2, (CANVAS_ROWS - 2) * CELL_SIZE + 2);
+
+  // Inner border line
   ctx.strokeStyle = 'rgba(255,51,85,0.50)';
-  ctx.lineWidth = 2;
+  ctx.lineWidth = 1.5;
   ctx.strokeRect(CELL_SIZE, CELL_SIZE, (CANVAS_COLS - 2) * CELL_SIZE, (CANVAS_ROWS - 2) * CELL_SIZE);
+}
+
+function drawSponsorBadge() {
+  if (!activeSponsor) return;
+  const padding = 6;
+  const text = `🎯 ${activeSponsor.brand_name}`;
+  ctx.font = '9px monospace';
+  const metrics = ctx.measureText(text);
+  const bw = metrics.width + padding * 2;
+  const bh = 18;
+  const bx = CANVAS_W - bw - 6;
+  const by = CANVAS_H - bh - 6;
+
+  ctx.fillStyle = 'rgba(0,0,0,0.55)';
+  ctx.beginPath();
+  ctx.roundRect(bx, by, bw, bh, 4);
+  ctx.fill();
+
+  ctx.fillStyle = 'rgba(255,255,255,0.4)';
+  ctx.textAlign = 'left';
+  ctx.textBaseline = 'middle';
+  ctx.fillText(text, bx + padding, by + bh / 2);
 }
 
 function drawPlayer(player, invulnerable) {
@@ -545,7 +753,7 @@ function drawPlayer(player, invulnerable) {
     : C.player;
   ctx.fill();
 
-  // Eye / direction indicator
+  // Direction indicator
   if (engine.state.lastMove) {
     const mx = engine.state.lastMove.x;
     const my = engine.state.lastMove.y;
@@ -562,20 +770,21 @@ function drawHazard(h) {
   const cx = h.x * CELL_SIZE + CELL_SIZE / 2;
   const cy = h.y * CELL_SIZE + CELL_SIZE / 2;
   const r = CELL_SIZE * 0.38;
+  const pulse = 0.9 + 0.1 * Math.sin(Date.now() / 200 + h.x);
 
   // Glow
-  const glow = ctx.createRadialGradient(cx, cy, r * 0.2, cx, cy, r * 2);
+  const glow = ctx.createRadialGradient(cx, cy, r * 0.2 * pulse, cx, cy, r * 2 * pulse);
   glow.addColorStop(0, C.hazardGlow);
   glow.addColorStop(1, 'rgba(255,51,85,0)');
   ctx.fillStyle = glow;
-  ctx.fillRect(cx - r * 2.5, cy - r * 2.5, r * 5, r * 5);
+  ctx.fillRect(cx - r * 2.5 * pulse, cy - r * 2.5 * pulse, r * 5 * pulse, r * 5 * pulse);
 
-  // Body – diamond shape
+  // Diamond shape
   ctx.beginPath();
-  ctx.moveTo(cx, cy - r);
-  ctx.lineTo(cx + r, cy);
-  ctx.lineTo(cx, cy + r);
-  ctx.lineTo(cx - r, cy);
+  ctx.moveTo(cx, cy - r * pulse);
+  ctx.lineTo(cx + r * pulse, cy);
+  ctx.lineTo(cx, cy + r * pulse);
+  ctx.lineTo(cx - r * pulse, cy);
   ctx.closePath();
   ctx.fillStyle = C.hazard;
   ctx.fill();
@@ -587,20 +796,43 @@ function drawPickup(p) {
   const pulse = 0.8 + 0.2 * Math.sin(Date.now() / 250 + p.x + p.y);
   const r = CELL_SIZE * 0.32 * pulse;
 
+  // Visual variety based on pickup value — high-value pickups glow different colors
+  const isHighValue = p.value >= 35;
+  const isSuperValue = p.value >= 45;
+  const pickupColor = isSuperValue ? '#ff88ff' : isHighValue ? '#00ddff' : C.pickup;
+  const pickupGlowCol = isSuperValue ? 'rgba(255,136,255,0.35)' : isHighValue ? 'rgba(0,221,255,0.30)' : C.pickupGlow;
+
   // Glow
   const glow = ctx.createRadialGradient(cx, cy, r * 0.2, cx, cy, r * 2.5);
-  glow.addColorStop(0, C.pickupGlow);
+  glow.addColorStop(0, pickupGlowCol);
   glow.addColorStop(1, 'rgba(255,221,68,0)');
   ctx.fillStyle = glow;
   ctx.fillRect(cx - r * 3, cy - r * 3, r * 6, r * 6);
 
-  // Body – circle with cross
+  // Body
   ctx.beginPath();
   ctx.arc(cx, cy, r, 0, Math.PI * 2);
-  ctx.fillStyle = C.pickup;
+  ctx.fillStyle = pickupColor;
   ctx.fill();
 
-  // Value indicator (small number inside)
+  // Extra visual flair for super value pickups — pulsing ring
+  if (isSuperValue) {
+    const ringPulse = 0.6 + 0.4 * Math.sin(Date.now() / 180 + p.x);
+    ctx.strokeStyle = `rgba(255,136,255,${0.3 * ringPulse})`;
+    ctx.lineWidth = 1.5;
+    ctx.beginPath();
+    ctx.arc(cx, cy, r * 1.6, 0, Math.PI * 2);
+    ctx.stroke();
+  } else if (isHighValue) {
+    const ringPulse = 0.6 + 0.4 * Math.sin(Date.now() / 200 + p.x);
+    ctx.strokeStyle = `rgba(0,221,255,${0.25 * ringPulse})`;
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    ctx.arc(cx, cy, r * 1.5, 0, Math.PI * 2);
+    ctx.stroke();
+  }
+
+  // Value indicator
   if (r > 5) {
     ctx.fillStyle = '#000';
     ctx.font = `bold ${Math.max(8, r)}px monospace`;
@@ -611,74 +843,97 @@ function drawPickup(p) {
 }
 
 function drawHUD(state) {
+  // Compact HUD — score + combo + credits + health in one line
   const healthHearts = '♥'.repeat(Math.max(0, state.player.health));
   const healthEmpty = '♡'.repeat(Math.max(0, 8 - state.player.health));
-  const creditDisplay = economyOnline ? `💰${creditBalance}` : '—';
-  const redeemBtn = playerId
-    ? `<button id="hud-redeem-btn" style="background:none;border:1px solid rgba(0,255,136,0.3);color:#00ff88;padding:2px 8px;border-radius:4px;cursor:pointer;font-family:inherit;font-size:11px;margin-left:6px;">💰 Redeem</button>`
+  const creditDisplay = economyOnline && creditBalance > 0 ? `💰${creditBalance}` : '';
+  const modeIcon = currentMode === 'packetHop' ? '📡' : '🎯';
+  // Animated comma combo with scale
+  const comboStyle = state.combo > 2
+    ? `color:#ffdd44;font-weight:bold;font-size:${10 * comboScale}px`
+    : `color:${C.hudWarning};font-size:10px`;
+  const comboLabel = state.combo > 2 ? `🔥×${state.combo.toFixed(1)}` : `×${state.combo.toFixed(1)}`;
+  // Danger indicator — show when hazards are within 2 cells
+  const nearbyThreat = state.hazards.filter(h => {
+    const dx = Math.abs(h.x - state.player.x);
+    const dy = Math.abs(h.y - state.player.y);
+    return dx <= 2 && dy <= 2;
+  }).length;
+  const dangerIcon = nearbyThreat > 0
+    ? `<span style="color:${C.hudDanger};font-size:10px;font-weight:bold">⚠${nearbyThreat > 1 ? nearbyThreat : ''}</span>`
     : '';
 
-  // Wire redeem button once via event delegation
-  if (!hudEl._redeemWired) {
-    hudEl.addEventListener('click', (e) => {
-      if (e.target && e.target.id === 'hud-redeem-btn') {
-        e.stopPropagation();
-        if (redemptionUI) redemptionUI.toggle();
-      }
-    });
-    hudEl._redeemWired = true;
-  }
+  const sponsorDisplay = activeSponsor
+    ? `<span style="color:rgba(255,255,255,0.35);font-size:10px;margin-left:4px">| ${activeSponsor.brand_name}</span>`
+    : '';
 
   hudEl.innerHTML = `
-    <span style="color:${C.hudAccent}">SCORE</span> ${state.score}
-    <span style="margin:0 8px;color:rgba(255,255,255,0.2)">│</span>
-    <span style="color:${C.hudWarning}">COMBO</span> ×${state.combo.toFixed(1)}
-    <span style="margin:0 8px;color:rgba(255,255,255,0.2)">│</span>
-    <span style="color:${C.hudAccent}">CREDITS</span> ${state.credits}
-    <span style="margin:0 8px;color:rgba(255,255,255,0.2)">│</span>
-    <span style="color:${C.hudDanger}">${healthHearts}</span><span style="color:rgba(255,51,85,0.3)">${healthEmpty}</span>
-    <span style="margin:0 8px;color:rgba(255,255,255,0.2)">│</span>
-    <span style="opacity:0.6">TICK ${state.tick}</span>
-    <span style="margin:0 8px;color:rgba(255,255,255,0.2)">│</span>
-    <span style="color:#ffdd44">${creditDisplay}</span>${redeemBtn}
+    <div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap;width:100%;">
+      <span style="color:${C.hudAccent};font-weight:bold">${state.score}</span>
+      <span style="color:rgba(255,255,255,0.25)">/</span>
+      <span style="${comboStyle}">${comboLabel}</span>
+      <span style="color:rgba(255,255,255,0.25)">|</span>
+      <span style="color:${C.hudDanger};font-size:10px">${healthHearts}</span>
+      <span style="color:rgba(255,51,85,0.2);font-size:10px">${healthEmpty}</span>
+      <span style="flex:1"></span>
+      ${dangerIcon}
+      <span style="color:${C.hudAccent};font-size:10px">${modeIcon}</span>
+      ${creditDisplay ? `<span style="color:#ffdd44;font-size:10px">${creditDisplay}</span>` : ''}
+      ${sponsorDisplay}
+    </div>
   `;
 }
 
 function drawGameOver(state) {
-  ctx.fillStyle = 'rgba(0,0,0,0.65)';
+  // Overlay
+  ctx.fillStyle = 'rgba(0,0,0,0.70)';
   ctx.fillRect(0, 0, CANVAS_W, CANVAS_H);
 
   ctx.textAlign = 'center';
   ctx.textBaseline = 'middle';
 
-  ctx.font = 'bold 36px monospace';
+  // GAME OVER title
+  ctx.font = `bold ${Math.max(24, Math.floor(CANVAS_W / 28))}px monospace`;
   ctx.fillStyle = C.hudDanger;
-  ctx.fillText('GAME OVER', CANVAS_W / 2, CANVAS_H / 2 - 40);
+  ctx.fillText('GAME OVER', CANVAS_W / 2, CANVAS_H / 2 - CANVAS_H * 0.22);
 
-  ctx.font = '18px monospace';
+  // Sponsor interstitial
+  if (activeSponsor) {
+    if (sponsorLogoImage) {
+      const maxLogoW = Math.min(160, CANVAS_W * 0.4);
+      const maxLogoH = 60;
+      const scale = Math.min(maxLogoW / sponsorLogoImage.width, maxLogoH / sponsorLogoImage.height, 1);
+      const logoW = sponsorLogoImage.width * scale;
+      const logoH = sponsorLogoImage.height * scale;
+      ctx.drawImage(sponsorLogoImage, (CANVAS_W - logoW) / 2, CANVAS_H / 2 - CANVAS_H * 0.18, logoW, logoH);
+    }
+    ctx.font = '11px monospace';
+    ctx.fillStyle = '#ffdd44';
+    ctx.fillText('This round powered by', CANVAS_W / 2, CANVAS_H / 2 - CANVAS_H * 0.14);
+    ctx.font = 'bold 13px monospace';
+    ctx.fillStyle = '#ffffff';
+    ctx.fillText(activeSponsor.brand_name, CANVAS_W / 2, CANVAS_H / 2 - CANVAS_H * 0.10);
+  }
+
+  const fontSize = Math.max(14, Math.floor(CANVAS_W / 40));
+  ctx.font = `${fontSize}px monospace`;
   ctx.fillStyle = C.hudText;
-  ctx.fillText(`Final Score: ${state.score}`, CANVAS_W / 2, CANVAS_H / 2);
-  ctx.fillText(`Best Score:  ${state.bestScore}`, CANVAS_W / 2, CANVAS_H / 2 + 26);
+  ctx.fillText(`Score: ${state.score}`, CANVAS_W / 2, CANVAS_H / 2 + CANVAS_H * 0.02);
+  ctx.fillText(`Best:  ${state.bestScore}`, CANVAS_W / 2, CANVAS_H / 2 + CANVAS_H * 0.08);
 
-  ctx.font = '14px monospace';
-  ctx.fillStyle = 'rgba(255,255,255,0.6)';
-  ctx.fillText('Press ENTER or SPACE to restart', CANVAS_W / 2, CANVAS_H / 2 + 62);
+  ctx.font = '11px monospace';
+  ctx.fillStyle = 'rgba(255,255,255,0.5)';
+  ctx.fillText('Tap Play Again to retry', CANVAS_W / 2, CANVAS_H / 2 + CANVAS_H * 0.16);
 
-  // Show receipt result
+  // Receipt result
   if (lastReceiptResult) {
-    ctx.font = '12px monospace';
+    ctx.font = '10px monospace';
     if (lastReceiptResult.ok) {
       ctx.fillStyle = '#00ff88';
-      ctx.fillText(
-        `✅ Receipt verified — +${lastReceiptResult.creditsEarned} credits`,
-        CANVAS_W / 2, CANVAS_H / 2 + 88
-      );
+      ctx.fillText(`+${lastReceiptResult.creditsEarned} credits`, CANVAS_W / 2, CANVAS_H / 2 + CANVAS_H * 0.22);
     } else {
-      ctx.fillStyle = 'rgba(255,255,255,0.4)';
-      ctx.fillText(
-        `⚠️ ${lastReceiptResult.reason || 'Receipt not submitted'}`,
-        CANVAS_W / 2, CANVAS_H / 2 + 88
-      );
+      ctx.fillStyle = 'rgba(255,255,255,0.3)';
+      ctx.fillText('Receipt pending', CANVAS_W / 2, CANVAS_H / 2 + CANVAS_H * 0.22);
     }
   }
 }
@@ -689,9 +944,340 @@ function drawPaused() {
 
   ctx.textAlign = 'center';
   ctx.textBaseline = 'middle';
-  ctx.font = 'bold 32px monospace';
+  ctx.font = `bold ${Math.max(24, Math.floor(CANVAS_W / 22))}px monospace`;
   ctx.fillStyle = 'rgba(255,255,255,0.8)';
   ctx.fillText('⏸  PAUSED', CANVAS_W / 2, CANVAS_H / 2);
+}
+
+// ── Frogger (Packet Hop) Rendering ──────────────────────────────────────────
+
+const FROGGER_COLORS = {
+  road:       '#1a1a2e',
+  roadLine:   'rgba(255,255,50,0.08)',
+  roadPulse:  'rgba(255,255,50,0.03)',
+  river:      '#0a1a2e',
+  riverLine:  'rgba(0,150,255,0.08)',
+  riverLine2: 'rgba(0,150,255,0.12)',
+  car:        '#ff6644',
+  carGlow:    'rgba(255,102,68,0.25)',
+  carHL:      'rgba(255,255,255,0.35)',
+  log:        '#8B5E3C',
+  logGlow:    'rgba(139,94,60,0.20)',
+  frog:       '#00ff88',
+  frogGlow:   'rgba(0,255,136,0.30)',
+  homeFilled: '#00ff88',
+  homeEmpty:  'rgba(255,255,255,0.10)',
+  slotGlow:   'rgba(0,255,136,0.15)',
+  goal:       '#ffdd44',
+  timeWarn:   '#ff3355',
+};
+
+function drawFroggerLanes(state) {
+  if (!state.lanes) return;
+
+  const time = Date.now() / 1000;
+
+  for (const lane of state.lanes) {
+    const y = lane.y * CELL_SIZE;
+    const isRoad = lane.type === 'road';
+    const isRiver = lane.type === 'river';
+
+    // Lane background
+    ctx.fillStyle = isRoad ? FROGGER_COLORS.road : FROGGER_COLORS.river;
+    ctx.fillRect(0, y, CANVAS_W, CELL_SIZE);
+
+    if (isRoad) {
+      // Lane center line
+      ctx.strokeStyle = FROGGER_COLORS.roadLine;
+      ctx.lineWidth = 0.5;
+      ctx.beginPath();
+      ctx.moveTo(0, y + CELL_SIZE / 2);
+      ctx.lineTo(CANVAS_W, y + CELL_SIZE / 2);
+      ctx.stroke();
+
+      // Subtle pulse on road lanes
+      const pulse = 0.5 + 0.5 * Math.sin(time * 2 + lane.y);
+      ctx.fillStyle = `rgba(255,255,50,${0.02 * pulse})`;
+      ctx.fillRect(0, y, CANVAS_W, CELL_SIZE);
+    } else if (isRiver) {
+      // Animated river ripple lines — move with current direction
+      const rippleSpeed = (lane.direction || 1) * 60;
+      const t = (time * rippleSpeed) % CANVAS_W;
+
+      // Under-glow
+      ctx.fillStyle = `rgba(0,150,255,${0.02 + 0.02 * Math.sin(time * 1.5 + lane.y)})`;
+      ctx.fillRect(0, y, CANVAS_W, CELL_SIZE);
+
+      // Flowing ripple lines
+      for (let r = 0; r < 3; r++) {
+        const ry = y + CELL_SIZE * (0.25 + r * 0.25);
+        ctx.strokeStyle = r === 1 ? FROGGER_COLORS.riverLine2 : FROGGER_COLORS.riverLine;
+        ctx.lineWidth = r === 1 ? 0.8 : 0.4;
+        ctx.beginPath();
+        ctx.moveTo(0, ry);
+        ctx.lineTo(CANVAS_W, ry);
+        ctx.stroke();
+      }
+
+      // Flowing dots / sparkles on river
+      for (let d = 0; d < 3; d++) {
+        const dx = ((t + d * CANVAS_W / 3) % (CANVAS_W + 20)) - 10;
+        const dy = y + CELL_SIZE * (0.15 + Math.sin(time + lane.y + d) * 0.3);
+        const da = 0.1 + 0.1 * Math.sin(time * 3 + d * 2);
+        ctx.fillStyle = `rgba(0,200,255,${da})`;
+        ctx.beginPath();
+        ctx.arc(dx, dy, 1.5, 0, Math.PI * 2);
+        ctx.fill();
+      }
+    }
+
+    // Draw vehicles
+    if (lane.vehicles) {
+      for (const v of lane.vehicles) {
+        const vx = v.x * CELL_SIZE;
+        if (isRoad) {
+          // Car — rounded rectangle
+          const carW = CELL_SIZE * 1.8;
+          const carH = CELL_SIZE * 0.7;
+          const carX = vx;
+          const carY = y + (CELL_SIZE - carH) / 2;
+
+          // Car glow
+          ctx.fillStyle = FROGGER_COLORS.carGlow;
+          ctx.beginPath();
+          ctx.roundRect(carX - 2, carY - 2, carW + 4, carH + 4, 4);
+          ctx.fill();
+
+          // Car body
+          ctx.fillStyle = FROGGER_COLORS.car;
+          ctx.beginPath();
+          ctx.roundRect(carX, carY, carW, carH, 3);
+          ctx.fill();
+
+          // Car highlight (top stripe)
+          ctx.fillStyle = 'rgba(255,255,255,0.15)';
+          ctx.beginPath();
+          ctx.roundRect(carX + 2, carY + 2, carW - 4, carH * 0.35, 2);
+          ctx.fill();
+
+          // Headlights — small triangle on the front edge
+          const hlSize = 4;
+          ctx.fillStyle = FROGGER_COLORS.carHL;
+          if (lane.direction > 0) {
+            // Moving right — headlights on the right
+            ctx.beginPath();
+            ctx.moveTo(carX + carW, carY + 2);
+            ctx.lineTo(carX + carW + hlSize, carY + carH / 2);
+            ctx.lineTo(carX + carW, carY + carH - 2);
+            ctx.closePath();
+            ctx.fill();
+          } else {
+            // Moving left — headlights on the left
+            ctx.beginPath();
+            ctx.moveTo(carX, carY + 2);
+            ctx.lineTo(carX - hlSize, carY + carH / 2);
+            ctx.lineTo(carX, carY + carH - 2);
+            ctx.closePath();
+            ctx.fill();
+          }
+        } else if (isRiver) {
+          // Log — rounded rect
+          const logW = CELL_SIZE * 2.2;
+          const logH = CELL_SIZE * 0.65;
+          const logX = vx;
+          const logY = y + (CELL_SIZE - logH) / 2;
+
+          // Log glow
+          ctx.fillStyle = FROGGER_COLORS.logGlow;
+          ctx.beginPath();
+          ctx.roundRect(logX - 2, logY - 2, logW + 4, logH + 4, 6);
+          ctx.fill();
+
+          // Log body
+          ctx.fillStyle = FROGGER_COLORS.log;
+          ctx.beginPath();
+          ctx.roundRect(logX, logY, logW, logH, 5);
+          ctx.fill();
+
+          // Log rings
+          ctx.fillStyle = 'rgba(0,0,0,0.15)';
+          ctx.fillRect(logX + logW * 0.2, logY + 2, 3, logH - 4);
+          ctx.fillRect(logX + logW * 0.5, logY + 2, 3, logH - 4);
+          ctx.fillRect(logX + logW * 0.8, logY + 2, 3, logH - 4);
+        }
+      }
+    }
+  }
+}
+
+function drawHomeSlots(state) {
+  // Draw home slots at the top of the play area (row 0)
+  const slotYs = [0, 1]; // home slots are at row 0, display at top of row 0
+  const cfg = { homeSlotXs: [6, 17, 28, 39, 50] }; // matches gameConfig.js exactly
+
+  // Goal bar background
+  ctx.fillStyle = 'rgba(255,221,68,0.06)';
+  ctx.fillRect(0, 0, CANVAS_W, CELL_SIZE * 1.5);
+
+  // Goal text
+  ctx.fillStyle = FROGGER_COLORS.goal;
+  ctx.font = `bold ${Math.max(8, Math.floor(CELL_SIZE * 0.6))}px monospace`;
+  ctx.textAlign = 'left';
+  ctx.textBaseline = 'middle';
+  ctx.fillText('🏠 GOAL', 6, CELL_SIZE * 0.75);
+
+  // Draw home slots
+  for (let i = 0; i < cfg.homeSlotXs.length; i++) {
+    const sx = cfg.homeSlotXs[i] * CELL_SIZE;
+    const sy = CELL_SIZE * 0.15;
+    const sw = CELL_SIZE * 1.2;
+    const sh = CELL_SIZE * 1.2;
+
+    const filled = state.homeSlots && state.homeSlots[i];
+
+    // Slot background
+    if (filled) {
+      ctx.fillStyle = FROGGER_COLORS.slotGlow;
+      ctx.beginPath();
+      ctx.roundRect(sx - sw / 2, sy, sw, sh, 4);
+      ctx.fill();
+    }
+
+    ctx.strokeStyle = filled ? FROGGER_COLORS.homeFilled : FROGGER_COLORS.homeEmpty;
+    ctx.lineWidth = filled ? 2 : 1;
+    ctx.beginPath();
+    ctx.roundRect(sx - sw / 2, sy, sw, sh, 4);
+    ctx.stroke();
+
+    if (filled) {
+      ctx.fillStyle = FROGGER_COLORS.homeFilled;
+      ctx.font = `${Math.max(10, Math.floor(CELL_SIZE * 0.7))}px monospace`;
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.fillText('✓', sx, sy + sh / 2);
+    }
+  }
+}
+
+function drawFrogPlayer(state) {
+  const player = state.player;
+  if (!player) return;
+  const cx = player.x * CELL_SIZE + CELL_SIZE / 2;
+  const cy = player.y * CELL_SIZE + CELL_SIZE / 2;
+  const r = CELL_SIZE * 0.4;
+
+  // Glow
+  const glow = ctx.createRadialGradient(cx, cy, r * 0.2, cx, cy, r * 2);
+  glow.addColorStop(0, FROGGER_COLORS.frogGlow);
+  glow.addColorStop(1, 'rgba(0,255,136,0)');
+  ctx.fillStyle = glow;
+  ctx.fillRect(cx - r * 2.5, cy - r * 2.5, r * 5, r * 5);
+
+  // Frog body (circle)
+  ctx.beginPath();
+  ctx.arc(cx, cy, r, 0, Math.PI * 2);
+  ctx.fillStyle = FROGGER_COLORS.frog;
+  ctx.fill();
+
+  // Eyes
+  const eyeR = r * 0.22;
+  const eyeY = cy - r * 0.25;
+  ctx.fillStyle = '#fff';
+  ctx.beginPath();
+  ctx.arc(cx - r * 0.25, eyeY, eyeR, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.beginPath();
+  ctx.arc(cx + r * 0.25, eyeY, eyeR, 0, Math.PI * 2);
+  ctx.fill();
+
+  // Pupils
+  ctx.fillStyle = '#000';
+  ctx.beginPath();
+  ctx.arc(cx - r * 0.25, eyeY, eyeR * 0.5, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.beginPath();
+  ctx.arc(cx + r * 0.25, eyeY, eyeR * 0.5, 0, Math.PI * 2);
+  ctx.fill();
+}
+
+function drawFroggerHUD(state) {
+  const lives = state.lives != null ? state.lives : 3;
+  const level = state.level || 1;
+  const timeLeft = state.timeLeft != null ? state.timeLeft : 0;
+  const modeIcon = '📡';
+  const livesStr = '🐸'.repeat(Math.max(0, lives));
+  // Time warning pulse when time is low
+  const timeWarn = timeLeft < 5;
+  const timePulse = timeWarn ? 0.3 + 0.7 * Math.abs(Math.sin(Date.now() / 200)) : 1;
+  const timeColor = timeWarn
+    ? `rgba(255,51,85,${timePulse})`
+    : timeLeft < 10 ? '#ffdd44' : 'rgba(255,255,255,0.6)';
+
+  const sponsorText = activeSponsor
+    ? `<span style="color:rgba(255,255,255,0.35);font-size:10px;margin-left:4px">| ${activeSponsor.brand_name}</span>`
+    : '';
+
+  hudEl.innerHTML = `
+    <div style="display:flex;align-items:center;gap:5px;flex-wrap:wrap;width:100%;">
+      <span style="color:#ffdd44;font-weight:bold">${state.score}</span>
+      <span style="color:rgba(255,255,255,0.25)">|</span>
+      <span style="color:#00ff88;font-size:10px">L${level}</span>
+      <span style="color:rgba(255,255,255,0.25)">|</span>
+      <span style="color:${timeColor};font-size:10px${timeWarn ? ';font-weight:bold' : ''}">${timeLeft}s</span>
+      ${timeWarn ? `<span style="color:${C.hudDanger};font-size:8px">⚠</span>` : ''}
+      <span style="flex:1"></span>
+      <span style="font-size:10px">${livesStr}</span>
+      <span style="color:${C.hudAccent};font-size:10px">${modeIcon}</span>
+      ${sponsorText}
+    </div>
+  `;
+}
+
+function drawGetReady(state) {
+  ctx.fillStyle = 'rgba(0,0,0,0.35)';
+  ctx.fillRect(0, 0, CANVAS_W, CANVAS_H);
+
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  ctx.font = `bold ${Math.max(20, Math.floor(CANVAS_W / 18))}px monospace`;
+  ctx.fillStyle = '#ffdd44';
+  ctx.fillText('📡 GET READY', CANVAS_W / 2, CANVAS_H / 2 - 20);
+
+  ctx.font = `${Math.max(14, Math.floor(CANVAS_W / 30))}px monospace`;
+  ctx.fillStyle = 'rgba(255,255,255,0.6)';
+  ctx.fillText('Cross the grid. Reach the goal.', CANVAS_W / 2, CANVAS_H / 2 + 20);
+}
+
+function drawFroggerGameOver(state) {
+  ctx.fillStyle = 'rgba(0,0,0,0.70)';
+  ctx.fillRect(0, 0, CANVAS_W, CANVAS_H);
+
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+
+  ctx.font = `bold ${Math.max(22, Math.floor(CANVAS_W / 28))}px monospace`;
+  ctx.fillStyle = C.hudDanger;
+  ctx.fillText('ROUTE LOST', CANVAS_W / 2, CANVAS_H / 2 - CANVAS_H * 0.20);
+
+  // Sponsor interstitial
+  if (activeSponsor) {
+    ctx.font = '10px monospace';
+    ctx.fillStyle = '#ffdd44';
+    ctx.fillText('This round powered by', CANVAS_W / 2, CANVAS_H / 2 - CANVAS_H * 0.13);
+    ctx.font = 'bold 13px monospace';
+    ctx.fillStyle = '#ffffff';
+    ctx.fillText(activeSponsor.brand_name, CANVAS_W / 2, CANVAS_H / 2 - CANVAS_H * 0.09);
+  }
+
+  const fs = Math.max(13, Math.floor(CANVAS_W / 42));
+  ctx.font = `${fs}px monospace`;
+  ctx.fillStyle = C.hudText;
+  ctx.fillText(`Score: ${state.score}`, CANVAS_W / 2, CANVAS_H / 2 + CANVAS_H * 0.02);
+  ctx.fillText(`Level: ${state.level || 1} | Best: ${state.bestScore}`, CANVAS_W / 2, CANVAS_H / 2 + CANVAS_H * 0.09);
+
+  ctx.font = '10px monospace';
+  ctx.fillStyle = 'rgba(255,255,255,0.5)';
+  ctx.fillText('Tap Play Again to retry', CANVAS_W / 2, CANVAS_H / 2 + CANVAS_H * 0.17);
 }
 
 // ── Cleanup ──────────────────────────────────────────────────────────────────
@@ -716,7 +1302,7 @@ export function destroy() {
   economyOnline = false;
 }
 
-// ── Auto-init when not imported as a module (standalone <script> tag) ───────
+// ── Auto-init ────────────────────────────────────────────────────────────────
 
 if (typeof window !== 'undefined' && document.readyState !== 'loading') {
   // Will be initialised from index.html

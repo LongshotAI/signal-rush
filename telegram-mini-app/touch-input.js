@@ -49,6 +49,24 @@ export function initTouchInput(canvasEl, onMove) {
 }
 
 /**
+ * Poll the current D-pad direction state.
+ * Returns {x: number, y: number} where each component is -1, 0, or 1,
+ * or null if no direction is pressed.
+ *
+ * This is the primary input source for mobile — called every game tick
+ * so holding a direction produces continuous movement.
+ */
+export function getDPadState() {
+  let x = 0, y = 0;
+  if (_dPadState.up)    y -= 1;
+  if (_dPadState.down)  y += 1;
+  if (_dPadState.left)  x -= 1;
+  if (_dPadState.right) x += 1;
+  if (x === 0 && y === 0) return null;
+  return { x, y };
+}
+
+/**
  * Tear down all touch input listeners and remove the D-pad from the DOM.
  */
 export function destroyTouchInput() {
@@ -79,37 +97,29 @@ function _buildDPad() {
   container.id = 'touch-dpad';
   Object.assign(container.style, {
     position: 'fixed',
-    bottom: '24px',
-    left: '16px',
+    bottom: '20px',
+    left: '50%',
+    transform: 'translateX(-50%)',
     zIndex: '1000',
-    width: '160px',
-    height: '160px',
-    opacity: '0.7',
+    width: '200px',
+    height: '200px',
+    opacity: '0.55',
     touchAction: 'none',
     userSelect: 'none',
     WebkitUserSelect: 'none',
     pointerEvents: 'auto',
   });
 
-  // Button layout: 3×3 grid
-  const grid = document.createElement('div');
-  Object.assign(grid.style, {
-    display: 'grid',
-    gridTemplateColumns: 'repeat(3, 1fr)',
-    gridTemplateRows: 'repeat(3, 1fr)',
-    gap: '4px',
-    width: '100%',
-    height: '100%',
-  });
-
+  // Button layout: cross pattern using CSS
   const btnStyle = {
-    width: '100%',
-    height: '100%',
-    background: 'rgba(255,255,255,0.06)',
-    border: '1px solid rgba(255,255,255,0.12)',
-    borderRadius: '10px',
-    color: 'rgba(255,255,255,0.5)',
-    fontSize: '22px',
+    position: 'absolute',
+    width: '64px',
+    height: '64px',
+    background: 'rgba(255,255,255,0.07)',
+    border: '1px solid rgba(255,255,255,0.10)',
+    borderRadius: '14px',
+    color: 'rgba(255,255,255,0.55)',
+    fontSize: '26px',
     display: 'flex',
     alignItems: 'center',
     justifyContent: 'center',
@@ -117,81 +127,102 @@ function _buildDPad() {
     userSelect: 'none',
     WebkitUserSelect: 'none',
     cursor: 'pointer',
-    transition: 'background 0.1s, border-color 0.1s, color 0.1s',
+    transition: 'background 0.08s, border-color 0.08s, color 0.08s',
+    backdropFilter: 'blur(4px)',
+    WebkitBackdropFilter: 'blur(4px)',
   };
 
   const activeStyle = {
-    background: 'rgba(0,255,136,0.18)',
-    borderColor: 'rgba(0,255,136,0.35)',
+    background: 'rgba(0,255,136,0.20)',
+    borderColor: 'rgba(0,255,136,0.40)',
     color: '#00ff88',
   };
 
-  // Build buttons: [ , ↑,  , ←,  , →,  , ↓,  ]
-  const layout = [
-    { dir: null, label: '' },
-    { dir: 'up', label: '↑' },
-    { dir: null, label: '' },
-    { dir: 'left', label: '←' },
-    { dir: null, label: '' },
-    { dir: 'right', label: '→' },
-    { dir: null, label: '' },
-    { dir: 'down', label: '↓' },
-    { dir: null, label: '' },
+  const buttons = [
+    { dir: 'up',    label: '↑', top: '0',   left: '50%',  transform: 'translateX(-50%)' },
+    { dir: 'down',  label: '↓', bottom: '0', left: '50%',  transform: 'translateX(-50%)' },
+    { dir: 'left',  label: '←', top: '50%',  left: '0',    transform: 'translateY(-50%)' },
+    { dir: 'right', label: '→', top: '50%',  right: '0',   transform: 'translateY(-50%)' },
   ];
 
-  for (const item of layout) {
+  for (const item of buttons) {
     const btn = document.createElement('button');
     btn.textContent = item.label;
     Object.assign(btn.style, btnStyle);
+    btn.style.top = item.top;
+    btn.style.bottom = item.bottom;
+    btn.style.left = item.left;
+    btn.style.right = item.right;
+    if (item.transform) btn.style.transform = item.transform;
 
-    if (item.dir) {
-      // Touch start
-      _addListener(btn, 'touchstart', (e) => {
-        e.preventDefault();
-        _dPadState[item.dir] = true;
-        Object.assign(btn.style, activeStyle);
-        _emitDPadMove();
-      }, { passive: false });
+    // Touch start
+    _addListener(btn, 'touchstart', (e) => {
+      e.preventDefault();
+      _dPadState[item.dir] = true;
+      Object.assign(btn.style, { ...btnStyle, ...activeStyle });
+      if (item.top) btn.style.top = item.top;
+      if (item.bottom) btn.style.bottom = item.bottom;
+      if (item.left) btn.style.left = item.left;
+      if (item.right) btn.style.right = item.right;
+      if (item.transform) btn.style.transform = item.transform;
+    }, { passive: false });
 
-      // Touch end
-      _addListener(btn, 'touchend', (e) => {
-        e.preventDefault();
+    // Touch end
+    _addListener(btn, 'touchend', (e) => {
+      e.preventDefault();
+      _dPadState[item.dir] = false;
+      Object.assign(btn.style, btnStyle);
+      if (item.top) btn.style.top = item.top;
+      if (item.bottom) btn.style.bottom = item.bottom;
+      if (item.left) btn.style.left = item.left;
+      if (item.right) btn.style.right = item.right;
+      if (item.transform) btn.style.transform = item.transform;
+    }, { passive: false });
+
+    // Touch cancel
+    _addListener(btn, 'touchcancel', () => {
+      _dPadState[item.dir] = false;
+      Object.assign(btn.style, btnStyle);
+      if (item.top) btn.style.top = item.top;
+      if (item.bottom) btn.style.bottom = item.bottom;
+      if (item.left) btn.style.left = item.left;
+      if (item.right) btn.style.right = item.right;
+      if (item.transform) btn.style.transform = item.transform;
+    });
+
+    // Mouse fallback (for testing on desktop)
+    _addListener(btn, 'mousedown', () => {
+      _dPadState[item.dir] = true;
+      Object.assign(btn.style, { ...btnStyle, ...activeStyle });
+      if (item.top) btn.style.top = item.top;
+      if (item.bottom) btn.style.bottom = item.bottom;
+      if (item.left) btn.style.left = item.left;
+      if (item.right) btn.style.right = item.right;
+      if (item.transform) btn.style.transform = item.transform;
+    });
+    _addListener(btn, 'mouseup', () => {
+      _dPadState[item.dir] = false;
+      Object.assign(btn.style, btnStyle);
+      if (item.top) btn.style.top = item.top;
+      if (item.bottom) btn.style.bottom = item.bottom;
+      if (item.left) btn.style.left = item.left;
+      if (item.right) btn.style.right = item.right;
+      if (item.transform) btn.style.transform = item.transform;
+    });
+    _addListener(btn, 'mouseleave', () => {
+      if (_dPadState[item.dir]) {
         _dPadState[item.dir] = false;
         Object.assign(btn.style, btnStyle);
-        _emitDPadMove();
-      }, { passive: false });
+        if (item.top) btn.style.top = item.top;
+        if (item.bottom) btn.style.bottom = item.bottom;
+        if (item.left) btn.style.left = item.left;
+        if (item.right) btn.style.right = item.right;
+        if (item.transform) btn.style.transform = item.transform;
+      }
+    });
 
-      // Touch cancel
-      _addListener(btn, 'touchcancel', () => {
-        _dPadState[item.dir] = false;
-        Object.assign(btn.style, btnStyle);
-        _emitDPadMove();
-      });
-
-      // Mouse fallback (for testing on desktop)
-      _addListener(btn, 'mousedown', () => {
-        _dPadState[item.dir] = true;
-        Object.assign(btn.style, activeStyle);
-        _emitDPadMove();
-      });
-      _addListener(btn, 'mouseup', () => {
-        _dPadState[item.dir] = false;
-        Object.assign(btn.style, btnStyle);
-        _emitDPadMove();
-      });
-      _addListener(btn, 'mouseleave', () => {
-        if (_dPadState[item.dir]) {
-          _dPadState[item.dir] = false;
-          Object.assign(btn.style, btnStyle);
-          _emitDPadMove();
-        }
-      });
-    }
-
-    grid.appendChild(btn);
+    container.appendChild(btn);
   }
-
-  container.appendChild(grid);
 
   // Only show on touch devices (coarse pointer)
   if (window.matchMedia('(pointer: coarse)').matches) {
