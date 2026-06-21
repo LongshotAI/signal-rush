@@ -73,7 +73,27 @@ const GAME_CONFIG = {
   // ── Combo decay ──────────────────────────────────────────────────────
   // Combo decreases by this amount per tick when no pickup is collected.
   // Creates urgency to keep collecting.
-  comboDecay: 0.05,
+  comboDecay: 0.12,
+
+  // ── Difficulty tiers (AI Hunt) ──────────────────────────────────────
+  // Every N ticks, the game escalates: hazards spawn faster, move quicker.
+  // Tier is derived from tick — no state needed.
+  difficultyTier: {
+    intervalTicks: 100,    // new tier every 100 ticks (~12s at 120ms/tick)
+    maxTier: 8,
+    spawnChancePerTier: 0.02,   // +2% spawn chance per tier (very gentle)
+    speedBoostPerTier: 0.10,    // +10% hazard speed per tier (capped at 2.5x)
+  },
+
+  // ── Pickup magnetism ────────────────────────────────────────────────
+  // On mobile, pickups within this radius drift toward the player.
+  // 0 = disabled, 1 = one cell radius, etc.
+  pickupMagnetRadius: 1,
+
+  // ── Hazard spawn telegraph ──────────────────────────────────────────
+  // Number of ticks before a hazard spawns that a warning marker appears.
+  // Gives mobile players fair reaction time.
+  spawnTelegraphTicks: 5,
 
   // Mode-specific configurations.
   // The engine reads from `modes[modeName]` when constructing initial state.

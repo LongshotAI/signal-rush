@@ -38,6 +38,8 @@ function createAiHuntState() {
     consecutivePickups: 0,
     comboDecayTimer: 0,
     shieldPickupActive: false,
+    telegraphs: [],  // upcoming hazard spawn positions with ttl
+    difficultyTier: 0,
   };
 }
 

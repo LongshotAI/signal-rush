@@ -159,6 +159,8 @@ function resetStateAiHunt(state) {
   state.consecutivePickups = 0;
   state.comboDecayTimer = 0;
   state.shieldPickupActive = false;
+  state.telegraphs = [];
+  state.difficultyTier = 0;
   for (let i = 0; i < GAME_CONFIG.initialPickupCount; i += 1) {
     spawnPickup(state);
   }
@@ -597,15 +599,85 @@ function stepAiHunt(engine, state, input) {
   }
 
   const safeWindowActive = state.tick <= GAME_CONFIG.hazardRamp.safeStartTicks;
+
+  // ── Difficulty tier ────────────────────────────────────────────────
+  // Derived from tick — deterministic, no RNG needed.
+  const tierCfg = GAME_CONFIG.difficultyTier || {};
+  const tier = Math.min(
+    tierCfg.maxTier || 10,
+    Math.floor(state.tick / (tierCfg.intervalTicks || 80))
+  );
+  state.difficultyTier = tier;
+  const tierSpawnBonus = tier * (tierCfg.spawnChancePerTier || 0);
+  const tierSpeedBoost = 1 + tier * (tierCfg.speedBoostPerTier || 0);
+
+  // ── Hazard spawn telegraph ──────────────────────────────────────────
+  // Decrement existing telegraphs; if any reach 0, spawn hazard there.
+  const telegraphTTL = GAME_CONFIG.spawnTelegraphTicks || 8;
+  let spawnedFromTelegraph = false;
+  state.telegraphs = state.telegraphs
+    .map(t => ({ ...t, ttl: t.ttl - 1 }))
+    .filter(t => {
+      if (t.ttl <= 0) {
+        // Spawn hazard at telegraph position
+        const cell = { x: t.x, y: t.y };
+        const conflict = state.hazards.some((h) => h.x === cell.x && h.y === cell.y);
+        const playerConflict = state.player.x === cell.x && state.player.y === cell.y;
+        const pickupConflict = state.pickups.some((p) => p.x === cell.x && p.y === cell.y);
+        if (!conflict && !playerConflict && !pickupConflict) {
+          const hazard = {
+            x: cell.x,
+            y: cell.y,
+            kind: (t.kind === 'corruptor' || Math.floor(state.tick / telegraphTTL) % 5 === 0) ? 'corruptor' : 'packet',
+          };
+          const behaviorSeed = (state.tick * 7 + cell.x * 13 + cell.y * 31 + (state.hazards.length + 1) * 37) % 100;
+          hazard.behavior = behaviorSeed >= GAME_CONFIG.hazardBehavior.patrolThreshold ? 'patrol' : 'homing';
+          if (hazard.behavior === 'patrol') {
+            hazard.dirX = (cell.x + cell.y + state.tick) % 2 === 0 ? 1 : -1;
+            hazard.dirY = 0;
+          }
+          state.hazards.push(hazard);
+          spawnedFromTelegraph = true;
+          events.push({ type: 'hazard_spawned', kind: hazard.kind });
+        }
+        return false; // remove expired telegraph
+      }
+      return true;
+    });
+
+  // ── Hazard spawning ─────────────────────────────────────────────────
+  const rng = getRng(state);
   const hazardFloor = Math.min(
     GAME_CONFIG.hazardRamp.max,
     GAME_CONFIG.hazardRamp.base + Math.floor(state.tick / GAME_CONFIG.hazardRamp.growthIntervalTicks),
   );
 
-  const rng = getRng(state);
-  if (!safeWindowActive && state.hazards.length < hazardFloor && rng() < GAME_CONFIG.hazardRamp.randomSpawnChance) {
-    const spawned = spawnHazard(state);
-    if (spawned) events.push({ type: 'hazard_spawned', kind: spawned.kind });
+  const effectiveSpawnChance = Math.min(0.85, GAME_CONFIG.hazardRamp.randomSpawnChance + tierSpawnBonus);
+  if (!safeWindowActive && state.hazards.length < hazardFloor && rng() < effectiveSpawnChance) {
+    // Instead of spawning immediately, create a telegraph
+    const edges = [];
+    for (let x = 2; x < GAME_CONFIG.width - 2; x += 1) {
+      edges.push({ x, y: 1 });
+      edges.push({ x, y: GAME_CONFIG.height - 2 });
+    }
+    for (let y = 2; y < GAME_CONFIG.height - 2; y += 1) {
+      edges.push({ x: 1, y });
+      edges.push({ x: GAME_CONFIG.width - 2, y });
+    }
+    const edgeCell = edges[randInt(0, edges.length - 1, rng)];
+    const conflict = state.hazards.some((h) => h.x === edgeCell.x && h.y === edgeCell.y);
+    const playerConflict = state.player.x === edgeCell.x && state.player.y === edgeCell.y;
+    const pickupConflict = state.pickups.some((p) => p.x === edgeCell.x && p.y === edgeCell.y);
+    const telegraphConflict = state.telegraphs.some((t) => t.x === edgeCell.x && t.y === edgeCell.y);
+    if (!conflict && !playerConflict && !pickupConflict && !telegraphConflict) {
+      state.telegraphs.push({
+        x: edgeCell.x,
+        y: edgeCell.y,
+        ttl: telegraphTTL,
+        kind: rng() < 0.18 ? 'corruptor' : 'packet',
+      });
+      events.push({ type: 'telegraph_spawned', x: edgeCell.x, y: edgeCell.y });
+    }
   }
 
   if (
@@ -613,29 +685,59 @@ function stepAiHunt(engine, state, input) {
     state.tick % GAME_CONFIG.hazardRamp.lowCountPulseEvery === 0 &&
     state.hazards.length < GAME_CONFIG.hazardRamp.lowCountThreshold
   ) {
-    const spawned = spawnHazard(state);
-    if (spawned) events.push({ type: 'hazard_spawned', kind: spawned.kind });
+    // Telegraph for low-count pulse too
+    const edges = [];
+    for (let x = 2; x < GAME_CONFIG.width - 2; x += 1) {
+      edges.push({ x, y: 1 });
+      edges.push({ x, y: GAME_CONFIG.height - 2 });
+    }
+    for (let y = 2; y < GAME_CONFIG.height - 2; y += 1) {
+      edges.push({ x: 1, y });
+      edges.push({ x: GAME_CONFIG.width - 2, y });
+    }
+    const edgeCell = edges[randInt(0, edges.length - 1, rng)];
+    const conflict = state.hazards.some((h) => h.x === edgeCell.x && h.y === edgeCell.y);
+    const playerConflict = state.player.x === edgeCell.x && state.player.y === edgeCell.y;
+    const pickupConflict = state.pickups.some((p) => p.x === edgeCell.x && p.y === edgeCell.y);
+    const telegraphConflict = state.telegraphs.some((t) => t.x === edgeCell.x && t.y === edgeCell.y);
+    if (!conflict && !playerConflict && !pickupConflict && !telegraphConflict) {
+      state.telegraphs.push({
+        x: edgeCell.x,
+        y: edgeCell.y,
+        ttl: telegraphTTL,
+        kind: rng() < 0.18 ? 'corruptor' : 'packet',
+      });
+      events.push({ type: 'telegraph_spawned', x: edgeCell.x, y: edgeCell.y });
+    }
   }
 
   for (const hazard of state.hazards) {
     if (hazard.behavior === 'patrol') {
-      // Patrol hazard: moves in a fixed direction, bounces off edges
-      const newX = hazard.x + (hazard.dirX || 1);
-      const newY = hazard.y + (hazard.dirY || 0);
-      // Bounce off walls
-      if (newX < 1 || newX > GAME_CONFIG.width - 2) {
-        hazard.dirX = -(hazard.dirX || 1);
+      // Patrol hazard: moves in a straight line, bounces off walls
+      const speedMult = Math.min(2.5, tierSpeedBoost);
+      const step = Math.max(1, Math.floor(speedMult));
+      for (let s = 0; s < step; s++) {
+        const newX = hazard.x + (hazard.dirX || 1);
+        const newY = hazard.y + (hazard.dirY || 0);
+        // Bounce off walls
+        if (newX < 1 || newX > GAME_CONFIG.width - 2) {
+          hazard.dirX = -(hazard.dirX || 1);
+        }
+        if (newY < 1 || newY > GAME_CONFIG.height - 2) {
+          hazard.dirY = -(hazard.dirY || 0);
+        }
+        hazard.x = clamp(hazard.x + (hazard.dirX || 1), 1, GAME_CONFIG.width - 2);
+        hazard.y = clamp(hazard.y + (hazard.dirY || 0), 1, GAME_CONFIG.height - 2);
       }
-      if (newY < 1 || newY > GAME_CONFIG.height - 2) {
-        hazard.dirY = -(hazard.dirY || 0);
-      }
-      hazard.x = clamp(hazard.x + (hazard.dirX || 1), 1, GAME_CONFIG.width - 2);
-      hazard.y = clamp(hazard.y + (hazard.dirY || 0), 1, GAME_CONFIG.height - 2);
     } else {
       // Homing: moves toward player (existing behavior)
-      const next = moveToward(player.x, player.y, hazard.x, hazard.y);
-      hazard.x = clamp(next.x, 1, GAME_CONFIG.width - 2);
-      hazard.y = clamp(next.y, 1, GAME_CONFIG.height - 2);
+      const speedMult = Math.min(2.5, tierSpeedBoost);
+      const step = Math.max(1, Math.floor(speedMult));
+      for (let s = 0; s < step; s++) {
+        const next = moveToward(player.x, player.y, hazard.x, hazard.y);
+        hazard.x = clamp(next.x, 1, GAME_CONFIG.width - 2);
+        hazard.y = clamp(next.y, 1, GAME_CONFIG.height - 2);
+      }
     }
   }
 
@@ -689,6 +791,22 @@ function stepAiHunt(engine, state, input) {
   }
 
   awardNearMisses(state, events);
+
+  // ── Pickup magnetism ────────────────────────────────────────────────
+  // On mobile, pickups within radius drift toward the player (1 cell per tick).
+  const magnetRadius = GAME_CONFIG.pickupMagnetRadius || 0;
+  if (magnetRadius > 0) {
+    for (const pickup of state.pickups) {
+      const dx = player.x - pickup.x;
+      const dy = player.y - pickup.y;
+      const dist = Math.abs(dx) + Math.abs(dy);
+      if (dist > 0 && dist <= magnetRadius) {
+        // Move pickup one step toward player
+        pickup.x += Math.sign(dx);
+        pickup.y += Math.sign(dy);
+      }
+    }
+  }
 
   let collectedAny = false;
 

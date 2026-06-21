@@ -519,6 +519,12 @@ function _detectEvents(healthBefore, pickupsBefore) {
     nearMissFlash = Math.max(nearMissFlash, 6);
   }
 
+  // Shield break detection
+  const shieldBlocked = state.lastEvents ? state.lastEvents.filter(e => e.type === 'shield_blocked').length : 0;
+  if (shieldBlocked > 0) {
+    nearMissFlash = Math.max(nearMissFlash, 4); // subtle flash on shield save
+  }
+
   // Frogger event detection
   if (state.mode === 'frogger') {
     const deathEvents = state.lastEvents ? state.lastEvents.filter(e =>
@@ -667,6 +673,31 @@ function render() {
 
     // Draw border
     drawBorder();
+
+    // Draw hazard telegraphs (warning markers)
+    if (state.telegraphs) {
+      for (const t of state.telegraphs) {
+        const tx = t.x * CELL_SIZE + CELL_SIZE / 2;
+        const ty = t.y * CELL_SIZE + CELL_SIZE / 2;
+        const tAlpha = 0.15 + 0.15 * Math.sin(Date.now() / 100 + t.ttl);
+        const tSize = CELL_SIZE * 0.8;
+        // Pulsing X marker
+        ctx.strokeStyle = `rgba(255,200,50,${tAlpha})`;
+        ctx.lineWidth = 1.5;
+        ctx.beginPath();
+        ctx.moveTo(tx - tSize/2, ty - tSize/2);
+        ctx.lineTo(tx + tSize/2, ty + tSize/2);
+        ctx.moveTo(tx + tSize/2, ty - tSize/2);
+        ctx.lineTo(tx - tSize/2, ty + tSize/2);
+        ctx.stroke();
+        // Outer warning ring
+        ctx.strokeStyle = `rgba(255,200,50,${tAlpha * 0.5})`;
+        ctx.lineWidth = 1;
+        ctx.beginPath();
+        ctx.arc(tx, ty, tSize, 0, Math.PI * 2);
+        ctx.stroke();
+      }
+    }
 
     // Draw pickups (under player)
     state.pickups.forEach((p) => drawPickup(p));
@@ -999,6 +1030,10 @@ function drawHUD(state) {
   const streakDisplay = streakCount > 2
     ? `<span style="color:#ffdd44;font-size:9px">⚡${streakCount}</span>`
     : '';
+  // Difficulty tier indicator (subtle, only shows at tier 2+)
+  const tierDisplay = (state.difficultyTier || 0) >= 2
+    ? `<span style="color:rgba(255,150,50,0.5);font-size:9px">T${state.difficultyTier}</span>`
+    : '';
 
   const sponsorDisplay = activeSponsor
     ? `<span style="color:rgba(255,255,255,0.35);font-size:10px;margin-left:4px">| ${activeSponsor.brand_name}</span>`
@@ -1014,6 +1049,7 @@ function drawHUD(state) {
       <span style="color:rgba(255,51,85,0.2);font-size:10px">${healthEmpty}</span>
       ${shieldDisplay}
       <span style="flex:1"></span>
+      ${tierDisplay}
       ${streakDisplay}
       ${dangerIcon}
       <span style="color:${C.hudAccent};font-size:10px">${modeIcon}</span>
