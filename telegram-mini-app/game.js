@@ -111,6 +111,9 @@ let starfieldFrame = 0;
 let nearMissFlash = 0;        // frames remaining for near-miss flash overlay
 let comboScale = 1;           // current combo text scale (1 = normal)
 let comboTargetScale = 1;
+let froggerDeathFlash = 0;    // frames remaining for death flash (frogger mode)
+let froggerLevelFlash = 0;    // frames remaining for level clear flash
+let slotFillPulse = 0;        // frames remaining for slot-fill pulse
 
 function initStarfield(count = 60) {
   stars = [];
@@ -397,6 +400,9 @@ function _createEngine() {
   nearMissFlash = 0;
   comboScale = 1;
   comboTargetScale = 1;
+  froggerDeathFlash = 0;
+  froggerLevelFlash = 0;
+  slotFillPulse = 0;
   hideMainButton();
 
   sessionManager = new SessionManager();
@@ -507,10 +513,31 @@ function _detectEvents(healthBefore, pickupsBefore) {
   if (!engine) return;
   const state = engine.state;
 
-  // Near miss detection
+  // Near miss detection (AI Hunt)
   const nearMissCount = state.lastEvents ? state.lastEvents.filter(e => e.type === 'near_miss').length : 0;
   if (nearMissCount > 0) {
-    nearMissFlash = Math.max(nearMissFlash, 6); // flash for 6 frames
+    nearMissFlash = Math.max(nearMissFlash, 6);
+  }
+
+  // Frogger event detection
+  if (state.mode === 'frogger') {
+    const deathEvents = state.lastEvents ? state.lastEvents.filter(e =>
+      e.type === 'player_hop' && false // placeholder — actual death detected by state
+    ).length : 0;
+    // Detect life loss: old lives > new lives
+    if (state.lastFroggerCause) {
+      froggerDeathFlash = 15; // red flash for 15 frames
+    }
+    // Detect level clear
+    const levelClears = state.lastEvents ? state.lastEvents.filter(e => e.type === 'level_cleared').length : 0;
+    if (levelClears > 0) {
+      froggerLevelFlash = 30; // green celebration for 30 frames
+    }
+    // Detect slot fill
+    const slotFills = state.lastEvents ? state.lastEvents.filter(e => e.type === 'home_slot_filled').length : 0;
+    if (slotFills > 0) {
+      slotFillPulse = 20;
+    }
   }
 
   // Combo scale animation
@@ -591,7 +618,26 @@ function render() {
 
   if (isFrogger) {
     // ── FROGGER RENDER ──────────────────────────────────────
+    // Decay effects
+    if (froggerDeathFlash > 0) froggerDeathFlash -= 1;
+    if (froggerLevelFlash > 0) froggerLevelFlash -= 1;
+    if (slotFillPulse > 0) slotFillPulse -= 1;
+
     drawFroggerLanes(state);
+
+    // Level clear celebration flash
+    if (froggerLevelFlash > 0) {
+      const lAlpha = 0.08 * (froggerLevelFlash / 30);
+      ctx.fillStyle = `rgba(0,255,136,${lAlpha})`;
+      ctx.fillRect(0, 0, CANVAS_W, CANVAS_H);
+    }
+
+    // Death flash
+    if (froggerDeathFlash > 0) {
+      const dAlpha = 0.12 * (froggerDeathFlash / 15);
+      ctx.fillStyle = `rgba(255,51,85,${dAlpha})`;
+      ctx.fillRect(0, 0, CANVAS_W, CANVAS_H);
+    }
 
     // Draw home slots at top
     drawHomeSlots(state);
@@ -1134,6 +1180,11 @@ function drawFroggerLanes(state) {
           const carH = CELL_SIZE * 0.7;
           const carX = vx;
           const carY = y + (CELL_SIZE - carH) / 2;
+          // Per-lane car color for visual variety (10 distinct colors)
+          const laneColors = ['#ff6644','#ff8844','#ff4466','#ffaa33','#cc4455','#ff7755','#dd6633','#ee5533','#ff6633','#dd4455'];
+          const laneCarColor = laneColors[lane.y % laneColors.length];
+          // Car glow — use same base color at low alpha
+          ctx.fillStyle = laneCarColor.replace(')', '').replace(/[^,]+\)/, ',0.25)');
 
           // Car glow
           ctx.fillStyle = FROGGER_COLORS.carGlow;
@@ -1141,8 +1192,8 @@ function drawFroggerLanes(state) {
           ctx.roundRect(carX - 2, carY - 2, carW + 4, carH + 4, 4);
           ctx.fill();
 
-          // Car body
-          ctx.fillStyle = FROGGER_COLORS.car;
+          // Car body (per-lane color)
+          ctx.fillStyle = laneCarColor;
           ctx.beginPath();
           ctx.roundRect(carX, carY, carW, carH, 3);
           ctx.fill();
@@ -1299,6 +1350,11 @@ function drawFroggerHUD(state) {
   const timeLeft = state.timeLeft != null ? state.timeLeft : 0;
   const modeIcon = '📡';
   const livesStr = '🐸'.repeat(Math.max(0, lives));
+  // Frogger combo (increments on slot fill)
+  const froggerCombo = state.combo || 1;
+  const comboStr = froggerCombo > 1
+    ? `<span style="color:#ffdd44;font-size:10px${slotFillPulse > 10 ? ';font-weight:bold' : ''}">×${froggerCombo.toFixed(1)}</span>`
+    : '';
   // Time warning pulse when time is low
   const timeWarn = timeLeft < 5;
   const timePulse = timeWarn ? 0.3 + 0.7 * Math.abs(Math.sin(Date.now() / 200)) : 1;
@@ -1315,6 +1371,7 @@ function drawFroggerHUD(state) {
       <span style="color:#ffdd44;font-weight:bold">${state.score}</span>
       <span style="color:rgba(255,255,255,0.25)">|</span>
       <span style="color:#00ff88;font-size:10px">L${level}</span>
+      ${comboStr ? `<span style="color:rgba(255,255,255,0.25)">|</span>${comboStr}` : ''}
       <span style="color:rgba(255,255,255,0.25)">|</span>
       <span style="color:${timeColor};font-size:10px${timeWarn ? ';font-weight:bold' : ''}">${timeLeft}s</span>
       ${timeWarn ? `<span style="color:${C.hudDanger};font-size:8px">⚠</span>` : ''}
@@ -1332,13 +1389,29 @@ function drawGetReady(state) {
 
   ctx.textAlign = 'center';
   ctx.textBaseline = 'middle';
-  ctx.font = `bold ${Math.max(20, Math.floor(CANVAS_W / 18))}px monospace`;
-  ctx.fillStyle = '#ffdd44';
-  ctx.fillText('📡 GET READY', CANVAS_W / 2, CANVAS_H / 2 - 20);
 
-  ctx.font = `${Math.max(14, Math.floor(CANVAS_W / 30))}px monospace`;
-  ctx.fillStyle = 'rgba(255,255,255,0.6)';
-  ctx.fillText('Cross the grid. Reach the goal.', CANVAS_W / 2, CANVAS_H / 2 + 20);
+  // Countdown number animation
+  const ticksLeft = state.getReadyTicks || 0;
+  const seconds = Math.ceil(ticksLeft / 10);
+  const secFrac = (ticksLeft % 10) / 10;
+
+  // Big pulsing number
+  const numSize = Math.max(48, Math.floor(CANVAS_W / 8));
+  const numPulse = 0.9 + 0.1 * Math.sin(secFrac * Math.PI * 2);
+  ctx.font = `bold ${numSize * numPulse}px monospace`;
+  ctx.fillStyle = seconds > 1 ? '#ffdd44' : '#ff3355';
+  ctx.fillText(String(seconds), CANVAS_W / 2, CANVAS_H / 2 - 30);
+
+  // Label
+  ctx.font = `bold ${Math.max(14, Math.floor(CANVAS_W / 24))}px monospace`;
+  ctx.fillStyle = 'rgba(255,255,255,0.7)';
+  ctx.fillText('GET READY', CANVAS_W / 2, CANVAS_H / 2 + 30);
+
+  if (seconds <= 1) {
+    ctx.font = '11px monospace';
+    ctx.fillStyle = 'rgba(255,255,255,0.5)';
+    ctx.fillText('📡 Cross the grid. Reach the goal.', CANVAS_W / 2, CANVAS_H / 2 + 55);
+  }
 }
 
 function drawFroggerGameOver(state) {
