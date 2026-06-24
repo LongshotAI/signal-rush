@@ -1,0 +1,12 @@
+# Ngrok config — Signal Rush Mini App tunnel
+# Copy to ngrok.yml and fill in your authtoken
+# Get your authtoken at https://dashboard.ngrok.com
+version: "3"
+agent:
+  authtoken: ""  # <-- REPLACE with your ngrok authtoken
+tunnels:
+  signal-rush:
+    proto: http
+    addr: 8720
+    schemes:
+      - https
