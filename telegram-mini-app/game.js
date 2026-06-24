@@ -97,6 +97,7 @@ let sessionManager = null;
 let redemptionUI = null;
 let playerId = null;
 let creditBalance = 0;
+let sponsorBalance = 0;
 let lastReceiptResult = null;
 let economyOnline = false;
 let activeSponsor = null;
@@ -108,6 +109,9 @@ let interstitialImpressionLogged = false;
 let stars = [];
 let starsFar = [];
 let starfieldFrame = 0;
+let scorePopups = []; // {x, y, text, ttl, color}
+let _popupsInitialized = false;
+let lastPickupPositions = []; // track pickup positions for popup spawning
 let nearMissFlash = 0;        // frames remaining for near-miss flash overlay
 let comboScale = 1;           // current combo text scale (1 = normal)
 let comboTargetScale = 1;
@@ -225,12 +229,19 @@ export async function init(containerSelector = '#game-container') {
 
   dpr = window.devicePixelRatio || 1;
 
-  // Build DOM
+  // Build DOM — full-screen centered game container
   container.innerHTML = '';
-  container.style.position = 'relative';
-  container.style.display = 'flex';
-  container.style.justifyContent = 'center';
-  container.style.alignItems = 'flex-start';
+
+  // Create the centered game wrapper that holds canvas + HUD
+  const gameWrapper = document.createElement('div');
+  gameWrapper.id = 'game-wrapper';
+  gameWrapper.style.position = 'fixed';
+  gameWrapper.style.top = '50%';
+  gameWrapper.style.left = '50%';
+  gameWrapper.style.transform = 'translate(-50%, -50%)';
+  gameWrapper.style.display = 'flex';
+  gameWrapper.style.flexDirection = 'column';
+  gameWrapper.style.alignItems = 'center';
 
   canvasEl = document.createElement('canvas');
   canvasEl.width  = CANVAS_W * dpr;
@@ -238,10 +249,22 @@ export async function init(containerSelector = '#game-container') {
   canvasEl.style.width  = `${CANVAS_W}px`;
   canvasEl.style.height = `${CANVAS_H}px`;
   canvasEl.style.display = 'block';
-  canvasEl.style.borderRadius = '8px';
-  canvasEl.style.boxShadow = '0 0 40px rgba(0,255,136,0.10)';
+  canvasEl.style.borderRadius = '10px';
+  canvasEl.style.boxShadow = '0 0 60px rgba(0,255,136,0.12), 0 0 30px rgba(255,51,85,0.08)';
   canvasEl.style.touchAction = 'none';
-  container.appendChild(canvasEl);
+  gameWrapper.appendChild(canvasEl);
+
+  // Floating score popups container
+  const popupContainer = document.createElement('div');
+  popupContainer.id = 'score-popups';
+  popupContainer.style.position = 'absolute';
+  popupContainer.style.top = '0';
+  popupContainer.style.left = '0';
+  popupContainer.style.width = '100%';
+  popupContainer.style.height = '100%';
+  popupContainer.style.pointerEvents = 'none';
+  popupContainer.style.zIndex = '20';
+  gameWrapper.appendChild(popupContainer);
 
   ctx = canvasEl.getContext('2d');
   ctx.scale(dpr, dpr);
@@ -255,17 +278,21 @@ export async function init(containerSelector = '#game-container') {
     right: '0',
     padding: '6px 10px',
     display: 'flex',
-    justifyContent: 'space-between',
-    alignItems: 'center',
+    flexDirection: 'column',
+    gap: '3px',
     fontFamily: "'JetBrains Mono', 'SF Mono', 'Fira Code', monospace",
     fontSize: '11px',
     color: C.hudText,
-    background: C.hudBg,
-    borderRadius: '8px 8px 0 0',
+    background: 'rgba(6,6,15,0.75)',
+    backdropFilter: 'blur(4px)',
+    WebkitBackdropFilter: 'blur(4px)',
+    borderRadius: '10px 10px 0 0',
     pointerEvents: 'none',
     zIndex: '10',
   });
-  container.appendChild(hudEl);
+  gameWrapper.appendChild(hudEl);
+
+  container.appendChild(gameWrapper);
 
   // Wire keyboard
   window.removeEventListener('keydown', onKeyDown);
@@ -318,7 +345,7 @@ function _buildModeSelector(containerSelector) {
   function updateTagline(mode) {
     const subtitle = document.getElementById('game-subtitle');
     if (subtitle) {
-      subtitle.textContent = GAME_MODE_TAGLINES[mode] || 'Dodge noise. Collect credits. Survive.';
+      subtitle.textContent = GAME_MODE_TAGLINES[mode] || 'Dodge noise. Collect signals. Survive.';
     }
   }
 
@@ -499,7 +526,23 @@ function loop(timestamp) {
           sessionManager.recordInput(move, state.tick);
         }
 
+        // Track pickup positions before step (for popup spawn)
+        lastPickupPositions = state.pickups.map(p => ({ x: p.x, y: p.y }));
+
         engine.step({ move });
+
+        // Log HUD ad impressions from sponsor_impression engine events
+        // This mirrors the CLI's eventBridge.logAdImpression() behavior
+        if (economyOnline && playerId && state.lastEvents) {
+          const sponsorEvents = state.lastEvents.filter(e => e.type === 'sponsor_impression');
+          for (const ev of sponsorEvents) {
+            economyClient.logAdImpression({
+              campaignId: activeSponsor?.id || null,
+              playerId,
+              placementType: 'hud_frame',
+            }).catch(() => {});
+          }
+        }
 
         _detectEvents(healthBefore, pickupsBefore);
       }
@@ -555,6 +598,13 @@ function _detectEvents(healthBefore, pickupsBefore) {
 
   if (state.pickups.length < pickupsBefore) {
     hapticFeedback('light');
+    // Find which pickup was collected (compare arrays)
+    const collected = pickupsBefore - state.pickups.length;
+    // Use the last known pickup position for popup
+    if (lastPickupPositions.length > 0) {
+      const pos = lastPickupPositions.pop();
+      spawnScorePopup(pos.x, pos.y, state.score > 0 ? Math.max(1, Math.floor(state.score / 10)) : 5);
+    }
   }
 
   if (state.player.health < healthBefore) {
@@ -584,20 +634,26 @@ async function _submitReceipt() {
     });
 
     if (verifyResult.ok && verifyResult.valid) {
-      const creditsEarned = Math.floor(receipt.score / 10);
-      if (creditsEarned > 0) {
-        const ingestResult = await economyClient.submitCredits({
-          playerId,
-          sessionId: receipt.sessionId,
-          creditsDelta: creditsEarned,
-          events: [{ type: 'game_complete', score: receipt.score, level: receipt.level }],
-        });
-        if (ingestResult.ok) {
-          creditBalance = ingestResult.new_balance ?? ingestResult.balance ?? creditBalance + creditsEarned;
-          if (redemptionUI) redemptionUI.updateBalance(creditBalance);
-        }
-      }
-      lastReceiptResult = { ok: true, creditsEarned, score: receipt.score };
+      // Credits are ad-funded only — we no longer award gameplay credits.
+      // The only redeemable value comes from the 20% ad revenue pool.
+      let sponsorMicros = 0;
+      try {
+        const rewardRes = await economyClient.getRewards(playerId);
+        if (rewardRes.ok) sponsorMicros = rewardRes.available_micros || 0;
+      } catch {}
+
+      // Also submit session stats for skill-based reward calculation
+      economyClient.submitEarnReward({
+        playerId,
+        score: receipt.score,
+        combo: receipt.combo || 0,
+        level: receipt.level,
+        tickCount: receipt.tickCount || receipt.inputs?.length || 0,
+        difficultyTier: receipt.difficultyTier || 0,
+      }).catch(() => {});
+
+      sponsorBalance = sponsorMicros;
+      lastReceiptResult = { ok: true, creditsEarned: 0, score: receipt.score, sponsorMicros };
     } else {
       lastReceiptResult = { ok: false, reason: 'receipt rejected' };
     }
@@ -605,6 +661,79 @@ async function _submitReceipt() {
     console.error('[SignalRush] Receipt submission failed:', err.message);
     lastReceiptResult = { ok: false, reason: err.message };
   }
+}
+
+// ── Score Popups (floating +N text on pickup) ────────────────────────────────
+
+function spawnScorePopup(x, y, text, color = '#ffdd44') {
+  scorePopups.push({
+    x: x * CELL_SIZE + CELL_SIZE / 2,
+    y: y * CELL_SIZE + CELL_SIZE / 2,
+    text: `+${text}`,
+    ttl: 40, // frames
+    maxTtl: 40,
+    color,
+    vy: -1.2, // upward drift
+  });
+}
+
+function updateAndDrawPopups() {
+  for (let i = scorePopups.length - 1; i >= 0; i--) {
+    const p = scorePopups[i];
+    p.y += p.vy;
+    p.ttl--;
+    if (p.ttl <= 0) {
+      scorePopups.splice(i, 1);
+      continue;
+    }
+    const alpha = p.ttl / p.maxTtl;
+    const scale = 1 + (1 - alpha) * 0.5; // grows as it fades
+    ctx.save();
+    ctx.globalAlpha = alpha;
+    ctx.font = `bold ${Math.max(10, Math.floor(CELL_SIZE * 0.6 * scale))}px monospace`;
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillStyle = p.color;
+    ctx.shadowColor = p.color;
+    ctx.shadowBlur = 6;
+    ctx.fillText(p.text, p.x, p.y);
+    ctx.restore();
+  }
+}
+
+// ── XP / Rank System ─────────────────────────────────────────────────────────
+
+const RANKS = [
+  { name: 'Iron',     min: 0 },
+  { name: 'Bronze',   min: 500 },
+  { name: 'Silver',   min: 2000 },
+  { name: 'Gold',     min: 5000 },
+  { name: 'Platinum', min: 15000 },
+  { name: 'Diamond',  min: 50000 },
+  { name: 'Master',   min: 100000 },
+  { name: 'Legend',   min: 250000 },
+];
+
+function getRank(score) {
+  let rank = RANKS[0];
+  for (const r of RANKS) {
+    if (score >= r.min) rank = r;
+  }
+  return rank;
+}
+
+function getNextRank(score) {
+  for (const r of RANKS) {
+    if (score < r.min) return r;
+  }
+  return null; // already max
+}
+
+function getRankProgress(score) {
+  const rank = getRank(score);
+  const next = getNextRank(score);
+  if (!next) return 100;
+  return Math.min(100, ((score - rank.min) / (next.min - rank.min)) * 100);
 }
 
 // ── Rendering ────────────────────────────────────────────────────────────────
@@ -758,6 +887,9 @@ function render() {
   if (activeSponsor && !state.gameOver && state.tick > 5) {
     drawSponsorBadge();
   }
+
+  // Floating score popups (drawn last — on top of everything)
+  updateAndDrawPopups();
 }
 
 function drawGrid() {
@@ -1002,7 +1134,7 @@ function drawPickup(p) {
 }
 
 function drawHUD(state) {
-  // Compact HUD — score + combo + credits + health in one line
+  // Compact HUD — score + combo + health + sponsor in one line
   const healthHearts = '♥'.repeat(Math.max(0, state.player.health));
   const healthEmpty = '♡'.repeat(Math.max(0, 8 - state.player.health));
   const creditDisplay = economyOnline && creditBalance > 0 ? `💰${creditBalance}` : '';
@@ -1054,7 +1186,16 @@ function drawHUD(state) {
       ${dangerIcon}
       <span style="color:${C.hudAccent};font-size:10px">${modeIcon}</span>
       ${creditDisplay ? `<span style="color:#ffdd44;font-size:10px">${creditDisplay}</span>` : ''}
+      ${sponsorBalance > 0 ? `<span style="color:#44bbff;font-size:10px">🎯${sponsorBalance}µ</span>` : ''}
       ${sponsorDisplay}
+    </div>
+    <!-- XP / Rank Progress Bar -->
+    <div style="display:flex;align-items:center;gap:4px;width:100%;">
+      <span style="font-size:9px;color:${C.hudAccent};white-space:nowrap">${getRank(state.score).name}</span>
+      <div style="flex:1;height:3px;background:rgba(255,255,255,0.1);border-radius:2px;overflow:hidden;">
+        <div style="height:100%;width:${getRankProgress(state.score)}%;background:linear-gradient(90deg,#00ff88,#ffdd44);border-radius:2px;transition:width 0.3s;"></div>
+      </div>
+      <span style="font-size:9px;color:rgba(255,255,255,0.3);white-space:nowrap">${getNextRank(state.score) ? getNextRank(state.score).name : 'MAX'}</span>
     </div>
   `;
 }
@@ -1105,7 +1246,12 @@ function drawGameOver(state) {
     ctx.font = '10px monospace';
     if (lastReceiptResult.ok) {
       ctx.fillStyle = '#00ff88';
-      ctx.fillText(`+${lastReceiptResult.creditsEarned} credits`, CANVAS_W / 2, CANVAS_H / 2 + CANVAS_H * 0.22);
+      ctx.fillText(`+${lastReceiptResult.sponsorMicros || 0} µ claimable rewards`, CANVAS_W / 2, CANVAS_H / 2 + CANVAS_H * 0.22);
+      // Sponsor rewards (from 20% pool)
+      if (lastReceiptResult?.ok && lastReceiptResult.sponsorMicros > 0) {
+        ctx.fillStyle = '#44bbff';
+        ctx.fillText(`🎯 +${lastReceiptResult.sponsorMicros} µ from sponsors`, CANVAS_W / 2, CANVAS_H / 2 + CANVAS_H * 0.28);
+      }
     } else {
       ctx.fillStyle = 'rgba(255,255,255,0.3)';
       ctx.fillText('Receipt pending', CANVAS_W / 2, CANVAS_H / 2 + CANVAS_H * 0.22);
@@ -1501,6 +1647,7 @@ export function destroy() {
   economyClient = null;
   playerId = null;
   creditBalance = 0;
+  sponsorBalance = 0;
   economyOnline = false;
 }
 

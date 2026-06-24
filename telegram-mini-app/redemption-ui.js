@@ -11,6 +11,8 @@ export class RedemptionUI {
     this.economyClient = null;
     this.playerId = null;
     this.balance = 0;
+    this.rewardsMicros = 0;     // ad-funded reward pool earnings
+    this.ppqAccount = '';       // player's ppq.ai email/username
     this.visible = false;
     this.el = null;
   }
@@ -20,6 +22,7 @@ export class RedemptionUI {
     this.playerId = playerId;
     this.balance = initialBalance;
     this._build();
+    this._refreshRewards();
   }
 
   _build() {
@@ -47,10 +50,24 @@ export class RedemptionUI {
     });
 
     this.el.innerHTML = `
-      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;">
-        <span style="color:#00ff88;font-weight:bold">💰 <span id="credit-balance">0</span> Credits</span>
-        <button id="redeem-close" style="background:none;border:none;color:rgba(255,255,255,0.5);font-size:18px;cursor:pointer;padding:0 4px;">✕</button>
+      <div style="display:flex;flex-direction:column;gap:4px;margin-bottom:10px;">
+        <div style="display:flex;justify-content:space-between;align-items:center;">
+          <span style="color:#00ff88;font-weight:bold">💰 <span id="credit-balance">0</span> Credits</span>
+          <span style="color:rgba(0,255,136,0.6);font-size:12px">🎯 <span id="reward-balance">0</span> µ from ads</span>
+          <button id="redeem-close" style="background:none;border:none;color:rgba(255,255,255,0.5);font-size:18px;cursor:pointer;padding:0 4px;">✕</button>
+        </div>
+        <div style="font-size:11px;color:rgba(255,255,255,0.35)">Sponsors fund your AI credits. Play well to earn more.</div>
       </div>
+
+      <div id="rewards-claim-area" style="margin-bottom:10px;padding:8px;background:rgba(0,255,136,0.06);border-radius:6px;border:1px solid rgba(0,255,136,0.15);display:flex;flex-direction:column;gap:6px;">
+        <div style="font-size:11px;color:rgba(255,255,255,0.6)">🎯 <strong>Sponsor Reward Claim</strong> — send to your ppq.ai account</div>
+        <div style="display:flex;gap:6px;align-items:center;">
+          <input id="rewards-ppq-account" type="text" placeholder="ppq.ai email/username" value="${this.ppqAccount}" style="flex:1;background:rgba(255,255,255,0.05);border:1px solid rgba(255,255,255,0.15);color:#fff;padding:6px 8px;border-radius:6px;font-family:inherit;font-size:12px;" />
+          <button id="rewards-claim-btn" style="background:rgba(0,255,136,0.15);border:1px solid rgba(0,255,136,0.3);color:#00ff88;padding:6px 12px;border-radius:6px;cursor:pointer;font-family:inherit;font-size:12px;white-space:nowrap;">Claim All</button>
+        </div>
+        <div id="rewards-claim-result" style="display:none;font-size:11px;color:rgba(255,255,255,0.6);margin-top:2px;"></div>
+      </div>
+
       <div id="redeem-form" style="display:flex;flex-direction:column;gap:8px;">
         <div style="display:flex;gap:8px;">
           <select id="redeem-model" style="flex:1;background:rgba(255,255,255,0.05);border:1px solid rgba(255,255,255,0.15);color:#fff;padding:6px 10px;border-radius:6px;font-family:inherit;font-size:12px;">
@@ -73,6 +90,7 @@ export class RedemptionUI {
     // Wire events
     this.el.querySelector('#redeem-close').addEventListener('click', () => this.hide());
     this.el.querySelector('#redeem-submit').addEventListener('click', () => this._submitRedemption());
+    this.el.querySelector('#rewards-claim-btn').addEventListener('click', () => this._claimRewards());
   }
 
   show() {
@@ -80,6 +98,7 @@ export class RedemptionUI {
       this.el.style.display = 'block';
       this.visible = true;
       this._refreshBalance();
+      this._refreshRewards();
     }
   }
 
@@ -109,6 +128,74 @@ export class RedemptionUI {
     const result = await this.economyClient.getBalance(this.playerId);
     if (result.ok && result.balance != null) {
       this.updateBalance(result.balance);
+    }
+  }
+
+  async _refreshRewards() {
+    if (!this.economyClient || !this.playerId) return;
+    const result = await this.economyClient.getRewards(this.playerId);
+    if (result.ok) {
+      this.rewardsMicros = result.available_micros || 0;
+      const el = this.el?.querySelector('#reward-balance');
+      if (el) el.textContent = this.rewardsMicros;
+      // Show/hide claim area based on available rewards
+      const claimArea = this.el?.querySelector('#rewards-claim-area');
+      if (claimArea) {
+        claimArea.style.display = this.rewardsMicros >= 1000 ? 'flex' : 'none';
+      }
+    }
+  }
+
+  async _claimRewards() {
+    if (!this.economyClient || !this.playerId) return;
+    if (this.rewardsMicros < 1000) {
+      this._showClaimResult(`Minimum claim: 1,000 micros (you have ${this.rewardsMicros})`, '#ffdd44');
+      return;
+    }
+
+    const ppqInput = this.el?.querySelector('#rewards-ppq-account');
+    const ppqAccount = ppqInput?.value?.trim();
+    if (!ppqAccount) {
+      this._showClaimResult('Please enter your ppq.ai email or username', '#ff3355');
+      return;
+    }
+
+    const btn = this.el.querySelector('#rewards-claim-btn');
+    btn.disabled = true;
+    btn.textContent = '⏳ Claiming...';
+
+    try {
+      const result = await this.economyClient.claimRewards({
+        playerId: this.playerId,
+        ppqAccount,
+        amountMicros: this.rewardsMicros,
+      });
+      if (result.ok) {
+        this._showClaimResult(`✅ ${this.rewardsMicros} micros claimed! Sent to ${ppqAccount}`, '#00ff88');
+        this.rewardsMicros = 0;
+        const el = this.el?.querySelector('#reward-balance');
+        if (el) el.textContent = '0';
+        // Hide claim area
+        const claimArea = this.el?.querySelector('#rewards-claim-area');
+        if (claimArea) claimArea.style.display = 'none';
+      } else {
+        this._showClaimResult(`❌ ${result.error || 'Claim failed'}`, '#ff3355');
+      }
+    } catch (err) {
+      this._showClaimResult(`❌ Error: ${err.message}`, '#ff3355');
+    } finally {
+      btn.disabled = false;
+      btn.textContent = 'Claim All';
+    }
+  }
+
+  _showClaimResult(msg, color = 'rgba(255,255,255,0.6)') {
+    const el = this.el?.querySelector('#rewards-claim-result');
+    if (el) {
+      el.textContent = msg;
+      el.style.color = color;
+      el.style.display = 'block';
+      setTimeout(() => { el.style.display = 'none'; }, 8000);
     }
   }
 

@@ -6,7 +6,7 @@
  * Gracefully degrades when service is unavailable (offline mode).
  */
 
-const DEFAULT_BASE_URL = 'http://localhost:8720';
+const DEFAULT_BASE_URL = '';
 
 export class EconomyClient {
   constructor({ baseUrl = DEFAULT_BASE_URL, sessionToken = null } = {}) {
@@ -104,44 +104,6 @@ export class EconomyClient {
   }
 
   /**
-   * Submit credits (session ingest).
-   * POST /internal/ingest
-   */
-  async submitCredits({ playerId, sessionId, creditsDelta, events = [] }) {
-    return this._fetch('/internal/ingest', {
-      method: 'POST',
-      body: {
-        player_id: playerId,
-        session_id: sessionId,
-        credits_delta: creditsDelta,
-        events,
-      },
-    });
-  }
-
-  /**
-   * Award credits (admin/internal).
-   * POST /credits/award
-   */
-  async awardCredits({ playerId, amount, reason }) {
-    return this._fetch('/credits/award', {
-      method: 'POST',
-      body: { player_id: playerId, amount, reason },
-    });
-  }
-
-  /**
-   * Spend credits.
-   * POST /credits/spend
-   */
-  async spendCredits({ playerId, amount, reason }) {
-    return this._fetch('/credits/spend', {
-      method: 'POST',
-      body: { player_id: playerId, amount, reason },
-    });
-  }
-
-  /**
    * Redeem credits for AI API call.
    * POST /credits/redeem
    */
@@ -158,5 +120,76 @@ export class EconomyClient {
    */
   async healthCheck() {
     return this._fetch('/health');
+  }
+
+  /**
+   * Fetch active campaigns with approved creatives.
+   * GET /api/game/campaigns
+   * Used by the game client to render sponsor branding and interstitial ads.
+   */
+  async fetchActiveCampaigns() {
+    return this._fetch('/api/game/campaigns');
+  }
+
+  /**
+   * Log an ad impression.
+   * POST /ads/impression
+   */
+  async logAdImpression({ campaignId, playerId, placementType = 'hud_frame' }) {
+    return this._fetch('/ads/impression', {
+      method: 'POST',
+      body: {
+        campaign_id: campaignId,
+        player_id: playerId,
+        placement_type: placementType,
+      },
+    });
+  }
+
+  /**
+   * Get player's ad-funded reward balance.
+   * GET /players/:id/rewards
+   */
+  async getRewards(playerId) {
+    return this._fetch(`/players/${encodeURIComponent(playerId)}/rewards`);
+  }
+
+  /**
+   * Get global rewards pool stats.
+   * GET /rewards/pool-stats
+   */
+  async getRewardsPoolStats() {
+    return this._fetch('/rewards/pool-stats');
+  }
+
+  /**
+   * Claim ad-funded rewards (send to ppq.ai account).
+   * POST /rewards/claim
+   */
+  async claimRewards({ playerId, ppqAccount, amountMicros }) {
+    return this._fetch('/rewards/claim', {
+      method: 'POST',
+      body: { player_id: playerId, ppq_account: ppqAccount, amount_micros: amountMicros },
+    });
+  }
+
+  /**
+   * Submit session stats for ad-funded reward earning.
+   * POST /internal/earn-reward
+   * This replaces the old credit-ingest flow — the only redeemable
+   * value comes from the 20% ad revenue pool.
+   */
+  async submitEarnReward({ playerId, score, combo, level, tickCount, difficultyTier }) {
+    return this._fetch('/internal/earn-reward', {
+      method: 'POST',
+      body: {
+        player_id: playerId,
+        score,
+        combo,
+        level,
+        tick_count: tickCount,
+        difficulty_tier: difficultyTier,
+      },
+    });
   }
 }
