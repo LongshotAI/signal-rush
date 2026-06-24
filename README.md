@@ -35,7 +35,7 @@ node src/cli/index.js
 The start menu includes:
 
 - **AI Hunt** — the original survival arcade mode
-- **Frogger** — lane-crossing mode with home slots, water/log lanes, cars, score, lives, timer, and a visible GOAL bar
+- **Packet Hop** — lane-crossing mode with home slots, water/log lanes, cars, score, lives, timer, and a visible GOAL bar
 
 Controls:
 
@@ -49,14 +49,14 @@ Run a specific mode directly:
 
 ```bash
 node src/cli/index.js --mode=aiHunt
-node src/cli/index.js --mode=frogger
+node src/cli/index.js --mode=packetHop
 ```
 
 Run the embed widget standalone (for plugin authors to verify):
 
 ```bash
 npm run cli:embed          # static widget, idle
-npm run cli:embed --rows=10 --columns=120 --mode=frogger
+npm run cli:embed --rows=10 --columns=120 --mode=packetHop
 npm run cli:embed:demo     # cycle through 4 agent lifecycle states
 ```
 
@@ -66,7 +66,7 @@ Run verification with:
 npm test
 ```
 
-This runs mechanics, smoke, persistence, compact-renderer, and embedded entry-point tests, plus a Frogger render verification that confirms the GOAL bar, home slots, water/log lanes, cars, and GET READY overlay are present in the GitHub copy.
+This runs mechanics, smoke, persistence, compact-renderer, and embedded entry-point tests, plus a Packet Hop render verification that confirms the GOAL bar, home slots, water/log lanes, cars, and GET READY overlay are present in the GitHub copy.
 
 ### Safe GitHub sync guard
 

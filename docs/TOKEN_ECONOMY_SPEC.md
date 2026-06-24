@@ -1,5 +1,16 @@
 # Signal Rush Token Economy — MVP Spec v2
 
+> **⚠️ DEPRECATION NOTICE (2026-06-21):** The legacy credit economy described below
+> (`state.credits`, credit diffing, `/internal/ingest`, gameplay credits) has been
+> **fully removed**. `forwardStep()` was deleted from eventBridge.js. The engine no
+> longer modifies `state.credits`. The only redeemable value comes from the **20%
+> ad-funded rewards pool**. See `docs/AD_PORTAL_SPEC.md` and the reward pool
+> implementation in `economy/ledger.js` (functions: `earnPlayerReward`,
+> `claimReward`, `allocateToRewardsPool`) for the current system.
+>
+> This document is kept for historical reference only. Do not use as a guide for
+> new development.
+
 ## Purpose
 A closed-loop token distribution system for the Signal Rush game. Players earn credits through gameplay, tracked in a separate SQLite ledger. A separate ad portal lets advertisers manage campaigns. Everything runs on the Z440 — no external cloud dependencies.
 

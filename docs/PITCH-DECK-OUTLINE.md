@@ -30,7 +30,7 @@ Status: build is live, tests green, fresh-clone verified
 
 **Body:**
 - Signal Rush is an arcade-style terminal game with two polished modes
-  (AI Hunt, Frogger) and a real engine, real tests, and a real
+  (AI Hunt, Packet Hop) and a real engine, real tests, and a real
   auto-synced GitHub pipeline.
 - It's the only place in a developer's day where the same input
   grammar (WASD/arrows, dash, pause) they use to ship code becomes the
@@ -104,7 +104,7 @@ that traditional marketing outlets don't reach.
    - *AI Hunt:* continuous dodge-survival, near-miss risk/reward, mission
      bar, threat meter, HP pips, dynamic danger halos with overlap
      detection.
-   - *Frogger:* lane-crossing with levels, lives, GET READY countdown,
+   - *Packet Hop:* lane-crossing with levels, lives, GET READY countdown,
      GOAL bar, forward-progress scoring.
    - Each mode is a fully independent state machine with its own
      pacing, scoring curve, and death condition.
@@ -113,7 +113,7 @@ that traditional marketing outlets don't reach.
    - Pure core engine (no I/O), separate CLI renderer, deterministic
      lane/level config, no `Math.random()` in the engine.
    - **79 deterministic mechanic tests** + a smoke test + two
-     dedicated render verifiers (Frogger + AI Hunt).
+     dedicated render verifiers (Packet Hop + AI Hunt).
    - Designed for multi-mode extension — adding a third mode is a
      `createXxxState()` + `stepXxx()` pair, not a fork.
 
@@ -132,7 +132,7 @@ all green on local and on a fresh GitHub clone.
 - 3-glyph danger-halo ramp (`·` / `:` / `!`) with per-cell overlap
   aggregation — the AI Hunt visual readout that proves threat pressure
   is readable at a glance.
-- GOAL bar in the Frogger header — the "always-visible goal" pattern
+- GOAL bar in the Packet Hop header — the "always-visible goal" pattern
   the team has been asked about.
 - 77→79 test count, fresh-clone proof, live process on the Z440.
 

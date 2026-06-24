@@ -69,7 +69,10 @@ function testPickupCollectedBeforeExpiryOnSameTick() {
   engine.step({});
 
   assert(state.score > scoreBefore, 'pickup on player with ttl=1 should be collected before expiring');
-  assert(state.credits > creditsBefore, 'pickup collection should award credits');
+  // Credits from gameplay have been removed — only ad-funded pool rewards exist.
+  // The engine no longer awards credits on pickup. This test checks that the
+  // pickup still fires the expected engine event but credits stay at 0.
+  assert(state.credits === creditsBefore, 'pickup collection no longer awards credits (ad-funded only)');
   assert.equal(state.pickups.some((p) => p.x === state.player.x && p.y === state.player.y), false, 'collected pickup should be removed');
 }
 

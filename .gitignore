@@ -41,6 +41,16 @@ __pycache__/
 *.swp
 *.swo
 
+# Uploaded user content / creative assets
+economy/uploads/
+
+# Ngrok config — contains authtoken (copy ngrok.example.yml instead)
+ngrok.yml
+
+# Test seed & verification scripts (dev-only)
+scripts/seed-e2e-test.js
+scripts/verify-*.js
+
 # Temp files
 *.tmp
 *.bak
