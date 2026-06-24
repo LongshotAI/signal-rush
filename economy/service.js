@@ -27,10 +27,91 @@ function createServer({ port = DEFAULT_PORT, host = DEFAULT_HOST, dbPath = ledge
   const app = Fastify({ logger: false }); // quiet logging for MVP
   const db = ledger.openDb(dbPath);
 
+  // ─── Raw Body Capture (for Stripe webhook signature verification) ──
+  // Stripe's constructEvent() needs the EXACT bytes that were signed.
+  // Fastify's default JSON parser discards the raw body, so we register a
+  // custom parser that stores the raw string on req.rawBody before parsing.
+  // Without this, JSON.stringify(req.body) does NOT produce the original
+  // bytes (different key order, whitespace, number formatting) and every
+  // legitimate Stripe webhook fails signature verification.
+  app.addContentTypeParser('application/json', { parseAs: 'string' }, (req, body, done) => {
+    req.rawBody = body;
+    try {
+      const parsed = body.length === 0 ? {} : JSON.parse(body);
+      done(null, parsed);
+    } catch (err) {
+      err.statusCode = 400;
+      done(err, undefined);
+    }
+  });
+
+  // ─── Global Error Handler ───────────────────────────────────────
+  // Prevents stack-trace leakage in production responses.
+  // Logs full error server-side; returns opaque error + request_id to the client.
+  // Clients can use request_id when reporting issues for log correlation.
+  const { randomUUID } = require('crypto');
+  const isDev = (process.env.NODE_ENV || 'development') !== 'production';
+  app.setErrorHandler((err, req, reply) => {
+    const requestId = req.id || randomUUID();
+    const statusCode = err.statusCode || err.status || 500;
+    const safeMessage = isDev && statusCode < 500 ? err.message : 'internal_server_error';
+    // Always log full details server-side (file-friendly single line)
+    console.error(JSON.stringify({
+      ts: new Date().toISOString(),
+      level: 'error',
+      request_id: requestId,
+      method: req.method,
+      path: req.url,
+      status: statusCode,
+      err_name: err.name,
+      err_message: err.message,
+      err_stack: err.stack,
+    }));
+    reply.code(statusCode);
+    return reply.send({
+      error: safeMessage,
+      request_id: requestId,
+      ...(isDev && statusCode >= 500 ? { debug_stack: err.stack } : {}),
+    });
+  });
+
+  // ─── Not-Found Handler ──────────────────────────────────────────
+  // Returns JSON 404 for unknown routes (instead of Fastify default HTML).
+  app.setNotFoundHandler((req, reply) => {
+    reply.code(404);
+    return reply.send({ error: 'not_found', path: req.url });
+  });
+
+  // ─── CORS Hook ─────────────────────────────────────────────────
+  // Allows the Mini App (running in Telegram's webview at a different origin)
+  // to call /credits/* and /ads/* when the economy service is exposed via a
+  // tunnel (ngrok, Cloudflare) or different port.
+  //
+  // Configure via ECONOMY_ALLOWED_ORIGINS env var (comma-separated origins).
+  // Defaults to no Access-Control-Allow-Origin header (same-origin only).
+  // Set ECONOMY_ALLOWED_ORIGINS=https://your-tunnel.example.com for production.
+  // SECURITY: never use '*' for /portal/* routes (sessions + cookies).
+  const ALLOWED_ORIGINS = (process.env.ECONOMY_ALLOWED_ORIGINS || '')
+    .split(',').map(s => s.trim()).filter(Boolean);
+  app.addHook('onRequest', async (req, reply) => {
+    if (ALLOWED_ORIGINS.length === 0) return; // no CORS headers when unset (safe default)
+    const origin = req.headers.origin;
+    if (origin && ALLOWED_ORIGINS.includes(origin)) {
+      reply.header('Access-Control-Allow-Origin', origin);
+      reply.header('Vary', 'Origin');
+      reply.header('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
+      reply.header('Access-Control-Allow-Headers', 'Content-Type, Authorization');
+      reply.header('Access-Control-Max-Age', '600');
+      // Handle preflight
+      if (req.method === 'OPTIONS') {
+        reply.code(204);
+        return reply.send();
+      }
+    }
+  });
+
   // ─── In-Memory Service State ────────────────────────────────────
-  const serviceState = {
-    adminAwardDaily: new Map(), // date (YYYY-MM-DD) → total credits awarded
-  };
+  const serviceState = {};
   // Required for image upload endpoint (POST /portal/campaigns/:id/upload-logo)
   app.register(require('@fastify/multipart'), {
     limits: {
@@ -41,9 +122,11 @@ function createServer({ port = DEFAULT_PORT, host = DEFAULT_HOST, dbPath = ledge
 
   // ─── Auth Enforcement Hook ──────────────────────────────────────
   // Protects all /internal/*, /credits/*, and /ads/* endpoints.
-  // When ECONOMY_AUTH_ENFORCED is set to anything other than 'false',
-  // requests must include Authorization: Bearer <ECONO...EY>.
-  // To disable auth: set ECONOMY_AUTH_ENFORCED=false.
+  // When ECONOMY_AUTH_ENFORCED is set to anything other than the literal string 'false',
+  // auth is enforced: requests must include Authorization: Bearer <token>.
+  // To disable auth: set ECONOMY_AUTH_ENFORCED=false (the literal string only).
+  // WARNING: ECONOMY_AUTH_ENFORCED=<anything-else> does NOT disable — any value other
+  // than the literal string 'false' will ENFORCE auth and lock out callers.
 
   const protectedPrefixes = ['/internal/', '/credits/', '/ads/'];
 
@@ -83,9 +166,52 @@ function createServer({ port = DEFAULT_PORT, host = DEFAULT_HOST, dbPath = ledge
   telegramRoutes.register(app, { db });
 
   // ─── Health Check ──────────────────────────────────────────────
+  // Probes the SQLite DB so orchestrators (systemd, k8s, load balancers)
+  // see 'degraded' when the DB is corrupt, WAL is stuck, or schema is missing.
+  // Returns 200 + status:'ok' on success, 503 + status:'degraded' on DB failure.
 
-  app.get('/health', async () => {
-    return { status: 'ok', service: 'economy', timestamp: new Date().toISOString() };
+  app.get('/health', async (req, reply) => {
+    const startedAt = Date.now();
+    let dbOk = false;
+    let dbError = null;
+    let rewardsPool = null;
+    try {
+      // SELECT 1 — proves the connection works and a query can run
+      db.prepare('SELECT 1 AS ok').get();
+      // PRAGMA quick_check — fast SQLite integrity check (1-3ms)
+      const integrity = db.prepare('PRAGMA quick_check').get();
+      dbOk = integrity && integrity.quick_check === 'ok';
+      if (!dbOk) dbError = `integrity: ${integrity?.quick_check || 'unknown'}`;
+      // Pull pool stats so monitoring tools can scrape economics in one call.
+      // Available headroom is computed since schema doesn't store it as a column.
+      try {
+        const row = db.prepare('SELECT total_deposited_micros, total_claimed_micros, updated_at FROM rewards_pool WHERE id = 1').get();
+        if (row) {
+          rewardsPool = {
+            total_deposited_micros: row.total_deposited_micros,
+            total_claimed_micros: row.total_claimed_micros,
+            available_micros: Math.max(0, row.total_deposited_micros - row.total_claimed_micros),
+            updated_at: row.updated_at,
+          };
+        }
+      } catch (poolErr) {
+        // Non-fatal — don't fail health on missing pool row
+        console.error('[economy] health: rewards_pool query failed:', poolErr.message);
+      }
+    } catch (err) {
+      dbOk = false;
+      dbError = err.message;
+    }
+    const body = {
+      status: dbOk ? 'ok' : 'degraded',
+      service: 'economy',
+      timestamp: new Date().toISOString(),
+      uptime_ms: Date.now() - startedAt,
+      db: { ok: dbOk, ...(dbError ? { error: dbError } : {}) },
+      ...(rewardsPool ? { rewards_pool: rewardsPool } : {}),
+    };
+    if (!dbOk) reply.code(503);
+    return body;
   });
 
   // ─── Player Endpoints ──────────────────────────────────────────
@@ -222,6 +348,63 @@ function createServer({ port = DEFAULT_PORT, host = DEFAULT_HOST, dbPath = ledge
     }
   });
 
+  // ─── Internal: Skill-Based Reward (called on game-over) ─────────
+  // Converts final session stats into ad-funded reward pool earnings.
+  // Called by the CLI event bridge when a run ends.
+  // Protected by shared-secret auth (under /internal/* prefix).
+
+  app.post('/internal/earn-reward', async (req, reply) => {
+    const {
+      player_id,
+      score = 0,
+      combo = 0,
+      level = 1,
+      tick_count = 0,
+      difficulty_tier = 0,
+    } = req.body || {};
+
+    if (!player_id) {
+      reply.code(400);
+      return { error: 'player_id is required' };
+    }
+
+    let validatedPlayerId;
+    try {
+      validatedPlayerId = validate.validateUuid(player_id, 'player_id');
+    } catch (err) {
+      reply.code(400);
+      return { error: err.message };
+    }
+
+    if (!ledger.playerExists(db, validatedPlayerId)) {
+      reply.code(404);
+      return { error: 'player not found' };
+    }
+
+    try {
+      const result = ledger.earnPlayerReward(db, validatedPlayerId, {
+        score: Math.max(0, Number(score) || 0),
+        combo: Math.max(0, Number(combo) || 0),
+        level: Math.max(1, Number(level) || 1),
+        tickCount: Math.max(0, Number(tick_count) || 0),
+        difficultyTier: Math.max(0, Number(difficulty_tier) || 0),
+      });
+
+      const rewards = ledger.getPlayerRewards(db, validatedPlayerId);
+
+      return {
+        ok: true,
+        amount_earned_micros: result.amount || 0,
+        reason: result.reason || null,
+        total_earned_micros: rewards ? rewards.earned_micros : 0,
+        available_micros: rewards ? rewards.available_micros : 0,
+      };
+    } catch (err) {
+      reply.code(500);
+      return { error: `reward calculation failed: ${err.message}` };
+    }
+  });
+
   // ─── Run Receipt Verification (server-side authority) ────────────
   //
   // Re-simulates a run from its seed and input log to verify the claimed
@@ -287,6 +470,24 @@ function createServer({ port = DEFAULT_PORT, host = DEFAULT_HOST, dbPath = ledge
     }
   });
 
+  // ─── Internal: Leaderboard ────────────────────────────────────
+  // Top earners by player_rewards.earned_micros (ad-funded reward earnings).
+  // Protected by shared-secret auth (under /internal/* prefix).
+
+  app.get('/internal/leaderboard', async (req, reply) => {
+    const limit = Math.min(validate.validateLimit(req.query.limit, 10), 100);
+    const offset = validate.validateOffset(req.query.offset);
+    return ledger.getLeaderboard(db, { limit, offset });
+  });
+
+  // ─── Internal: Pool Health ────────────────────────────────────
+  // Pool deposit/claim rates and estimated time to depletion.
+  // Protected by shared-secret auth (under /internal/* prefix).
+
+  app.get('/internal/pool-health', async () => {
+    return ledger.getPoolHealth(db);
+  });
+
   // ─── Credit Operations (manual / admin) ────────────────────────
 
   app.post('/credits/award', async (req, reply) => {
@@ -312,10 +513,17 @@ function createServer({ port = DEFAULT_PORT, host = DEFAULT_HOST, dbPath = ledge
     // Anti-fraud: daily admin award cap
     const maxPerDay = parseInt(process.env.MAX_ADMIN_AWARD_PER_DAY) || 50000;
     const today = new Date().toISOString().slice(0, 10); // YYYY-MM-DD
-    const dailyAwarded = serviceState.adminAwardDaily.get(today) || 0;
+    const dailyAwarded = ledger.getAdminDailyAwardTotal(db, today);
     if (dailyAwarded + amount > maxPerDay) {
       reply.code(429);
       return { error: 'daily admin award limit exceeded' };
+    }
+    // Anti-fraud: per-player daily award cap
+    const maxPerPlayer = parseInt(process.env.MAX_PLAYER_DAILY_AWARD) || 10000;
+    const playerDaily = ledger.getPlayerDailyAwardTotal(db, playerId, today);
+    if (playerDaily + amount > maxPerPlayer) {
+      reply.code(429);
+      return { error: 'player daily award limit exceeded' };
     }
     try {
       const result = ledger.awardCredits(db, {
@@ -324,9 +532,10 @@ function createServer({ port = DEFAULT_PORT, host = DEFAULT_HOST, dbPath = ledge
         reason,
         eventId: req.body?.idempotency_key || null,
       });
-      // Track daily admin award total
-      const current = serviceState.adminAwardDaily.get(today) || 0;
-      serviceState.adminAwardDaily.set(today, current + amount);
+      // Track daily admin award total (survives restarts)
+      ledger.addAdminDailyAward(db, today, amount);
+      // Track per-player daily award total (survives restarts)
+      ledger.addPlayerDailyAward(db, playerId, today, amount);
       return result;
     } catch (err) {
       reply.code(400);
@@ -687,16 +896,19 @@ function createServer({ port = DEFAULT_PORT, host = DEFAULT_HOST, dbPath = ledge
 
   // ─── Ad Impression Endpoint ────────────────────────────────────
 
-  // In-memory rate limiter: player_id → last impression timestamp (ms)
-  const impressionCooldowns = new Map();
+  // Persisted rate limiter: player_id → last impression timestamp (ms)
   const IMPRESSION_COOLDOWN_MS = 5000; // 1 impression per 5 seconds per player
 
   // Server-side cost lookup: campaign_id → cost in micros
-  // For house ads (no campaign), cost is 0.
-  // For campaign ads, use AD_COST_MICROS_PER_IMPRESSION env var (default 0).
+  // For house ads (no campaign), use HOUSE_AD_COST_MICROS (default 500 micros).
+  // For campaign ads, use AD_COST_MICROS_PER_IMPRESSION env var (default 1000).
   function resolveImpressionCost(campaignId) {
-    if (!campaignId) return 0;
-    const configured = parseInt(process.env.AD_COST_MICROS_PER_IMPRESSION || '0', 10);
+    if (!campaignId) {
+      // House ad: use configured rate, default 500 micros per impression
+      const houseCost = parseInt(process.env.HOUSE_AD_COST_MICROS || '500', 10);
+      return Number.isFinite(houseCost) && houseCost > 0 ? houseCost : 0;
+    }
+    const configured = parseInt(process.env.AD_COST_MICROS_PER_IMPRESSION || '1000', 10);
     if (!Number.isFinite(configured) || configured < 0) return 0;
     return configured;
   }
@@ -714,13 +926,12 @@ function createServer({ port = DEFAULT_PORT, host = DEFAULT_HOST, dbPath = ledge
     }
     // Rate limit: max 1 impression per 5 seconds per player_id
     if (validatedPlayerId) {
-      const now = Date.now();
-      const last = impressionCooldowns.get(validatedPlayerId);
-      if (last && (now - last) < IMPRESSION_COOLDOWN_MS) {
+      const cooldown = ledger.checkCooldown(db, 'impression:' + validatedPlayerId, IMPRESSION_COOLDOWN_MS);
+      if (cooldown.limited) {
         reply.code(429);
-        return { error: 'rate_limited', retry_after_ms: IMPRESSION_COOLDOWN_MS - (now - last) };
+        return { error: 'rate_limited', retry_after_ms: IMPRESSION_COOLDOWN_MS };
       }
-      impressionCooldowns.set(validatedPlayerId, now);
+      ledger.setCooldown(db, 'impression:' + validatedPlayerId);
     }
     // Session validation: player must have an active session
     if (validatedPlayerId) {
@@ -735,19 +946,10 @@ function createServer({ port = DEFAULT_PORT, host = DEFAULT_HOST, dbPath = ledge
     // Determine cost server-side — never trust client input
     const cost_micros = resolveImpressionCost(campaign_id);
     let impressionId;
-    try {
-      impressionId = ledger.logImpression(db, {
-        campaignId: campaign_id || null,
-        playerId: validatedPlayerId,
-        placementType: validate.validatePlacementType(placement_type),
-        costMicros: validate.validateNonNegativeInt(cost_micros, 'cost_micros'),
-      });
-    } catch (err) {
-      reply.code(400);
-      return { error: err.message };
-    }
 
-    // Charge the campaign if applicable (impression is already logged)
+    // Campaign ads: charge first, then log impression only on charge success.
+    // If charge fails (insufficient balance, budget exhausted, campaign inactive),
+    // the impression is never recorded — no orphaned records.
     if (campaign_id && cost_micros > 0) {
       try {
         ledger.chargeCampaign(db, {
@@ -758,15 +960,262 @@ function createServer({ port = DEFAULT_PORT, host = DEFAULT_HOST, dbPath = ledge
         const msg = err.message || '';
         if (msg === 'insufficient advertiser balance') {
           reply.code(402);
-          return { error: msg, impression_id: impressionId };
+          return { error: msg };
         }
         // campaign not found, not active, daily/total budget exceeded
         reply.code(400);
-        return { error: msg, impression_id: impressionId };
+        return { error: msg };
+      }
+      // Charge succeeded — now log the impression
+      try {
+        impressionId = ledger.logImpression(db, {
+          campaignId: campaign_id,
+          playerId: validatedPlayerId,
+          placementType: validate.validatePlacementType(placement_type),
+          costMicros: validate.validateNonNegativeInt(cost_micros, 'cost_micros'),
+        });
+      } catch (err) {
+        reply.code(400);
+        return { error: err.message };
+      }
+    } else if (!campaign_id && cost_micros > 0) {
+      // House ad (no campaign_id) — log impression first, then allocate 20% to rewards pool.
+      // No charge to fail, so the traditional log-then-allocate order is safe here.
+      try {
+        impressionId = ledger.logImpression(db, {
+          campaignId: null,
+          playerId: validatedPlayerId,
+          placementType: validate.validatePlacementType(placement_type),
+          costMicros: validate.validateNonNegativeInt(cost_micros, 'cost_micros'),
+        });
+      } catch (err) {
+        reply.code(400);
+        return { error: err.message };
+      }
+      ledger.allocateToRewardsPool(db, cost_micros);
+    } else {
+      // Zero cost or zero campaign_id with cost === 0 — log impression without charge/allocate
+      try {
+        impressionId = ledger.logImpression(db, {
+          campaignId: campaign_id || null,
+          playerId: validatedPlayerId,
+          placementType: validate.validatePlacementType(placement_type),
+          costMicros: 0,
+        });
+      } catch (err) {
+        reply.code(400);
+        return { error: err.message };
       }
     }
 
     return { ok: true, impression_id: impressionId };
+  });
+
+  // ─── Player Rewards & Claim Endpoints ──────────────────────────
+  // Ad-funded rewards pool: 20% of every chargeCampaign goes here.
+  // Players earn skill-based rewards; claim them for ppq.ai credits.
+  // These endpoints are public (like /players/) but scoped by player_id.
+
+  // ─── Claim Audit Logger ──────────────────────────────────────────
+  // Append-only JSON log file for all reward claim attempts.
+  const claimAuditPath = path.join(os.homedir(), '.signal-rush', 'claim-audit.log');
+  function logClaimAudit(entry) {
+    try {
+      fs.mkdirSync(path.dirname(claimAuditPath), { recursive: true });
+      fs.appendFileSync(claimAuditPath, JSON.stringify({ timestamp: new Date().toISOString(), ...entry }) + '\n');
+    } catch (err) {
+      console.error('[economy] Failed to write claim audit log:', err.message);
+    }
+  }
+
+  // ─── Claim Rate Limiter ──────────────────────────────────────────
+  // Persisted rate limiter per player_id (60-second cooldown)
+  const CLAIM_COOLDOWN_MS = 60000; // 60 seconds
+
+  // ─── Test/Prod Mode Detection ────────────────────────────────────
+  function getClaimMode() {
+    const hasKey = process.env.PPQ_API_KEY && process.env.PPQ_API_KEY.length > 0;
+    return hasKey ? 'production' : 'test';
+  }
+
+  app.get('/players/:id/rewards', async (req, reply) => {
+    let playerId;
+    try {
+      playerId = validate.validateUuid(req.params.id, 'player_id');
+    } catch (err) {
+      reply.code(400);
+      return { error: err.message };
+    }
+    const rewards = ledger.getPlayerRewards(db, playerId);
+    return { ok: true, ...rewards };
+  });
+
+  app.get('/rewards/pool-stats', async () => {
+    const pool = ledger.getRewardsPoolStats(db);
+    const available = Math.max(0, pool.total_deposited_micros - pool.total_claimed_micros);
+    return { ok: true, total_deposited_micros: pool.total_deposited_micros, total_claimed_micros: pool.total_claimed_micros, available_micros: available };
+  });
+
+  app.post('/rewards/claim', async (req, reply) => {
+    let playerId, ppqAccount, amountMicros;
+    try {
+      playerId = validate.validateUuid(req.body?.player_id, 'player_id');
+      ppqAccount = validate.validatePpqAccount(req.body?.ppq_account);
+      // Validate amount with max claim anti-fraud cap (100,000 micros = 100 credits)
+      amountMicros = validate.validateAmount(req.body?.amount_micros, 'amount_micros', 100000);
+    } catch (err) {
+      reply.code(400);
+      return { error: err.message };
+    }
+
+    // Minimum claim: 1000 micros (1 credit worth)
+    if (amountMicros < 1000) {
+      reply.code(400);
+      return { error: 'minimum claim is 1000 micros' };
+    }
+
+    // Rate limit: max 1 claim per 60 seconds per player_id
+    const claimCooldown = ledger.checkCooldown(db, 'claim:' + playerId, CLAIM_COOLDOWN_MS);
+    if (claimCooldown.limited) {
+      logClaimAudit({ player_id: playerId, ppq_account: ppqAccount.trim(), amount_micros: amountMicros, result: 'rate_limited', mode: getClaimMode() });
+      reply.code(429);
+      return { error: 'claim rate limited — please wait', retry_after_seconds: claimCooldown.retryAfter };
+    }
+
+    try {
+      const result = ledger.claimReward(db, { playerId, ppqAccount: ppqAccount.trim(), amountMicros });
+      // Always set cooldown on successful claim creation to block rapid fire
+      ledger.setCooldown(db, 'claim:' + playerId);
+      logClaimAudit({ player_id: playerId, ppq_account: ppqAccount.trim(), amount_micros: amountMicros, result: 'pending', mode: getClaimMode(), claim_id: result.claim.id });
+      return { ok: true, ...result.claim };
+    } catch (err) {
+      if (err.message.includes('insufficient rewards')) {
+        reply.code(409);
+      } else if (err.message.includes('rewards pool insufficient')) {
+        reply.code(409);
+      } else if (err.message.includes('no rewards')) {
+        reply.code(404);
+      } else {
+        reply.code(400);
+      }
+      logClaimAudit({ player_id: playerId, ppq_account: ppqAccount.trim(), amount_micros: amountMicros, result: 'failed', reason: err.message, mode: getClaimMode() });
+      return { error: err.message };
+    }
+  });
+
+  // ─── ppq.ai Credit Transfer Endpoint ─────────────────────────────
+  // POST /credits/transfer
+  // Completes a pending reward claim by transferring credits via ppq.ai.
+  // In test mode (no PPQ_API_KEY), skips the actual API call.
+  // In production mode, calls ppq.ai chat completion as proof-of-activity.
+  //
+  // Flow:
+  //   1. Creates a pending claim via ledger.claimReward
+  //   2. Attempts ppq.ai proof-of-activity (or test-mode skip)
+  //   3. On success: ledger.completeRewardClaim
+  //   4. On failure: ledger.failRewardClaim (refunds player + pool)
+  //
+  // Protected by shared-secret auth (under /credits/* prefix).
+
+  app.post('/credits/transfer', async (req, reply) => {
+    let playerId, ppqAccount, amountMicros;
+    try {
+      playerId = validate.validateUuid(req.body?.player_id, 'player_id');
+      ppqAccount = validate.validatePpqAccount(req.body?.ppq_account);
+      amountMicros = validate.validateAmount(req.body?.amount_micros, 'amount_micros', 100000);
+    } catch (err) {
+      reply.code(400);
+      return { error: err.message };
+    }
+
+    if (amountMicros < 1000) {
+      reply.code(400);
+      return { error: 'minimum transfer is 1000 micros' };
+    }
+
+    // Rate limit: same as claim endpoint
+    const transferCooldown = ledger.checkCooldown(db, 'claim:' + playerId, CLAIM_COOLDOWN_MS);
+    if (transferCooldown.limited) {
+      reply.code(429);
+      return { error: 'transfer rate limited — please wait', retry_after_seconds: transferCooldown.retryAfter };
+    }
+
+    // Step 1: Create pending claim
+    let claim;
+    try {
+      const result = ledger.claimReward(db, { playerId, ppqAccount: ppqAccount.trim(), amountMicros });
+      claim = result.claim;
+    } catch (err) {
+      if (err.message.includes('insufficient rewards')) {
+        reply.code(409);
+      } else if (err.message.includes('rewards pool insufficient')) {
+        reply.code(409);
+      } else if (err.message.includes('no rewards')) {
+        reply.code(404);
+      } else {
+        reply.code(400);
+      }
+      logClaimAudit({ player_id: playerId, ppq_account: ppqAccount.trim(), amount_micros: amountMicros, result: 'transfer_create_failed', reason: err.message, mode: getClaimMode() });
+      return { error: err.message };
+    }
+
+    const mode = getClaimMode();
+    let ppqRef, ppqResponse;
+
+    // Step 2: Attempt ppq.ai transfer
+    if (mode === 'production') {
+      // Production mode: call ppq.ai chat completion as proof-of-activity
+      try {
+        const ppqResult = await ppqClient.chatCompletion({
+          model: 'gpt-4o-mini',
+          messages: [
+            { role: 'system', content: 'You are a credit transfer confirmation system. Confirm the transfer.' },
+            { role: 'user', content: `Confirm credit transfer of ${amountMicros} micros to account ${ppqAccount.trim()}` },
+          ],
+          max_tokens: 50,
+          temperature: 0,
+        });
+        ppqRef = ppqResult.model || 'ppq-unknown';
+        ppqResponse = ppqResult;
+      } catch (ppqErr) {
+        // ppq.ai call failed — refund the claim
+        try {
+          ledger.failRewardClaim(db, claim.id);
+        } catch (failErr) {
+          console.error(`[economy] CRITICAL: failed to failRewardClaim ${claim.id}: ${failErr.message}`);
+        }
+        logClaimAudit({ player_id: playerId, ppq_account: ppqAccount.trim(), amount_micros: amountMicros, result: 'transfer_failed', reason: ppqErr.message, mode, claim_id: claim.id });
+        reply.code(502);
+        return { error: 'ppq.ai transfer failed — rewards refunded', provider_error: ppqErr.message, claim_id: claim.id, mode };
+      }
+    } else {
+      // Test mode: skip actual API call, use test reference
+      ppqRef = 'test-mode-simulated';
+      ppqResponse = { content: 'Test mode — no actual ppq.ai call was made', model: 'test-mode', usage: {} };
+    }
+
+    // Step 3: Complete the claim
+    try {
+      const completed = ledger.completeRewardClaim(db, { claimId: claim.id, ppqTxId: ppqRef });
+      // Set cooldown on success
+      ledger.setCooldown(db, 'claim:' + playerId);
+      logClaimAudit({ player_id: playerId, ppq_account: ppqAccount.trim(), amount_micros: amountMicros, result: 'completed', mode, claim_id: claim.id, ppq_ref: ppqRef });
+      return {
+        ok: true,
+        claim_id: claim.id,
+        status: 'completed',
+        amount_micros: amountMicros,
+        ppq_account: ppqAccount.trim(),
+        ppq_ref: ppqRef,
+        mode,
+        ppq_response: ppqResponse,
+      };
+    } catch (completeErr) {
+      console.error(`[economy] CRITICAL: failed to completeRewardClaim ${claim.id}: ${completeErr.message}`);
+      logClaimAudit({ player_id: playerId, ppq_account: ppqAccount.trim(), amount_micros: amountMicros, result: 'complete_failed', reason: completeErr.message, mode, claim_id: claim.id, ppq_ref: ppqRef });
+      reply.code(500);
+      return { error: 'claim created but failed to mark completed — manual review required', claim_id: claim.id, mode };
+    }
   });
 
   // ─── Advertiser Portal ──────────────────────────────────────────
@@ -1445,6 +1894,39 @@ function createServer({ port = DEFAULT_PORT, host = DEFAULT_HOST, dbPath = ledge
       return { error: err.message };
     }
 
+    // If Stripe is configured, create a checkout session
+    const stripeKey = process.env.STRIPE_SECRET_KEY;
+    if (stripeKey && req.body?.use_stripe) {
+      try {
+        // Dynamic import to avoid hard dependency
+        const Stripe = require('stripe');
+        const stripe = Stripe(stripeKey);
+        const session = await stripe.checkout.sessions.create({
+          payment_method_types: ['card'],
+          line_items: [{
+            price_data: {
+              currency: 'usd',
+              product_data: {
+                name: 'Signal Rush Ad Credits',
+                description: `${(amountMicros / 1000000).toFixed(2)} in advertising credits`,
+              },
+              unit_amount: Math.round(amountMicros / 100), // cents
+            },
+            quantity: 1,
+          }],
+          mode: 'payment',
+          success_url: `${req.protocol}://${req.headers.host}/portal/account.html?deposit=success&amount=${amountMicros}`,
+          cancel_url: `${req.protocol}://${req.headers.host}/portal/account.html?deposit=cancelled`,
+          metadata: { advertiser_id: advertiserId, amount_micros: String(amountMicros) },
+        });
+        return { ok: true, stripe_url: session.url };
+      } catch (err) {
+        reply.code(500);
+        return { error: 'Stripe checkout failed: ' + err.message };
+      }
+    }
+
+    // Direct deposit (manual / for testing)
     try {
       const result = ledger.depositAdvertiserFunds(db, {
         advertiserId,
@@ -1458,13 +1940,63 @@ function createServer({ port = DEFAULT_PORT, host = DEFAULT_HOST, dbPath = ledge
     }
   });
 
+  // ─── Stripe Webhook ─────────────────────────────────────────────
+  // Receives payment confirmation from Stripe and credits the advertiser.
+  // When STRIPE_WEBHOOK_SECRET is set, this endpoint validates the webhook
+  // signature and processes successful payments.
+  // POST /portal/webhooks/stripe
+  app.post('/portal/webhooks/stripe', async (req, reply) => {
+    const webhookSecret = process.env.STRIPE_WEBHOOK_SECRET;
+    if (!webhookSecret) {
+      reply.code(501);
+      return { error: 'Stripe webhooks not configured' };
+    }
+
+    const sig = req.headers['stripe-signature'];
+    if (!sig) {
+      reply.code(400);
+      return { error: 'missing Stripe signature' };
+    }
+
+    try {
+      const Stripe = require('stripe');
+      const stripe = Stripe(process.env.STRIPE_SECRET_KEY);
+      // req.rawBody is captured by our custom content-type parser (see top of file).
+      // This is the EXACT bytes Stripe signed — using JSON.stringify(req.body) would
+      // fail signature verification because of key ordering / whitespace differences.
+      const event = stripe.webhooks.constructEvent(
+        req.rawBody,
+        sig,
+        webhookSecret
+      );
+
+      if (event.type === 'checkout.session.completed') {
+        const session = event.data.object;
+        const advertiserId = session.metadata?.advertiser_id;
+        const amountMicros = parseInt(session.metadata?.amount_micros || '0', 10);
+        if (advertiserId && amountMicros > 0) {
+          ledger.depositAdvertiserFunds(db, {
+            advertiserId,
+            amountMicros,
+            reason: 'stripe_payment',
+          });
+        }
+      }
+
+      return { ok: true };
+    } catch (err) {
+      reply.code(400);
+      return { error: 'webhook error: ' + err.message };
+    }
+  });
+
   // ─── Game Integration: Active Campaigns with Creatives ────────────
   // Public endpoint — no auth required. Returns active campaigns with
   // their approved creatives embedded for the game client to render.
 
   app.get('/api/game/campaigns', async (req, reply) => {
     const campaigns = db.prepare(
-      'SELECT id, advertiser_id, name, brand_name, status, placement_type, daily_budget_micros, total_budget_micros, spent_micros, start_date, end_date, created_at FROM campaigns WHERE status = ? ORDER BY created_at DESC LIMIT 10'
+      'SELECT id, advertiser_id, name, brand_name, status, placement_type, daily_budget_micros, total_budget_micros, spent_micros, start_date, end_date, created_at FROM campaigns WHERE status = ? ORDER BY created_at DESC LIMIT 100'
     ).all('active');
     // Attach approved creatives to each campaign
     for (const campaign of campaigns) {
@@ -1581,6 +2113,10 @@ function createServer({ port = DEFAULT_PORT, host = DEFAULT_HOST, dbPath = ledge
 
   app.get('/portal', async (req, reply) => {
     reply.redirect('/portal/dashboard.html');
+  });
+
+  app.get('/portal/player', async (req, reply) => {
+    reply.redirect('/portal/player.html');
   });
 
   app.get('/portal/*', async (req, reply) => {

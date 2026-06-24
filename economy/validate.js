@@ -487,6 +487,45 @@ function validateSinkType(value) {
   return value;
 }
 
+/**
+ * Validate a ppq.ai account identifier.
+ * Accepts either an email address or a username.
+ * Email: /^[^\s@]+@[^\s@]+\.[^\s@]+$/
+ * Username: alphanumeric + dots + hyphens + underscores, 1-64 chars.
+ * @param {string} value
+ * @returns {string} The validated ppq account (trimmed)
+ * @throws {Error} If invalid
+ */
+function validatePpqAccount(value) {
+  if (typeof value !== 'string') {
+    throw new Error('ppq_account must be a string');
+  }
+  const trimmed = value.trim();
+  if (trimmed.length === 0) {
+    throw new Error('ppq_account is required (your ppq.ai email or username)');
+  }
+  if (trimmed.length > 128) {
+    throw new Error('ppq_account must be 128 characters or less');
+  }
+
+  // Email format: a@b.co
+  const EMAIL_LIKE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+  if (EMAIL_LIKE.test(trimmed)) {
+    // Looks like an email — accept it as-is (lowercased for consistency)
+    return trimmed.toLowerCase();
+  }
+
+  // Username format: alphanumeric, dots, hyphens, underscores, max 64 chars
+  if (trimmed.length > 64) {
+    throw new Error('ppq_account username must be 64 characters or less');
+  }
+  if (!/^[a-zA-Z0-9._-]+$/.test(trimmed)) {
+    throw new Error('ppq_account must be a valid email or alphanumeric username (letters, numbers, dots, hyphens, underscores)');
+  }
+
+  return trimmed;
+}
+
 module.exports = {
   validateUuid,
   validateDisplayName,
@@ -508,6 +547,7 @@ module.exports = {
   validateModelName,
   validateProvider,
   validateSinkType,
+  validatePpqAccount,
   UUID_RE,
   EMAIL_RE,
 };

@@ -169,7 +169,7 @@ async function run() {
 
     await test('Spend credits', async () => {
       const r = await request('POST', '/credits/spend', {
-        player_id: playerId, amount: 20, reason: 'test_spend',
+        player_id: playerId, amount: 20, reason: 'test_spend', sink_type: 'cosmetic_purchase',
       });
       assert(r.status === 200, `expected 200, got ${r.status}`);
       assert(r.body.player.balance === 35, `expected balance 35, got ${r.body.player.balance}`);
@@ -272,10 +272,9 @@ async function run() {
 
     await test('Ad impressions are tracked', async () => {
       const r = await request('POST', '/ads/impression', {
-        campaign_id: 'e2e-campaign',
+        // No campaign_id → house-ad path (allocates 20% to rewards pool, no charge to fail)
         player_id: playerId,
         placement_type: 'hud_frame',
-        cost_micros: 100,
       });
       assert(r.status === 200, `expected 200, got ${r.status}`);
       assert(r.body.impression_id, 'should return impression_id');

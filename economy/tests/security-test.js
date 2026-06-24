@@ -146,7 +146,7 @@ async function run() {
 
     await test('/credits/spend rejects without auth', async () => {
       const r = await request('POST', '/credits/spend', {
-        player_id: playerId, amount: 10, reason: 'test',
+        player_id: playerId, amount: 10, reason: 'test', sink_type: 'cosmetic_purchase',
       });
       assert(r.status === 401, `expected 401, got ${r.status}`);
     });
@@ -212,7 +212,7 @@ async function run() {
 
     await test('Rejects spend exceeding per-transaction limit', async () => {
       const r = await request('POST', '/credits/spend', {
-        player_id: playerId, amount: 500, reason: 'too_much',
+        player_id: playerId, amount: 500, reason: 'too_much', sink_type: 'cosmetic_purchase',
       }, { Authorization: 'Bearer test-secret-key-12345' });
       assert(r.status === 400, `expected 400, got ${r.status}`);
       assert(r.body.error.includes('maximum'), `error should mention maximum, got: ${r.body.error}`);

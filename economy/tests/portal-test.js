@@ -17,8 +17,12 @@ const path = require('path');
 const http = require('http');
 
 const SERVICE_PATH = path.join(__dirname, '..', 'service.js');
-const PORT = 8722;
+const PORT = 8733;
 const BASE = `http://127.0.0.1:${PORT}`;
+// Admin endpoints require Authorization: Bearer <ADMIN_API_KEY> header.
+// auth.js validates this against process.env.ADMIN_API_KEY constant-time.
+const ADMIN_KEY = 'test-admin-key-12345';
+const ADMIN_HEADER = { 'Authorization': `Bearer ${ADMIN_KEY}` };
 
 let passed = 0;
 let failed = 0;
@@ -94,7 +98,11 @@ async function run() {
       ...process.env,
       ECONOMY_PORT: String(PORT),
       ECONOMY_DB: ':memory:',
-      // Auth NOT enforced by default — tests use unenforced mode
+      // Disable auth enforcement for portal tests — portal tests focus on UI flow,
+      // not on auth. Admin tests use ECONOMY_ADMIN_KEY header for protected admin endpoints.
+      ECONOMY_AUTH_ENFORCED: 'false',
+      ADMIN_API_KEY: 'test-admin-key-12345',
+      ECONOMY_API_KEY: 'test-api-key-12345',
     },
     stdio: ['ignore', 'pipe', 'pipe'],
   });
@@ -447,7 +455,8 @@ async function run() {
   });
 
   await test('creative: rejects logo with too many lines', async () => {
-    const tooManyLines = Array.from({ length: 17 }, (_, i) => String(i + 1));
+    // Validator allows up to 24 lines (validate.js:339). Send 25 to trigger 400.
+    const tooManyLines = Array.from({ length: 25 }, (_, i) => String(i + 1));
     const res = await request('POST', `/portal/campaigns/${creativeCampaignId}/creatives`, {
       type: 'logo',
       content: { lines: tooManyLines },
@@ -558,7 +567,7 @@ async function run() {
   // ─── 10. Admin Endpoints (without admin key — should work in unenforced mode) ──
 
   await test('admin: list all campaigns without admin key (unenforced)', async () => {
-    const res = await request('GET', '/portal/admin/campaigns');
+    const res = await request('GET', '/portal/admin/campaigns', null, ADMIN_HEADER);
     assert(res.status === 200, `expected 200, got ${res.status}`);
     assert(Array.isArray(res.body.campaigns), 'campaigns should be array');
   });
@@ -597,7 +606,7 @@ async function run() {
       Authorization: `Bearer ${advertiserApiKey}`,
     });
 
-    const res = await request('POST', `/portal/admin/campaigns/${rejectId}/reject`);
+    const res = await request('POST', `/portal/admin/campaigns/${rejectId}/reject`, null, ADMIN_HEADER);
     assert(res.status === 200, `expected 200, got ${res.status}`);
     assert(res.body.campaign.status === 'rejected', 'status should be rejected');
   });
@@ -605,7 +614,7 @@ async function run() {
   await test('admin: reject campaign rejects pending creatives', async () => {
     // The rejected campaign's creatives should be rejected
     // (We didn't add creatives to RejectMe, so just verify the endpoint works)
-    const res = await request('GET', `/portal/admin/campaigns?status=rejected`);
+    const res = await request('GET', `/portal/admin/campaigns?status=rejected`, null, ADMIN_HEADER);
     assert(res.status === 200, `expected 200, got ${res.status}`);
     const found = res.body.campaigns.find(c => c.name === 'RejectMe');
     assert(found, 'should find rejected campaign in admin list');
@@ -720,7 +729,7 @@ async function run() {
     });
 
     // Admin rejects
-    await request('POST', `/portal/admin/campaigns/${cid}/reject`);
+    await request('POST', `/portal/admin/campaigns/${cid}/reject`, null, ADMIN_HEADER);
 
     // Verify status is rejected
     const rejected = await request('GET', `/portal/campaigns/${cid}`, null, {
@@ -742,7 +751,7 @@ async function run() {
   // ─── 18. Admin List with Status Filter ──────────────────────────
 
   await test('admin: filter campaigns by status', async () => {
-    const res = await request('GET', '/portal/admin/campaigns?status=draft');
+    const res = await request('GET', '/portal/admin/campaigns?status=draft', null, ADMIN_HEADER);
     assert(res.status === 200, `expected 200, got ${res.status}`);
     assert(Array.isArray(res.body.campaigns), 'should be array');
     // All returned campaigns should be draft

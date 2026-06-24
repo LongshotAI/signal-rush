@@ -148,7 +148,7 @@ async function run() {
 
     await test('POST /credits/spend deducts credits', async () => {
       const r = await request('POST', '/credits/spend', {
-        player_id: playerId, amount: 20, reason: 'test_spend',
+        player_id: playerId, amount: 20, reason: 'test_spend', sink_type: 'cosmetic_purchase',
       });
       assert(r.status === 200, `expected 200, got ${r.status}`);
       assert(r.body.player.balance === 55, `expected 55, got ${r.body.player.balance}`);
@@ -156,7 +156,7 @@ async function run() {
 
     await test('POST /credits/spend fails with insufficient balance', async () => {
       const r = await request('POST', '/credits/spend', {
-        player_id: playerId, amount: 999, reason: 'too_much',
+        player_id: playerId, amount: 999, reason: 'too_much', sink_type: 'cosmetic_purchase',
       });
       assert(r.status === 409, `expected 409, got ${r.status}`);
     });
@@ -218,10 +218,9 @@ async function run() {
     // ─── Ad Impressions ──────────────────────────────────────────
     await test('POST /ads/impression logs impression', async () => {
       const r = await request('POST', '/ads/impression', {
-        campaign_id: 'camp-test-1',
+        // No campaign_id → house-ad path (allocates 20% to rewards pool, no charge to fail)
         player_id: playerId,
         placement_type: 'hud_frame',
-        cost_micros: 500,
       });
       assert(r.status === 200, `expected 200, got ${r.status}`);
       assert(r.body.impression_id, 'should return impression_id');

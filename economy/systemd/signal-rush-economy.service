@@ -1,0 +1,34 @@
+[Unit]
+Description=Signal Rush Economy Service (Fastify on :8720)
+Documentation=https://github.com/LongshotAI/signal-rush
+After=network.target
+# Restart on failure, but not on manual stop
+StartLimitIntervalSec=60
+StartLimitBurst=5
+
+[Service]
+Type=simple
+User=hive
+Group=hive
+WorkingDirectory=/home/hive/signal-rush
+ExecStart=/usr/bin/node /home/hive/signal-rush/economy/service.js
+# Fail fast if env file is missing
+EnvironmentFile=/home/hive/signal-rush/economy.env
+# Restart policy: restart on any non-zero exit (except SIGTERM-clean exit)
+Restart=on-failure
+RestartSec=5
+# Resource limits (defensive)
+LimitNOFILE=65536
+# Hardening (comment out for dev)
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=read-only
+ReadWritePaths=/home/hive/signal-rush /home/hive/.signal-rush
+# Logging — journald captures stdout/stderr
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=signal-rush-economy
+
+[Install]
+WantedBy=multi-user.target

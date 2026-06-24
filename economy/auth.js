@@ -2,14 +2,15 @@
 // Signal Rush — Authentication Module
 //
 // Dual-mode authentication:
-// 1. Service-to-service: shared secret via ECONOMY API_KEY env var (for CLI→economy bridge)
+// 1. Service-to-service: shared secret via ECONOMY_API_KEY env var (for CLI→economy bridge)
 // 2. Advertiser API keys: looked up in advertiser_accounts table (for portal clients)
 //
-// When ECONOMY_AUTH_ENFORCED is set to anything other than 'false',
-// requests must include Authorization: Bearer <token>.
-// The token is checked against both the shared secret and the
-// advertiser_accounts table.
-// To disable auth: set ECONOMY_AUTH_ENFORCED=false.
+// When ECONOMY_AUTH_ENFORCED is set to anything other than the literal string 'false',
+// auth is enforced: requests must include Authorization: Bearer <token>
+// The token is checked against both the shared secret and the advertiser_accounts table.
+// To disable auth: set ECONOMY_AUTH_ENFORCED=false (the literal string only).
+// WARNING: do NOT use ECONOMY_AUTH_ENFORCED=<placeholder> as a "disable" value — any value other
+// than the literal string 'false' will ENFORCE auth and lock you out.
 //
 // Design decisions:
 // - Uses constant-time comparison to prevent timing attacks
@@ -38,7 +39,9 @@ function getExpectedKey() {
 
 /**
  * Check if auth enforcement is enabled.
- * Default: true (auth enforced) — set ECONOMY_AUTH_ENFORCED=false to disable.
+ * Default: true (auth enforced). To disable auth in dev, set the env var
+  * ECONOMY_AUTH_ENFORCED to the literal string 'false'. Any other value (including
+  * placeholders like '***', 'change-me', 'true', '1') will ENFORCE auth and lock you out.
  * @returns {boolean}
  */
 function isAuthEnforced() {

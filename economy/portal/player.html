@@ -1,0 +1,260 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Signal Rush — Player Rewards</title>
+  <link rel="stylesheet" href="/portal/shared.css">
+  <style>
+    .player-hero { text-align: center; padding: 40px 20px; }
+    .player-hero h1 { font-size: 28px; margin: 0 0 8px; }
+    .player-hero p { color: var(--text-muted); margin: 0 0 12px; font-size: 14px; }
+    .stats-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 16px; margin-bottom: 24px; }
+    .stat-card { background: var(--surface2); border: 1px solid var(--border); border-radius: 12px; padding: 20px; text-align: center; }
+    .stat-card .stat-value { font-size: 28px; font-weight: 700; color: var(--accent); }
+    .stat-card .stat-label { font-size: 12px; color: var(--text-muted); margin-top: 4px; text-transform: uppercase; letter-spacing: 0.5px; }
+    .claim-section { background: var(--surface2); border: 1px solid var(--border); border-radius: 12px; padding: 24px; margin-bottom: 24px; }
+    .claim-section h2 { margin: 0 0 16px; font-size: 18px; }
+    .claim-section .field { margin-bottom: 12px; }
+    .claim-section label { display: block; font-size: 12px; color: var(--text-muted); margin-bottom: 4px; }
+    .claim-section input { width: 100%; padding: 10px; border-radius: 8px; border: 1px solid var(--border); background: var(--surface); color: var(--text); font-size: 14px; }
+    .claim-section input:focus { outline: none; border-color: var(--accent); }
+    .btn-claim { width: 100%; padding: 12px; border-radius: 8px; border: none; background: var(--accent); color: #000; font-weight: 700; font-size: 14px; cursor: pointer; }
+    .btn-claim:disabled { opacity: 0.5; cursor: not-allowed; }
+    .btn-claim:hover:not(:disabled) { background: var(--accent-hover); }
+    .claim-result { margin-top: 12px; padding: 12px; border-radius: 8px; display: none; font-size: 13px; }
+    .claim-result.success { display: block; background: rgba(0,255,136,0.1); border: 1px solid rgba(0,255,136,0.2); color: var(--accent); }
+    .claim-result.error { display: block; background: rgba(255,51,85,0.1); border: 1px solid rgba(255,51,85,0.2); color: #ff3355; }
+    .pool-bar { height: 8px; background: var(--surface); border-radius: 4px; overflow: hidden; margin: 8px 0; }
+    .pool-bar-fill { height: 100%; background: linear-gradient(90deg, var(--accent), #44bbff); border-radius: 4px; transition: width 0.3s; }
+    .player-id-input { margin-bottom: 24px; }
+    .player-id-input input { width: 100%; padding: 10px; border-radius: 8px; border: 1px solid var(--border); background: var(--surface); color: var(--text); font-size: 14px; font-family: 'JetBrains Mono', monospace; }
+    .player-id-input input:focus { outline: none; border-color: var(--accent); }
+    .how-it-works { background: var(--surface2); border: 1px solid var(--border); border-radius: 12px; padding: 24px; margin-bottom: 24px; }
+    .how-it-works h2 { margin: 0 0 12px; font-size: 18px; }
+    .how-it-works li { margin-bottom: 8px; font-size: 13px; color: var(--text-muted); }
+    .how-it-works strong { color: var(--text); }
+  </style>
+</head>
+<body>
+  <div class="app-layout">
+    <div id="sidebar-placeholder"></div>
+    <main class="main-content">
+      <div class="container" style="max-width: 640px; margin: 0 auto;">
+
+        <div class="player-hero">
+          <h1>🎮 Player Rewards</h1>
+          <p>Every time an advertiser runs a campaign, <strong>20%</strong> goes to a player rewards pool. Play well, earn your share, and claim ppq.ai credits.</p>
+        </div>
+
+        <div class="player-id-input">
+          <label style="font-size: 12px; color: var(--text-muted); margin-bottom: 4px; display: block;">Your Player ID</label>
+          <input type="text" id="player-id-input" placeholder="Paste your player UUID here..." />
+          <div style="font-size: 11px; color: var(--text-muted); margin-top: 4px;">Find your player ID in the Wallet panel of the Telegram Mini App.</div>
+        </div>
+
+        <div id="rewards-dashboard" style="display:none;">
+          <div class="stats-grid">
+            <div class="stat-card">
+              <div class="stat-value" id="stat-rewards">0</div>
+              <div class="stat-label">Claimable Rewards (µ)</div>
+            </div>
+            <div class="stat-card">
+              <div class="stat-value" id="stat-claimed">0</div>
+              <div class="stat-label">µ Claimed</div>
+            </div>
+          </div>
+
+          <div class="how-it-works">
+            <h2>📋 How It Works</h2>
+            <ol>
+              <li><strong>Play games</strong> — Every run earns you skill-based rewards</li>
+              <li><strong>Watch sponsors</strong> — 20% of every ad impression funds the player pool</li>
+              <li><strong>Your skill matters</strong> — Higher combos, scores, and levels earn more from the pool</li>
+              <li><strong>Enter your ppq.ai account</strong> — Link once, claim anytime</li>
+              <li><strong>Claim your rewards</strong> — They're sent as ppq.ai credits for AI API access</li>
+            </ol>
+          </div>
+
+          <div id="pool-stats" class="claim-section" style="display:none;">
+            <h2>🌊 Rewards Pool</h2>
+            <div style="display:flex;justify-content:space-between;font-size:13px;color:var(--text-muted);">
+              <span>Deposited: <strong id="pool-deposited" style="color:var(--accent);">0</strong> µ</span>
+              <span>Claimed: <strong id="pool-claimed">0</strong> µ</span>
+            </div>
+            <div class="pool-bar">
+              <div class="pool-bar-fill" id="pool-fill" style="width:0%;"></div>
+            </div>
+            <div style="display:flex;justify-content:space-between;font-size:11px;color:var(--text-muted);">
+              <span>Available: <strong id="pool-available">0</strong> µ</span>
+              <span id="pool-pct">0% claimed</span>
+            </div>
+          </div>
+
+          <div id="claim-section" class="claim-section" style="display:none;">
+            <h2>🎯 Claim Your Rewards</h2>
+            <p style="font-size:13px;color:var(--text-muted);margin:0 0 16px;">Send your ad-funded rewards to your ppq.ai account as API credits.</p>
+            <div class="field">
+              <label>ppq.ai Email or Username</label>
+              <input type="text" id="ppq-account-input" placeholder="your-name@ppq.ai" />
+            </div>
+            <button class="btn-claim" id="claim-btn" disabled>⏳ Loading...</button>
+            <div class="claim-result" id="claim-result"></div>
+          </div>
+        </div>
+
+        <div id="not-found" style="display:none;text-align:center;padding:40px;color:var(--text-muted);">
+          <p style="font-size:18px;margin-bottom:8px;">Player not found</p>
+          <p>Enter a valid Player ID above.</p>
+        </div>
+
+      </div>
+    </main>
+  </div>
+
+  <script src="/portal/api.js"></script>
+  <script src="/portal/layout.js"></script>
+  <script>
+    document.addEventListener('DOMContentLoaded', () => {
+      const sidebarPlaceholder = document.getElementById('sidebar-placeholder');
+      if (sidebarPlaceholder && typeof Layout !== 'undefined') {
+        sidebarPlaceholder.innerHTML = Layout.renderSidebar('player');
+      }
+
+      const playerIdInput = document.getElementById('player-id-input');
+      const rewardsDashboard = document.getElementById('rewards-dashboard');
+      const notFound = document.getElementById('not-found');
+
+      async function loadPlayerData(playerId) {
+        if (!playerId || playerId.length < 10) return;
+        rewardsDashboard.style.display = 'none';
+        notFound.style.display = 'none';
+
+        try {
+          // Fetch player data
+          const playerRes = await fetch(`/players/${encodeURIComponent(playerId)}`);
+          if (!playerRes.ok) { notFound.style.display = 'block'; return; }
+          const playerData = await playerRes.json();
+
+          // Fetch rewards
+          const rewardsRes = await fetch(`/players/${encodeURIComponent(playerId)}/rewards`);
+          if (rewardsRes.ok) {
+            const rewardsData = await rewardsRes.json();
+            const availableMicros = rewardsData.available_micros || 0;
+            const claimedMicros = rewardsData.claimed_micros || 0;
+            document.getElementById('stat-rewards').textContent = availableMicros.toLocaleString() + ' µ';
+            document.getElementById('stat-rewards').title = '$' + (availableMicros / 1000000).toFixed(4);
+            document.getElementById('stat-claimed').textContent = claimedMicros.toLocaleString() + ' µ';
+            document.getElementById('stat-claimed').title = '$' + (claimedMicros / 1000000).toFixed(4);
+
+            const claimSection = document.getElementById('claim-section');
+            const claimBtn = document.getElementById('claim-btn');
+            if (rewardsData.available_micros >= 1000) {
+              claimSection.style.display = 'block';
+              claimBtn.disabled = false;
+              const claimDollars = (rewardsData.available_micros / 1000000).toFixed(4);
+              claimBtn.textContent = `Claim $${claimDollars} → ppq.ai`;
+            } else {
+              claimSection.style.display = 'block';
+              claimBtn.disabled = true;
+              const remaining = 1000 - (rewardsData.available_micros || 0);
+              claimBtn.textContent = `Need ${remaining} more µ to claim (min 1,000)`;
+            }
+          }
+
+          // Fetch pool stats
+          const poolRes = await fetch('/rewards/pool-stats');
+          if (poolRes.ok) {
+            const poolData = await poolRes.json();
+            document.getElementById('pool-deposited').textContent = poolData.total_deposited_micros.toLocaleString() + ' µ';
+            document.getElementById('pool-deposited').title = '$' + (poolData.total_deposited_micros / 1000000).toFixed(2);
+            document.getElementById('pool-claimed').textContent = poolData.total_claimed_micros.toLocaleString() + ' µ';
+            document.getElementById('pool-claimed').title = '$' + (poolData.total_claimed_micros / 1000000).toFixed(2);
+            document.getElementById('pool-available').textContent = poolData.available_micros.toLocaleString() + ' µ';
+            document.getElementById('pool-available').title = '$' + (poolData.available_micros / 1000000).toFixed(2);
+            const pct = poolData.total_deposited_micros > 0
+              ? Math.round(poolData.total_claimed_micros / poolData.total_deposited_micros * 100)
+              : 0;
+            document.getElementById('pool-pct').textContent = `${pct}% claimed`;
+            document.getElementById('pool-fill').style.width = `${pct}%`;
+            document.getElementById('pool-stats').style.display = 'block';
+          }
+
+          rewardsDashboard.style.display = 'block';
+        } catch (err) {
+          notFound.style.display = 'block';
+        }
+      }
+
+      let loadTimeout = null;
+      playerIdInput.addEventListener('input', () => {
+        clearTimeout(loadTimeout);
+        loadTimeout = setTimeout(() => loadPlayerData(playerIdInput.value.trim()), 500);
+      });
+
+      // Restore from localStorage
+      const savedId = localStorage.getItem('sr-player-id');
+      if (savedId) {
+        playerIdInput.value = savedId;
+        loadPlayerData(savedId);
+      }
+
+      // Save on input
+      playerIdInput.addEventListener('change', () => {
+        localStorage.setItem('sr-player-id', playerIdInput.value.trim());
+      });
+
+      // Claim handler
+      document.getElementById('claim-btn').addEventListener('click', async () => {
+        const playerId = playerIdInput.value.trim();
+        const ppqAccount = document.getElementById('ppq-account-input').value.trim();
+        const resultEl = document.getElementById('claim-result');
+
+        if (!ppqAccount) {
+          resultEl.className = 'claim-result error';
+          resultEl.textContent = 'Please enter your ppq.ai email or username';
+          return;
+        }
+
+        // Get the available amount
+        const rewardsRes = await fetch(`/players/${encodeURIComponent(playerId)}/rewards`);
+        if (!rewardsRes.ok) return;
+        const rewards = await rewardsRes.json();
+        const amountMicros = rewards.available_micros || 0;
+
+        const btn = document.getElementById('claim-btn');
+        btn.disabled = true;
+        btn.textContent = '⏳ Claiming...';
+
+        try {
+          const res = await fetch('/rewards/claim', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              player_id: playerId,
+              ppq_account: ppqAccount,
+              amount_micros: amountMicros,
+            }),
+          });
+          const data = await res.json();
+          if (res.ok && data.ok !== false) {
+            resultEl.className = 'claim-result success';
+            resultEl.textContent = `✅ $${(amountMicros / 1000000).toFixed(4)} claimed! Sent to ${ppqAccount}. Check your ppq.ai account.`;
+            // Refresh
+            loadPlayerData(playerId);
+          } else {
+            resultEl.className = 'claim-result error';
+            resultEl.textContent = `❌ ${data.error || 'Claim failed'}`;
+          }
+        } catch (err) {
+          resultEl.className = 'claim-result error';
+          resultEl.textContent = `❌ Network error: ${err.message}`;
+        } finally {
+          btn.disabled = false;
+          btn.textContent = `Claim ${amountMicros.toLocaleString()} µ → ppq.ai`;
+        }
+      });
+    });
+  </script>
+</body>
+</html>

@@ -1,4 +1,4 @@
--- Signal Rush Economy Service — Database Schema
+-- ─── Signal Rush Economy Service — Database Schema ────────────────────────────
 -- SQLite with WAL mode for concurrent read safety
 -- All monetary values stored in integer micros/credits (never floats)
 -- Every row has created_at for audit trail
@@ -7,12 +7,22 @@
 PRAGMA journal_mode=WAL;
 PRAGMA foreign_keys=ON;
 
+-- Migration tracking table — records which schema versions have been applied.
+-- New migrations should add a new row here after applying the DDL.
+-- This replaces the previous "edit schema.sql and hope existing DBs re-run" pattern.
+CREATE TABLE IF NOT EXISTS schema_migrations (
+    version TEXT PRIMARY KEY,        -- e.g. '001', '002-rename-telegram-id'
+    description TEXT NOT NULL,       -- human-readable summary
+    applied_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
 -- Player accounts
 -- balance is the source of truth; total_earned/total_spent are cached aggregates
 -- balance CHECK constraint prevents negative balances even if application logic fails
 CREATE TABLE IF NOT EXISTS players (
     id TEXT PRIMARY KEY,
     display_name TEXT NOT NULL,
+    telegram_id TEXT UNIQUE,
     created_at TEXT DEFAULT (datetime('now')),
     total_earned INTEGER DEFAULT 0 CHECK(total_earned >= 0),
     total_spent INTEGER DEFAULT 0 CHECK(total_spent >= 0),
@@ -84,6 +94,7 @@ CREATE INDEX IF NOT EXISTS idx_game_events_player ON game_events(player_id, crea
 CREATE INDEX IF NOT EXISTS idx_game_events_type ON game_events(event_type, created_at);
 CREATE INDEX IF NOT EXISTS idx_ad_impressions_campaign ON ad_impressions(campaign_id, created_at);
 CREATE INDEX IF NOT EXISTS idx_sessions_player ON sessions(player_id, started_at);
+CREATE INDEX IF NOT EXISTS idx_players_telegram_id ON players(telegram_id);
 
 -- ─── Advertiser Portal Tables ─────────────────────────────────────
 
@@ -239,6 +250,80 @@ CREATE TABLE IF NOT EXISTS credit_sinks (
 
 CREATE INDEX IF NOT EXISTS idx_credit_sinks_player ON credit_sinks(player_id, created_at);
 CREATE INDEX IF NOT EXISTS idx_credit_sinks_type ON credit_sinks(sink_type, created_at);
+
+-- ─── Player Reward Pool (20% of ad revenue) ──────────────────────────
+-- Singleton row: total advertising revenue → player rewards accumulation
+-- total_deposited_micros: 20% of every successful chargeCampaign
+-- total_claimed_micros: what players have actually claimed (paid out)
+CREATE TABLE IF NOT EXISTS rewards_pool (
+    id          INTEGER PRIMARY KEY CHECK(id = 1),  -- singleton row
+    total_deposited_micros INTEGER NOT NULL DEFAULT 0 CHECK(total_deposited_micros >= 0),
+    total_claimed_micros   INTEGER NOT NULL DEFAULT 0 CHECK(total_claimed_micros >= 0),
+    updated_at  TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
+-- Seed the singleton row
+INSERT OR IGNORE INTO rewards_pool (id, total_deposited_micros, total_claimed_micros)
+VALUES (1, 0, 0);
+
+-- Player reward earnings — each row is one player's accumulated reward share
+-- earned_micros: what the player has earned from skill-based gameplay
+-- claimed_micros: what the player has successfully claimed (paid out via ppq.ai)
+-- last_earned_at: when they last earned (for anti-fraud)
+CREATE TABLE IF NOT EXISTS player_rewards (
+    player_id       TEXT NOT NULL REFERENCES players(id),
+    earned_micros   INTEGER NOT NULL DEFAULT 0 CHECK(earned_micros >= 0),
+    claimed_micros  INTEGER NOT NULL DEFAULT 0 CHECK(claimed_micros >= 0),
+    last_earned_at  TEXT,
+    updated_at      TEXT NOT NULL DEFAULT (datetime('now')),
+    PRIMARY KEY (player_id)
+);
+
+-- Claim audit trail — every reward claim that was paid out
+CREATE TABLE IF NOT EXISTS reward_claims (
+    id              TEXT PRIMARY KEY,
+    player_id       TEXT NOT NULL REFERENCES players(id),
+    amount_micros   INTEGER NOT NULL CHECK(amount_micros > 0),
+    ppq_account     TEXT NOT NULL,  -- player's ppq.ai account email/username
+    status          TEXT NOT NULL DEFAULT 'pending' CHECK(status IN ('pending', 'completed', 'failed')),
+    ppq_tx_id       TEXT,           -- ppq.ai transaction reference
+    claimed_at      TEXT DEFAULT (datetime('now')),
+    completed_at    TEXT
+);
+
+CREATE INDEX IF NOT EXISTS idx_reward_claims_player ON reward_claims(player_id);
+CREATE INDEX IF NOT EXISTS idx_reward_claims_status ON reward_claims(status);
+CREATE INDEX IF NOT EXISTS idx_player_rewards_earned ON player_rewards(earned_micros DESC);
+
+-- ─── Persisted Rate Limit Cooldowns ────────────────────────────────
+-- Survives server restarts so players can't bypass limits by restarting.
+-- key format: "impression:<player_id>" | "claim:<player_id>"
+-- last_timestamp: Unix epoch ms of the most recent action
+CREATE TABLE IF NOT EXISTS rate_limit_cooldowns (
+    key TEXT PRIMARY KEY,
+    last_timestamp INTEGER NOT NULL,
+    created_at TEXT DEFAULT (datetime('now'))
+);
+
+-- ─── Persisted Admin Daily Awards ─────────────────────────────────
+-- Tracks total admin-awarded credits per day, survives restarts.
+-- date: YYYY-MM-DD
+CREATE TABLE IF NOT EXISTS admin_daily_awards (
+    date TEXT PRIMARY KEY,
+    total_micros INTEGER NOT NULL DEFAULT 0 CHECK(total_micros >= 0),
+    updated_at TEXT DEFAULT (datetime('now'))
+);
+
+-- ─── Per-Player Daily Award Caps ──────────────────────────────────
+-- Tracks how many micros each player has received via /credits/award per day.
+-- Prevents a single player from consuming the entire daily budget.
+-- date: YYYY-MM-DD
+CREATE TABLE IF NOT EXISTS player_daily_awards (
+    player_id TEXT NOT NULL,
+    date TEXT NOT NULL,
+    total_micros INTEGER NOT NULL DEFAULT 0 CHECK(total_micros >= 0),
+    PRIMARY KEY (player_id, date)
+);
 
 -- ─── Seed: ppq.ai provider ──────────────────────────────────────────
 INSERT OR IGNORE INTO providers (id, display_name, enabled, credit_rate, min_redemption, max_redemption)

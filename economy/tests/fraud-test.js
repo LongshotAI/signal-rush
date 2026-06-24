@@ -205,7 +205,7 @@ async function run() {
     await test('Cannot spend from non-existent player', async () => {
       const r = await request('POST', '/credits/spend', {
         player_id: '00000000-0000-0000-0000-000000000000',
-        amount: 100, reason: 'spoof',
+        amount: 100, reason: 'spoof', sink_type: 'cosmetic_purchase',
       }, AUTH);
       // Returns 400 (validation error) or 404 (not found) — both are acceptable
       assert(r.status === 400 || r.status === 404, `expected 400 or 404, got ${r.status}`);
@@ -261,7 +261,7 @@ async function run() {
       const spendRequests = [];
       for (let i = 0; i < 10; i++) {
         spendRequests.push(request('POST', '/credits/spend', {
-          player_id: csId, amount: 10, reason: 'concurrent_spend',
+          player_id: csId, amount: 10, reason: 'concurrent_spend', sink_type: 'cosmetic_purchase',
         }, AUTH));
       }
       const results = await Promise.all(spendRequests);
@@ -284,7 +284,7 @@ async function run() {
 
     await test('Cannot spend more than per-transaction limit', async () => {
       const r = await request('POST', '/credits/spend', {
-        player_id: playerId, amount: 100, reason: 'over_limit',
+        player_id: playerId, amount: 100, reason: 'over_limit', sink_type: 'cosmetic_purchase',
       }, AUTH);
       assert(r.status === 400, `expected 400, got ${r.status}`);
       assert(r.body.error.includes('maximum'), `should mention maximum, got: ${r.body.error}`);
@@ -299,7 +299,7 @@ async function run() {
 
     await test('Cannot spend zero credits', async () => {
       const r = await request('POST', '/credits/spend', {
-        player_id: playerId, amount: 0, reason: 'zero',
+        player_id: playerId, amount: 0, reason: 'zero', sink_type: 'cosmetic_purchase',
       }, AUTH);
       assert(r.status === 400, `expected 400, got ${r.status}`);
     });
