@@ -159,6 +159,18 @@
                   <input type="number" id="editTotalBudget" value="${c.total_budget_micros}" min="0">
                 </div>
               </div>
+              <div class="form-row">
+                <div class="form-group">
+                  <label>Start Date</label>
+                  <input type="date" id="editStartDate" value="${c.start_date || ''}">
+                  <p class="form-hint">Leave blank to start immediately after approval.</p>
+                </div>
+                <div class="form-group">
+                  <label>End Date</label>
+                  <input type="date" id="editEndDate" value="${c.end_date || ''}">
+                  <p class="form-hint">Leave blank for no end date. Campaign runs until budget exhausted.</p>
+                </div>
+              </div>
               <button type="submit" class="btn btn-secondary btn-sm">Save Changes</button>
             </form>
           </div>
@@ -170,14 +182,27 @@
               <button class="btn btn-secondary btn-sm" id="addCreativeBtn">+ Add Creative</button>
             </div>
             ${creativesHtml}
+
+            <!-- Logo Image Upload -->
+            <div style="border-top: 1px solid var(--border); margin-top: 16px; padding-top: 16px;">
+              <div class="text-sm font-medium mb-2">Upload Logo Image</div>
+              <p class="text-xs text-muted mb-3">Upload a PNG or JPEG image to appear as your brand logo in the game. Recommended: 400×200px or similar 2:1 ratio.</p>
+              <form id="logoUploadForm" enctype="multipart/form-data">
+                <div class="flex gap-2 items-center">
+                  <input type="file" id="logoFile" accept="image/png,image/jpeg" style="font-size: var(--text-sm);" required>
+                  <button type="submit" class="btn btn-primary btn-sm" id="logoUploadBtn">Upload</button>
+                </div>
+                <div id="logoUploadStatus" class="text-xs mt-2"></div>
+              </form>
+            </div>
           </div>
 
           <!-- Add Creative Modal (hidden by default) -->
           <div id="creativeModal" class="hidden" style="position: fixed; inset: 0; background: rgba(0,0,0,0.7); display: flex; align-items: center; justify-content: center; z-index: 200;">
             <div class="card" style="width: 100%; max-width: 500px;">
               <div class="card-header">
-                <div class="card-title">Upload Creative</div>
-                <button class="btn btn-ghost btn-sm" onclick="document.getElementById('creativeModal').classList.add('hidden')">✕</button>
+                <div class="card-title">Add Creative</div>
+                <button class="btn btn-ghost btn-sm" onclick="document.getElementById('creativeModal').classList.add('hidden'); document.getElementById('creativeModal').style.display='none';">✕</button>
               </div>
               <form id="creativeForm">
                 <div class="form-group">
@@ -189,11 +214,14 @@
                   </select>
                 </div>
                 <div class="form-group" id="creativeContentGroup">
-                  <label>Content (JSON)</label>
-                  <textarea id="creativeContent" rows="6" placeholder='{"text": "Your sponsor message"}' style="font-family: var(--font-mono); font-size: var(--text-xs);"></textarea>
-                  <p class="form-hint" id="creativeHint">Enter JSON content for the creative type.</p>
+                  <label id="creativeContentLabel">Content</label>
+                  <textarea id="creativeContent" rows="4" placeholder="Your sponsor message (max 64 chars)"></textarea>
+                  <p class="form-hint" id="creativeHint">Enter the text that will appear in the game as your sponsor message.</p>
                 </div>
-                <button type="submit" class="btn btn-primary btn-sm">Upload</button>
+                <div class="flex gap-2">
+                  <button type="submit" class="btn btn-primary btn-sm">Add Creative</button>
+                  <button type="button" class="btn btn-secondary btn-sm" onclick="document.getElementById('creativeModal').classList.add('hidden'); document.getElementById('creativeModal').style.display='none';">Cancel</button>
+                </div>
               </form>
             </div>
           </div>
@@ -296,10 +324,14 @@
             const brand = document.getElementById('editBrand').value.trim();
             const dailyBudget = parseInt(document.getElementById('editDailyBudget').value) || 0;
             const totalBudget = parseInt(document.getElementById('editTotalBudget').value) || 0;
+            const startDate = document.getElementById('editStartDate').value || null;
+            const endDate = document.getElementById('editEndDate').value || null;
             if (name !== c.name) updates.name = name;
             if (brand !== c.brand_name) updates.brand_name = brand;
             if (dailyBudget !== c.daily_budget_micros) updates.daily_budget_micros = dailyBudget;
             if (totalBudget !== c.total_budget_micros) updates.total_budget_micros = totalBudget;
+            if (startDate !== (c.start_date || null)) updates.start_date = startDate;
+            if (endDate !== (c.end_date || null)) updates.end_date = endDate;
             if (Object.keys(updates).length === 0) return;
             try {
               await API.updateCampaign(campaignId, updates);
@@ -333,26 +365,105 @@
           creativeHint.textContent = hints.label;
         }
 
-        // Creative form
+        // Creative form — build user-friendly content from form fields (no raw JSON required)
         const creativeForm = document.getElementById('creativeForm');
         if (creativeForm) {
+          // Update hint and label based on selected type
+          const creativeType = document.getElementById('creativeType');
+          const creativeLabel = document.getElementById('creativeContentLabel');
+          const creativeTextarea = document.getElementById('creativeContent');
+          const updateCreativeHints = () => {
+            const t = creativeType.value;
+            if (t === 'label') {
+              creativeLabel.textContent = 'Sponsor Text';
+              creativeTextarea.placeholder = 'Your sponsor message (max 64 chars)';
+              creativeHint.textContent = 'Short text that appears in the game. Example: "Powered by YourBrand"';
+              creativeTextarea.maxLength = 64;
+            } else if (t === 'logo') {
+              creativeLabel.textContent = 'ASCII Art (one line per row)';
+              creativeTextarea.placeholder = 'Line 1\nLine 2\nLine 3';
+              creativeHint.textContent = 'Enter each line of your ASCII logo. Max 8 lines, 40 chars each.';
+              creativeTextarea.maxLength = 320;
+            } else if (t === 'interstitial') {
+              creativeLabel.textContent = 'Interstitial Message';
+              creativeTextarea.placeholder = 'Your interstitial message (max 256 chars)';
+              creativeHint.textContent = 'Message shown between game runs. Example: "This run was powered by YourBrand"';
+              creativeTextarea.maxLength = 256;
+            }
+          };
+          creativeType.addEventListener('change', updateCreativeHints);
+          updateCreativeHints();
+
           creativeForm.addEventListener('submit', async (e) => {
             e.preventDefault();
-            const type = document.getElementById('creativeType').value;
-            const contentRaw = document.getElementById('creativeContent').value.trim();
-            if (!contentRaw) { alert('Please enter creative content.'); return; }
+            const type = creativeType.value;
+            const rawContent = creativeTextarea.value.trim();
+            if (!rawContent) { alert('Please enter creative content.'); return; }
+
             let content;
-            try {
-              content = JSON.parse(contentRaw);
-            } catch {
-              alert('Invalid JSON. Please check your input.');
+            if (type === 'label') {
+              content = { text: rawContent };
+            } else if (type === 'logo') {
+              content = { lines: rawContent.split('\n').map(l => l.trimEnd()) };
+            } else if (type === 'interstitial') {
+              content = { headline: rawContent.slice(0, 64), body: rawContent };
+            } else {
+              alert('Unknown creative type.');
               return;
             }
+
             try {
               await API.createCreative(campaignId, type, content);
+              document.getElementById('creativeModal').classList.add('hidden');
+              document.getElementById('creativeModal').style.display = 'none';
               window.location.reload();
             } catch (err) {
               alert(err.message);
+            }
+          });
+        }
+
+        // Logo image upload
+        const logoUploadForm = document.getElementById('logoUploadForm');
+        const logoUploadBtn = document.getElementById('logoUploadBtn');
+        const logoUploadStatus = document.getElementById('logoUploadStatus');
+        if (logoUploadForm) {
+          logoUploadForm.addEventListener('submit', async (e) => {
+            e.preventDefault();
+            const fileInput = document.getElementById('logoFile');
+            if (!fileInput.files || fileInput.files.length === 0) {
+              logoUploadStatus.textContent = 'Please select an image file.';
+              logoUploadStatus.style.color = 'var(--danger)';
+              return;
+            }
+            const fd = new FormData();
+            fd.append('image', fileInput.files[0]);
+            fd.append('width', '64');
+            fd.append('height', '20');
+            logoUploadBtn.disabled = true;
+            logoUploadBtn.textContent = 'Uploading…';
+            logoUploadStatus.textContent = '';
+            try {
+              const res = await fetch('/portal/campaigns/' + campaignId + '/upload-logo', {
+                method: 'POST',
+                headers: { Authorization: 'Bearer ' + API.getToken() },
+                body: fd,
+              });
+              const data = await res.json();
+              if (data.ok) {
+                logoUploadStatus.textContent = '✅ Logo uploaded successfully! Page will reload.';
+                logoUploadStatus.style.color = 'var(--success)';
+                setTimeout(() => window.location.reload(), 1500);
+              } else {
+                logoUploadStatus.textContent = '❌ ' + (data.error || 'Upload failed');
+                logoUploadStatus.style.color = 'var(--danger)';
+              }
+            } catch (err) {
+              logoUploadStatus.textContent = '❌ ' + err.message;
+              logoUploadStatus.style.color = 'var(--danger)';
+            } finally {
+              logoUploadBtn.disabled = false;
+              logoUploadBtn.textContent = 'Upload';
             }
           });
         }

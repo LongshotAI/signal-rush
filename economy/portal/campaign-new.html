@@ -80,6 +80,17 @@
               </div>
             </div>
 
+            <!-- Optional: Upload logo image during campaign creation -->
+            <div style="margin-top: 16px; border-top: 1px solid var(--border); padding-top: 16px;">
+              <div class="text-sm font-medium mb-2">Upload Logo Image (optional)</div>
+              <p class="text-xs text-muted mb-3">Upload a PNG or JPEG image to appear as your brand logo in the game. Recommended: 400x200px or similar 2:1 ratio. You can also add it later from the campaign detail page.</p>
+              <div class="flex gap-2 items-center">
+                <input type="file" id="logoFile" accept="image/png,image/jpeg" style="font-size: var(--text-sm);">
+                <button type="button" class="btn btn-secondary btn-sm" id="logoUploadBtn">Select</button>
+              </div>
+              <div id="logoUploadStatus" class="text-xs mt-2"></div>
+            </div>
+
             <div class="flex gap-2 mt-4">
               <button type="submit" class="btn btn-primary" id="submitBtn">Create Campaign</button>
               <a href="/portal/dashboard.html" class="btn btn-secondary">Cancel</a>
@@ -101,6 +112,25 @@
 
       function showAlert(message, type = 'error') {
         alertContainer.innerHTML = `<div class="alert alert-${type}">${message}</div>`;
+      }
+
+      // Logo image selection handler
+      const logoFileInput = document.getElementById('logoFile');
+      const logoUploadBtn = document.getElementById('logoUploadBtn');
+      const logoUploadStatus = document.getElementById('logoUploadStatus');
+      let selectedLogoFile = null;
+
+      if (logoUploadBtn && logoFileInput) {
+        logoUploadBtn.addEventListener('click', async () => {
+          if (!logoFileInput.files || logoFileInput.files.length === 0) {
+            logoUploadStatus.textContent = 'Please select an image file first.';
+            logoUploadStatus.style.color = 'var(--warning, #f59e0b)';
+            return;
+          }
+          selectedLogoFile = logoFileInput.files[0];
+          logoUploadStatus.textContent = '✓ Image selected — will be uploaded after campaign creation.';
+          logoUploadStatus.style.color = 'var(--success, #22c55e)';
+        });
       }
 
       form.addEventListener('submit', async (e) => {
@@ -135,7 +165,32 @@
           });
 
           if (data.ok && data.campaign) {
-            window.location.href = `/portal/campaign.html?id=${data.campaign.id}`;
+            const campaignId = data.campaign.id;
+
+            // Upload logo if selected
+            if (selectedLogoFile) {
+              logoUploadStatus.textContent = 'Uploading logo…';
+              logoUploadStatus.style.color = 'var(--info, #3b82f6)';
+              try {
+                const fd = new FormData();
+                fd.append('image', selectedLogoFile);
+                fd.append('width', '32');
+                fd.append('height', '16');
+                await fetch('/portal/campaigns/' + campaignId + '/upload-logo', {
+                  method: 'POST',
+                  headers: { Authorization: 'Bearer ' + API.getToken() },
+                  body: fd,
+                });
+                logoUploadStatus.textContent = '✓ Logo uploaded! Redirecting…';
+                logoUploadStatus.style.color = 'var(--success, #22c55e)';
+              } catch (logoErr) {
+                logoUploadStatus.textContent = 'Logo upload failed — you can add it later from the campaign page.';
+                logoUploadStatus.style.color = 'var(--warning, #f59e0b)';
+              }
+            }
+
+            // Redirect to campaign detail
+            window.location.href = `/portal/campaign.html?id=${campaignId}`;
           } else {
             showAlert(data.error || 'Failed to create campaign.');
           }

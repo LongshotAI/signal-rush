@@ -54,7 +54,36 @@
             </tr>
           `).join('');
 
+        // Welcome banner for new advertisers (first-time experience)
+        const isNewAdvertiser = total === 0;
+        const welcomeBanner = isNewAdvertiser ? `
+          <div class="card mb-6" style="border-left: 4px solid var(--accent);">
+            <div class="card-title mb-2">👋 Welcome to Signal Rush, ${Layout.escapeHtml(account?.company_name || 'Advertiser')}!</div>
+            <p class="text-sm text-muted mb-4">You're ready to start advertising in Signal Rush. Here's how it works:</p>
+            <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 16px; margin-bottom: 16px;">
+              <div class="text-sm">
+                <div class="font-medium mb-1">1. Create a Campaign</div>
+                <div class="text-muted">Set your brand name, placement type, and budget. You can start with any budget — even $0 to test.</div>
+              </div>
+              <div class="text-sm">
+                <div class="font-medium mb-1">2. Add Creatives</div>
+                <div class="text-muted">Upload your logo image or write a sponsor message. We'll convert it to in-game art automatically.</div>
+              </div>
+              <div class="text-sm">
+                <div class="font-medium mb-1">3. Submit for Review</div>
+                <div class="text-muted">We approve campaigns within 24 hours. Once live, you pay only when players see your ad.</div>
+              </div>
+              <div class="text-sm">
+                <div class="font-medium mb-1">4. Pay Per Impression</div>
+                <div class="text-muted">You're charged $0.001 per impression. 20% funds player rewards — so players WANT to see your ads.</div>
+              </div>
+            </div>
+            <a href="/portal/campaign-new.html" class="btn btn-primary">Create Your First Campaign →</a>
+          </div>
+        ` : '';
+
         const content = `
+          ${welcomeBanner}
           <!-- Stats Overview -->
           <div class="stats-grid">
             <div class="stat-card">
