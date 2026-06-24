@@ -60,9 +60,37 @@ const CAMPAIGNS = [
 ];
 
 let activeCampaign = null;
+let campaignIndex = 0;
 
 function getActiveCampaign() {
   return activeCampaign || CAMPAIGNS[0];
+}
+
+function setActiveCampaigns(campaigns) {
+  if (campaigns && campaigns.length > 0) {
+    // Round-robin: cycle through active campaigns each session
+    const idx = campaignIndex % campaigns.length;
+    campaignIndex = (campaignIndex + 1) % campaigns.length;
+    const selected = campaigns[idx];
+    // Convert API format to internal sponsor format
+    if (selected.creatives !== undefined) {
+      activeCampaign = apiCampaignToSponsor(selected);
+    } else {
+      activeCampaign = {
+        ...CAMPAIGNS[0],
+        ...selected,
+        rotatingLabels: selected.rotatingLabels || CAMPAIGNS[0].rotatingLabels,
+      };
+    }
+  } else {
+    // Empty array or null → reset to static default
+    activeCampaign = null;
+  }
+}
+
+// Reset rotation counter (useful for tests)
+function resetCampaignRotation() {
+  campaignIndex = 0;
 }
 
 function getRotatingLabels() {
@@ -111,28 +139,6 @@ const DEVELOPER = {
 
 function getDeveloper() {
   return DEVELOPER;
-}
-
-function setActiveCampaigns(campaigns) {
-  if (campaigns && campaigns.length > 0) {
-    const first = campaigns[0];
-    // Check if this is an API-format campaign (has creatives array)
-    // or an internal-format campaign (has logoFull directly)
-    if (first.creatives !== undefined) {
-      // API format — convert to internal sponsor format
-      activeCampaign = apiCampaignToSponsor(first);
-    } else {
-      // Internal format — merge with defaults
-      activeCampaign = {
-        ...CAMPAIGNS[0],
-        ...first,
-        rotatingLabels: first.rotatingLabels || CAMPAIGNS[0].rotatingLabels,
-      };
-    }
-  } else {
-    // Empty array or null → reset to static default
-    activeCampaign = null;
-  }
 }
 
 // ─── Live Campaign Fetch ───────────────────────────────────────────
@@ -331,6 +337,7 @@ module.exports = {
   getCampaign,
   getDeveloper,
   setActiveCampaigns,
+  resetCampaignRotation,
   fetchActiveCampaigns,
   apiCampaignToSponsor,
   SPONSOR_CONTENT,

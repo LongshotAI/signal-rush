@@ -276,14 +276,12 @@ function tryFillHomeSlot(state) {
   }
   state.homeSlots[slotIndex] = true;
   state.score += cfg.slotScore;
-  state.credits += Math.max(1, Math.floor(cfg.slotScore / 50));
   state.combo = Math.min(9.9, Number((state.combo + 0.5).toFixed(1)));
   state.lastEvents.push({ type: 'home_slot_filled', slotIndex });
   if (state.homeSlots.every((s) => s)) {
     const timeBonus = state.timeLeft * cfg.timeBonusPerTick;
     const levelBonus = cfg.levelClearBonus * state.level;
     state.score += timeBonus + levelBonus;
-    state.credits += Math.max(1, Math.floor((timeBonus + levelBonus) / 50));
     state.level += 1;
     state.homeSlots = [false, false, false, false, false];
     state.timeLeft = cfg.timePerLevel + state.level * 5;
@@ -509,6 +507,11 @@ function stepFrogger(state, input) {
   // "GO!" stuck in the message line for the whole run.
   if (state.message === 'GO!') {
     state.message = 'Move WASD/arrows. Hop logs. Avoid cars. Fill the slots.';
+  }
+
+  // Sponsor impressions: fire on the same cadence as AI Hunt
+  if (!state.paused && !state.gameOver && state.tick % GAME_CONFIG.sponsorImpressionEveryTicks === 0) {
+    events.push({ type: 'sponsor_impression' });
   }
 
   return state;
@@ -834,9 +837,6 @@ function stepAiHunt(engine, state, input) {
       }
       const gained = Math.floor(pickup.value * state.combo);
       state.score += gained;
-      const credits = Math.max(1, Math.floor(gained / 25));
-      state.credits += credits;
-      events.push({ type: 'credits_awarded', credits });
       state.message = `Signal secured +${gained}. Keep moving.`;
 
       // Consecutive pickup streak

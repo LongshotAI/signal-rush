@@ -298,9 +298,12 @@ function buildHudRight(state, options = {}) {
   const p = (code, ch) => paint(code, ch, options);
   if (state.mode === 'frogger') {
     const slotsFilled = (state.homeSlots || []).filter(Boolean).length;
+    const froggerRewardText = typeof state.rewardMicros === 'number'
+      ? ` ${p(COLORS.dim, '🎯')} ${p(COLORS.bold + COLORS.cyan, String(state.rewardMicros) + 'µ')}`
+      : '';
     return (
       `${p(COLORS.dim, 'SLOTS')} ${p(COLORS.bold + COLORS.green, String(slotsFilled) + '/5')}` +
-      `   ${p(COLORS.dim, 'CREDITS')} ${p(COLORS.bold + COLORS.yellow, String(state.credits))}` +
+      froggerRewardText +
       `   ${p(COLORS.dim, 'BEST')} ${p(COLORS.bold + COLORS.yellow, String(state.bestScore))}`
     );
   }
@@ -310,9 +313,13 @@ function buildHudRight(state, options = {}) {
   const riskText = state.nearMissStreak > 0
     ? ` ${p(COLORS.dim, 'RK')} ${p(COLORS.bold + COLORS.magenta, 'x' + state.nearMissStreak)}`
     : '';
+  const rewardText = typeof state.rewardMicros === 'number'
+    ? ` ${p(COLORS.dim, '🎯')} ${p(COLORS.bold + COLORS.cyan, String(state.rewardMicros) + 'µ')}`
+    : '';
   return (
     `${p(COLORS.dim, 'DASH')} ${dashText}` +
     riskText +
+    rewardText +
     ` ${p(COLORS.dim, 'CR')} ${p(COLORS.bold + COLORS.yellow, String(state.credits))}`
   );
 }
@@ -524,7 +531,7 @@ function renderFrame(state, viewport = { columns: 100, rows: 40 }, options = {})
 // Shows the sponsor's ASCII logo, a message, and credits earned.
 // Auto-dismisses after 3 seconds or on any keypress.
 
-function buildInterstitialFrame(state, viewport = { columns: 100, rows: 40 }, options = {}) {
+function buildInterstitialFrame(state, viewport = { columns: 100, rows: 40 }, options = {}, sponsorMicros = 0) {
   const p = (code, ch) => paint(code, ch, options);
   const width = Math.max(80, viewport.columns || 100);
   const shellWidth = Math.max(width, GAME_CONFIG.width + 8);
@@ -568,6 +575,14 @@ function buildInterstitialFrame(state, viewport = { columns: 100, rows: 40 }, op
     p(COLORS.dim, '   Credits Earned: ') + p(COLORS.bold + COLORS.green, String(finalCredits)),
     shellWidth
   ));
+
+  // Sponsor rewards (from 20% pool)
+  if (sponsorMicros > 0) {
+    lines.push(center(
+      p(COLORS.dim, 'Sponsor Rewards: ') + p(COLORS.bold + COLORS.cyan, String(sponsorMicros) + ' µ'),
+      shellWidth
+    ));
+  }
 
   lines.push('');
 

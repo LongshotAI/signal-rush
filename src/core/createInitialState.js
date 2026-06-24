@@ -40,6 +40,7 @@ function createAiHuntState() {
     shieldPickupActive: false,
     telegraphs: [],  // upcoming hazard spawn positions with ttl
     difficultyTier: 0,
+    rewardMicros: 0,
   };
 }
 
@@ -89,6 +90,7 @@ function createFroggerState() {
       speed: l.speed || 0,
       vehicles: (l.vehicles || []).map((v) => ({ x: v.x })),
     })),
+    rewardMicros: 0,
   };
 }
 

@@ -98,7 +98,7 @@ function draw() {
   if (menuMode) {
     frame = renderMenuFrame(menuSelection, { colors: useColor });
   } else if (showInterstitial && engine) {
-    frame = buildInterstitialFrame(engine.state, viewport, { colors: useColor });
+    frame = buildInterstitialFrame(engine.state, viewport, { colors: useColor }, 0);
   } else {
     frame = renderFrame(engine.state, viewport, { colors: useColor });
   }
@@ -174,22 +174,9 @@ function step() {
     return;
   }
 
-  // Capture credits BEFORE step() for diffing — the bridge compares
-  // engine.state.credits after vs before to catch ALL credit changes
-  // (pickups, slots, level clears) regardless of engine events.
-  const creditsBefore = (!isDemo && economyPlayerId && economySessionId)
-    ? engine.state.credits : 0;
-
   engine.step(input);
 
   // Forward events to economy service (non-demo mode only).
-  // Fire-and-forget: if the economy service is down, events are queued
-  // locally and retried later. Gameplay is NEVER blocked.
-  if (!isDemo && economyPlayerId && economySessionId) {
-    eventBridge.forwardStep(economyPlayerId, economySessionId, engine, creditsBefore)
-      .catch(() => {}); // already handled inside bridge
-  }
-
   // Log ad impressions from engine events.
   // sponsor_impression fires every 40 ticks; interstitial_impression fires
   // when the interstitial is shown. Both are fire-and-forget.
@@ -204,12 +191,36 @@ function step() {
     }
   }
 
+  // Fetch ad-funded reward pool balance every 40 ticks.
+  // Fire-and-forget HTTP GET — never blocks the game loop.
+  if (!isDemo && economyPlayerId && engine.state.tick % GAME_CONFIG.sponsorImpressionEveryTicks === 0) {
+    eventBridge.fetchRewardBalance(economyPlayerId).then((data) => {
+      if (data && typeof data.available_micros === 'number') {
+        engine.state.rewardMicros = data.available_micros;
+      }
+    }).catch(() => {});
+  }
+
   // Trigger interstitial on first game over tick.
   // The interstitial shows the sponsor card before the restart prompt.
   if (engine.state.gameOver && !showInterstitial && !pendingMenu) {
     showInterstitial = true;
     eventBridge.logAdImpression(economyPlayerId, 'interstitial', getCampaign().id || null)
       .catch(() => {});
+    // Forward final session stats to earn skill-based rewards from the pool.
+    // Fire-and-forget — never blocks the game loop.
+    if (!isDemo && economyPlayerId) {
+      const diffTier = typeof engine.state.difficultyTier === 'number'
+        ? engine.state.difficultyTier
+        : Math.min(8, Math.floor((engine.state.tick || 0) / 100));
+      eventBridge.forwardReward(economyPlayerId, {
+        score: engine.state.score || 0,
+        combo: engine.state.combo || 0,
+        level: engine.state.level || 1,
+        tickCount: engine.state.tick || 0,
+        difficultyTier: diffTier,
+      }).catch(() => {});
+    }
     // Auto-dismiss after 3 seconds if no keypress
     if (interstitialTimer) clearTimeout(interstitialTimer);
     interstitialTimer = setTimeout(() => {
