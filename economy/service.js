@@ -128,12 +128,15 @@ function createServer({ port = DEFAULT_PORT, host = DEFAULT_HOST, dbPath = ledge
   // WARNING: ECONOMY_AUTH_ENFORCED=<anything-else> does NOT disable — any value other
   // than the literal string 'false' will ENFORCE auth and lock out callers.
 
-  const protectedPrefixes = ['/internal/', '/credits/', '/ads/'];
+  // /ads/impression is player-initiated (Mini App / CLI) — rate-limited server-side
+  // via per-player cooldown, so it does NOT require auth.
+  // /internal/ingest and /credits/* DO require auth (admin/award operations).
+  const protectedPrefixes = ['/internal/', '/credits/'];
 
   app.addHook('onRequest', async (req, reply) => {
     const path = req.url.split('?')[0];
     const isProtected = protectedPrefixes.some(p => path.startsWith(p));
-    if (!isProtected) return; // public endpoints (health, players, tracking) pass through
+    if (!isProtected) return; // public endpoints (health, players, ads, tracking) pass through
 
     const result = auth.validateAuth(req.headers.authorization);
     if (!result.ok) {
@@ -376,9 +379,9 @@ function createServer({ port = DEFAULT_PORT, host = DEFAULT_HOST, dbPath = ledge
       return { error: err.message };
     }
 
+    // Auto-create player if they don't exist (CLI generates UUID locally)
     if (!ledger.playerExists(db, validatedPlayerId)) {
-      reply.code(404);
-      return { error: 'player not found' };
+      db.prepare('INSERT INTO players (id, display_name) VALUES (?, ?)').run(validatedPlayerId, 'CLI Player');
     }
 
     try {

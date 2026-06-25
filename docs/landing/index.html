@@ -1,0 +1,1116 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="theme-color" content="#06060f" />
+
+  <!-- ── SEO / GEO ─────────────────────────────────────────── -->
+  <title>Signal Rush — The Terminal Arcade Game | LongshotAI</title>
+  <meta name="description" content="A reflex arcade game built natively for the terminal generation. Dodge hazards, collect signal, chain combos. Two modes: AI Hunt + Packet Hop. Engine-first architecture, 229+ tests, open source." />
+  <meta name="keywords" content="terminal game, CLI arcade, developer game, ASCII game, signal rush, longshotAI, reflex game, coding game, programmer entertainment, command line game" />
+  <meta name="author" content="LongshotAI" />
+  <meta name="robots" content="index, follow" />
+  <link rel="canonical" href="https://longshotai.github.io/signal-rush/" />
+
+  <!-- ── Open Graph ─────────────────────────────────────────── -->
+  <meta property="og:type" content="website" />
+  <meta property="og:title" content="Signal Rush — The Terminal Arcade Game" />
+  <meta property="og:description" content="A reflex arcade built natively for the CLI generation. Two modes. Engine-first. 229+ tests. $0 server cost." />
+  <meta property="og:url" content="https://longshotai.github.io/signal-rush/" />
+  <meta property="og:site_name" content="Signal Rush" />
+  <meta property="og:locale" content="en_US" />
+
+  <!-- ── Twitter Card ───────────────────────────────────────── -->
+  <meta name="twitter:card" content="summary_large_image" />
+  <meta name="twitter:title" content="Signal Rush — The Terminal Arcade Game" />
+  <meta name="twitter:description" content="Dodge hazards. Collect signal. Chain combos. The arcade for the terminal generation." />
+
+  <!-- ── Structured Data (JSON-LD) ─────────────────────────── -->
+  <script type="application/ld+json">
+  {
+    "@context": "https://schema.org",
+    "@type": "VideoGame",
+    "name": "Signal Rush",
+    "description": "A reflex arcade game built natively for the terminal generation. Dodge hazards, collect signal, chain combos. Two gameplay modes: AI Hunt and Packet Hop.",
+    "applicationCategory": "Game",
+    "operatingSystem": "Any (Node.js 18+)",
+    "operatingSystem": "Linux, macOS, Windows",
+    "offers": {
+      "@type": "Offer",
+      "price": "0",
+      "priceCurrency": "USD"
+    },
+    "author": {
+      "@type": "Organization",
+      "name": "LongshotAI",
+      "url": "https://github.com/LongshotAI"
+    },
+    "genre": "Arcade / Reflex",
+    "playMode": "SinglePlayer",
+    "gamePlatform": "Web Browser, Terminal CLI, Telegram Mini App"
+  }
+  </script>
+
+  <!-- ── Fonts ──────────────────────────────────────────────── -->
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@300;400;500;600;700;800&family=Space+Grotesk:wght@400;500;600;700&display=swap" rel="stylesheet" />
+
+  <style>
+    /* ── Design Tokens ──────────────────────────────────────── */
+    :root {
+      --bg-deep: #06060f;
+      --bg-surface: #0a0a1a;
+      --bg-card: #0f0f24;
+      --grid: rgba(0, 255, 136, 0.04);
+      --green: #00ff88;
+      --green-dim: #00cc6a;
+      --green-glow: rgba(0, 255, 136, 0.15);
+      --pink: #ff3355;
+      --pink-glow: rgba(255, 51, 85, 0.12);
+      --cyan: #00d4ff;
+      --cyan-glow: rgba(0, 212, 255, 0.1);
+      --yellow: #ffdd44;
+      --white: #e6edf3;
+      --dim: rgba(230, 237, 243, 0.5);
+      --muted: rgba(230, 237, 243, 0.3);
+      --font-mono: 'JetBrains Mono', 'SF Mono', 'Fira Code', monospace;
+      --font-display: 'Space Grotesk', 'JetBrains Mono', sans-serif;
+      --section-pad: clamp(80px, 10vw, 160px);
+    }
+
+    /* ── Reset ──────────────────────────────────────────────── */
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    html { scroll-behavior: smooth; -webkit-font-smoothing: antialiased; }
+    body {
+      background: var(--bg-deep);
+      color: var(--white);
+      font-family: var(--font-mono);
+      line-height: 1.6;
+      overflow-x: hidden;
+    }
+    a { color: var(--green); text-decoration: none; transition: color 0.2s; }
+    a:hover { color: var(--cyan); }
+    ::selection { background: var(--green); color: var(--bg-deep); }
+
+    /* ── Parallax Container ─────────────────────────────────── */
+    .parallax-world {
+      position: fixed;
+      inset: 0;
+      pointer-events: none;
+      z-index: 0;
+      overflow: hidden;
+    }
+    .parallax-layer {
+      position: absolute;
+      inset: 0;
+      will-change: transform;
+    }
+
+    /* ── Grid Background ────────────────────────────────────── */
+    .grid-bg {
+      position: fixed;
+      inset: 0;
+      background-image:
+        linear-gradient(var(--grid) 1px, transparent 1px),
+        linear-gradient(90deg, var(--grid) 1px, transparent 1px);
+      background-size: 60px 60px;
+      z-index: 0;
+      pointer-events: none;
+    }
+    .grid-bg::after {
+      content: '';
+      position: absolute;
+      inset: 0;
+      background: radial-gradient(ellipse 80% 60% at 50% 0%, rgba(0,255,136,0.06) 0%, transparent 60%),
+                  radial-gradient(ellipse 60% 40% at 80% 100%, rgba(255,51,85,0.04) 0%, transparent 50%);
+    }
+
+    /* ── Floating Particles ─────────────────────────────────── */
+    .particle {
+      position: absolute;
+      width: 2px;
+      height: 2px;
+      background: var(--green);
+      border-radius: 50%;
+      opacity: 0;
+      animation: float-particle linear infinite;
+    }
+    @keyframes float-particle {
+      0% { opacity: 0; transform: translateY(100vh) scale(0); }
+      10% { opacity: 0.6; }
+      90% { opacity: 0.6; }
+      100% { opacity: 0; transform: translateY(-10vh) scale(1); }
+    }
+
+    /* ── Main Content ───────────────────────────────────────── */
+    .content {
+      position: relative;
+      z-index: 1;
+    }
+
+    /* ── Navigation ─────────────────────────────────────────── */
+    .nav {
+      position: fixed;
+      top: 0;
+      left: 0;
+      right: 0;
+      z-index: 100;
+      padding: 20px clamp(20px, 5vw, 80px);
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      backdrop-filter: blur(12px);
+      -webkit-backdrop-filter: blur(12px);
+      background: rgba(6, 6, 15, 0.7);
+      border-bottom: 1px solid rgba(0, 255, 136, 0.08);
+      transition: padding 0.3s, background 0.3s;
+    }
+    .nav.scrolled {
+      padding: 14px clamp(20px, 5vw, 80px);
+      background: rgba(6, 6, 15, 0.92);
+    }
+    .nav-logo {
+      font-family: var(--font-display);
+      font-weight: 700;
+      font-size: 18px;
+      color: var(--green);
+      letter-spacing: 3px;
+      text-shadow: 0 0 20px var(--green-glow);
+    }
+    .nav-logo span { color: var(--white); opacity: 0.4; }
+    .nav-links {
+      display: flex;
+      gap: 32px;
+      list-style: none;
+    }
+    .nav-links a {
+      font-size: 12px;
+      letter-spacing: 1.5px;
+      text-transform: uppercase;
+      color: var(--dim);
+      transition: color 0.2s, text-shadow 0.2s;
+    }
+    .nav-links a:hover {
+      color: var(--green);
+      text-shadow: 0 0 10px var(--green-glow);
+    }
+    @media (max-width: 768px) {
+      .nav-links { display: none; }
+    }
+
+    /* ── Section Base ───────────────────────────────────────── */
+    .section {
+      padding: var(--section-pad) clamp(20px, 5vw, 80px);
+      position: relative;
+    }
+    .section-label {
+      font-size: 11px;
+      letter-spacing: 3px;
+      text-transform: uppercase;
+      color: var(--green);
+      margin-bottom: 24px;
+      display: flex;
+      align-items: center;
+      gap: 12px;
+    }
+    .section-label::before {
+      content: '';
+      display: block;
+      width: 24px;
+      height: 1px;
+      background: var(--green);
+    }
+    .section-title {
+      font-family: var(--font-display);
+      font-size: clamp(32px, 5vw, 56px);
+      font-weight: 700;
+      line-height: 1.1;
+      margin-bottom: 24px;
+      letter-spacing: -1px;
+    }
+    .section-title .accent { color: var(--green); }
+    .section-title .accent-pink { color: var(--pink); }
+    .section-title .accent-cyan { color: var(--cyan); }
+    .section-body {
+      max-width: 640px;
+      font-size: 15px;
+      line-height: 1.8;
+      color: var(--dim);
+    }
+
+    /* ── Reveal Animation ───────────────────────────────────── */
+    .reveal {
+      opacity: 0;
+      transform: translateY(40px);
+      transition: opacity 0.8s cubic-bezier(0.16, 1, 0.3, 1),
+                  transform 0.8s cubic-bezier(0.16, 1, 0.3, 1);
+    }
+    .reveal.visible {
+      opacity: 1;
+      transform: translateY(0);
+    }
+    .reveal-delay-1 { transition-delay: 0.1s; }
+    .reveal-delay-2 { transition-delay: 0.2s; }
+    .reveal-delay-3 { transition-delay: 0.3s; }
+    .reveal-delay-4 { transition-delay: 0.4s; }
+
+    /* ── HERO ───────────────────────────────────────────────── */
+    .hero {
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      text-align: center;
+      padding: 120px 20px 80px;
+      position: relative;
+    }
+    .hero-inner {
+      position: relative;
+      z-index: 2;
+    }
+    .hero-logo {
+      font-family: var(--font-mono);
+      font-size: clamp(10px, 1.4vw, 16px);
+      line-height: 1.15;
+      color: var(--green);
+      text-shadow: 0 0 30px var(--green-glow), 0 0 60px rgba(0,255,136,0.08);
+      white-space: pre;
+      margin-bottom: 40px;
+      user-select: none;
+      animation: logo-glow 4s ease-in-out infinite;
+    }
+    @keyframes logo-glow {
+      0%, 100% { text-shadow: 0 0 30px var(--green-glow), 0 0 60px rgba(0,255,136,0.08); }
+      50% { text-shadow: 0 0 40px rgba(0,255,136,0.3), 0 0 80px rgba(0,255,136,0.12); }
+    }
+    .hero-tagline {
+      font-family: var(--font-display);
+      font-size: clamp(28px, 5vw, 64px);
+      font-weight: 700;
+      line-height: 1.1;
+      margin-bottom: 24px;
+      letter-spacing: -1px;
+    }
+    .hero-sub {
+      font-size: clamp(14px, 1.8vw, 18px);
+      color: var(--dim);
+      max-width: 560px;
+      margin: 0 auto 48px;
+      line-height: 1.7;
+    }
+    .hero-cta {
+      display: inline-flex;
+      align-items: center;
+      gap: 12px;
+      padding: 16px 36px;
+      background: var(--green);
+      color: var(--bg-deep);
+      font-family: var(--font-mono);
+      font-weight: 600;
+      font-size: 14px;
+      letter-spacing: 1px;
+      text-transform: uppercase;
+      border: none;
+      border-radius: 4px;
+      cursor: pointer;
+      transition: transform 0.2s, box-shadow 0.2s;
+      box-shadow: 0 0 30px var(--green-glow);
+    }
+    .hero-cta:hover {
+      transform: translateY(-2px);
+      box-shadow: 0 0 50px rgba(0,255,136,0.3), 0 8px 30px rgba(0,0,0,0.4);
+      color: var(--bg-deep);
+    }
+    .hero-cta-secondary {
+      background: transparent;
+      border: 1px solid rgba(0,255,136,0.3);
+      color: var(--green);
+      box-shadow: none;
+    }
+    .hero-cta-secondary:hover {
+      border-color: var(--green);
+      background: rgba(0,255,136,0.05);
+      box-shadow: 0 0 20px var(--green-glow);
+    }
+    .hero-cta-group {
+      display: flex;
+      gap: 16px;
+      justify-content: center;
+      flex-wrap: wrap;
+    }
+    .hero-scroll-hint {
+      position: absolute;
+      bottom: 40px;
+      left: 50%;
+      transform: translateX(-50%);
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 8px;
+      color: var(--muted);
+      font-size: 10px;
+      letter-spacing: 2px;
+      text-transform: uppercase;
+      animation: bob 2s ease-in-out infinite;
+    }
+    @keyframes bob {
+      0%, 100% { transform: translateX(-50%) translateY(0); }
+      50% { transform: translateX(-50%) translateY(6px); }
+    }
+    .hero-scroll-hint::after {
+      content: '';
+      width: 1px;
+      height: 30px;
+      background: linear-gradient(to bottom, var(--muted), transparent);
+    }
+
+    /* ── Scanline overlay on hero ───────────────────────────── */
+    .scanlines {
+      position: absolute;
+      inset: 0;
+      background: repeating-linear-gradient(
+        0deg,
+        transparent,
+        transparent 2px,
+        rgba(0,0,0,0.03) 2px,
+        rgba(0,0,0,0.03) 4px
+      );
+      pointer-events: none;
+      z-index: 1;
+    }
+
+    /* ── MODES SECTION ──────────────────────────────────────── */
+    .modes-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+      gap: 32px;
+      margin-top: 60px;
+      perspective: 1200px;
+    }
+    .mode-card {
+      background: var(--bg-card);
+      border: 1px solid rgba(0,255,136,0.08);
+      border-radius: 12px;
+      padding: 40px 32px;
+      position: relative;
+      overflow: hidden;
+      transform-style: preserve-3d;
+      transition: transform 0.4s cubic-bezier(0.03, 0.98, 0.52, 0.99),
+                  border-color 0.3s,
+                  box-shadow 0.3s;
+      will-change: transform;
+    }
+    .mode-card::before {
+      content: '';
+      position: absolute;
+      inset: 0;
+      background: linear-gradient(135deg, rgba(0,255,136,0.04) 0%, transparent 50%);
+      opacity: 0;
+      transition: opacity 0.3s;
+    }
+    .mode-card:hover::before { opacity: 1; }
+    .mode-card:hover {
+      border-color: rgba(0,255,136,0.2);
+      box-shadow: 0 20px 60px rgba(0,0,0,0.4), 0 0 40px var(--green-glow);
+    }
+    .mode-icon {
+      font-size: 48px;
+      margin-bottom: 24px;
+      display: block;
+      transform: translateZ(40px);
+    }
+    .mode-name {
+      font-family: var(--font-display);
+      font-size: 24px;
+      font-weight: 700;
+      margin-bottom: 12px;
+    }
+    .mode-desc {
+      color: var(--dim);
+      font-size: 14px;
+      line-height: 1.7;
+      margin-bottom: 24px;
+    }
+    .mode-stats {
+      display: flex;
+      gap: 24px;
+      border-top: 1px solid rgba(255,255,255,0.06);
+      padding-top: 20px;
+    }
+    .mode-stat {
+      text-align: left;
+    }
+    .mode-stat-val {
+      font-family: var(--font-display);
+      font-size: 20px;
+      font-weight: 700;
+      color: var(--green);
+    }
+    .mode-stat-label {
+      font-size: 10px;
+      letter-spacing: 1.5px;
+      text-transform: uppercase;
+      color: var(--muted);
+      margin-top: 2px;
+    }
+    .mode-tag {
+      display: inline-block;
+      padding: 4px 10px;
+      font-size: 10px;
+      letter-spacing: 1px;
+      text-transform: uppercase;
+      border-radius: 2px;
+      background: rgba(0,255,136,0.08);
+      color: var(--green);
+      border: 1px solid rgba(0,255,136,0.15);
+      margin-bottom: 20px;
+    }
+    .mode-card:nth-child(2) .mode-tag {
+      background: rgba(255,51,85,0.08);
+      color: var(--pink);
+      border-color: rgba(255,51,85,0.15);
+    }
+    .mode-card:nth-child(2):hover {
+      border-color: rgba(255,51,85,0.2);
+      box-shadow: 0 20px 60px rgba(0,0,0,0.4), 0 0 40px var(--pink-glow);
+    }
+
+    /* ── STATS / PITCH SECTION ──────────────────────────────── */
+    .pitch {
+      background: var(--bg-surface);
+      border-top: 1px solid rgba(255,255,255,0.04);
+      border-bottom: 1px solid rgba(255,255,255,0.04);
+    }
+    .stats-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+      gap: 40px;
+      margin-top: 60px;
+    }
+    .stat-item {
+      text-align: left;
+    }
+    .stat-number {
+      font-family: var(--font-display);
+      font-size: clamp(40px, 6vw, 72px);
+      font-weight: 700;
+      color: var(--green);
+      line-height: 1;
+      margin-bottom: 8px;
+      font-variant-numeric: tabular-nums;
+    }
+    .stat-label {
+      font-size: 13px;
+      color: var(--dim);
+      letter-spacing: 0.5px;
+    }
+    .stat-context {
+      font-size: 11px;
+      color: var(--muted);
+      margin-top: 4px;
+    }
+
+    /* ── TECH CREDIBILITY ───────────────────────────────────── */
+    .tech-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+      gap: 24px;
+      margin-top: 60px;
+    }
+    .tech-card {
+      background: var(--bg-card);
+      border: 1px solid rgba(255,255,255,0.04);
+      border-radius: 8px;
+      padding: 28px;
+      transition: border-color 0.3s, transform 0.3s;
+    }
+    .tech-card:hover {
+      border-color: rgba(0,212,255,0.2);
+      transform: translateY(-4px);
+    }
+    .tech-card-icon {
+      font-size: 24px;
+      margin-bottom: 16px;
+      display: block;
+    }
+    .tech-card-title {
+      font-family: var(--font-display);
+      font-size: 16px;
+      font-weight: 600;
+      margin-bottom: 8px;
+    }
+    .tech-card-body {
+      font-size: 13px;
+      color: var(--dim);
+      line-height: 1.7;
+    }
+
+    /* ── CODE BLOCK ─────────────────────────────────────────── */
+    .code-block {
+      background: #09091a;
+      border: 1px solid rgba(0,255,136,0.1);
+      border-radius: 8px;
+      padding: 24px 28px;
+      margin-top: 40px;
+      overflow-x: auto;
+      position: relative;
+    }
+    .code-block::before {
+      content: 'terminal';
+      position: absolute;
+      top: 8px;
+      right: 16px;
+      font-size: 10px;
+      letter-spacing: 1px;
+      text-transform: uppercase;
+      color: var(--muted);
+    }
+    .code-block pre {
+      font-family: var(--font-mono);
+      font-size: 13px;
+      line-height: 1.8;
+      color: var(--dim);
+    }
+    .code-block .prompt { color: var(--green); }
+    .code-block .comment { color: var(--muted); }
+    .code-block .string { color: var(--cyan); }
+    .code-block .keyword { color: var(--pink); }
+
+    /* ── ADVERTISER SECTION ─────────────────────────────────── */
+    .ad-placements {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+      gap: 20px;
+      margin-top: 48px;
+    }
+    .placement-card {
+      background: linear-gradient(180deg, var(--bg-card) 0%, var(--bg-surface) 100%);
+      border: 1px solid rgba(255,255,255,0.04);
+      border-radius: 8px;
+      padding: 24px;
+      text-align: center;
+      transition: transform 0.3s, border-color 0.3s;
+    }
+    .placement-card:hover {
+      transform: translateY(-4px);
+      border-color: rgba(0,255,136,0.15);
+    }
+    .placement-icon {
+      font-size: 32px;
+      margin-bottom: 12px;
+      display: block;
+    }
+    .placement-name {
+      font-family: var(--font-display);
+      font-size: 15px;
+      font-weight: 600;
+      margin-bottom: 6px;
+    }
+    .placement-desc {
+      font-size: 12px;
+      color: var(--muted);
+      line-height: 1.6;
+    }
+
+    /* ── CTA BANNER ─────────────────────────────────────────── */
+    .cta-banner {
+      text-align: center;
+      padding: clamp(80px, 12vw, 140px) 20px;
+      position: relative;
+    }
+    .cta-banner::before {
+      content: '';
+      position: absolute;
+      inset: 0;
+      background: radial-gradient(ellipse 60% 50% at 50% 50%, var(--green-glow) 0%, transparent 70%);
+      pointer-events: none;
+    }
+    .cta-title {
+      font-family: var(--font-display);
+      font-size: clamp(28px, 4vw, 48px);
+      font-weight: 700;
+      margin-bottom: 20px;
+      position: relative;
+    }
+    .cta-sub {
+      color: var(--dim);
+      font-size: 15px;
+      margin-bottom: 40px;
+      position: relative;
+    }
+
+    /* ── FOOTER ─────────────────────────────────────────────── */
+    .footer {
+      border-top: 1px solid rgba(255,255,255,0.04);
+      padding: 60px 20px 40px;
+      text-align: center;
+    }
+    .footer-links {
+      display: flex;
+      justify-content: center;
+      gap: 32px;
+      margin-bottom: 24px;
+      flex-wrap: wrap;
+    }
+    .footer-links a {
+      font-size: 12px;
+      letter-spacing: 1px;
+      color: var(--muted);
+      transition: color 0.2s;
+    }
+    .footer-links a:hover { color: var(--green); }
+    .footer-copy {
+      font-size: 11px;
+      color: var(--muted);
+    }
+    .footer-brand {
+      font-family: var(--font-display);
+      font-size: 14px;
+      font-weight: 600;
+      color: var(--green);
+      letter-spacing: 2px;
+      margin-bottom: 16px;
+      text-shadow: 0 0 15px var(--green-glow);
+    }
+
+    /* ── 3D Tilt Wrapper ────────────────────────────────────── */
+    .tilt-wrap {
+      perspective: 1000px;
+      transform-style: preserve-3d;
+    }
+
+    /* ── Responsive ─────────────────────────────────────────── */
+    @media (max-width: 768px) {
+      .hero-logo { font-size: 8px; }
+      .hero-tagline { font-size: 32px; }
+      .modes-grid { grid-template-columns: 1fr; }
+      .stats-grid { grid-template-columns: repeat(2, 1fr); gap: 24px; }
+      .tech-grid { grid-template-columns: 1fr; }
+      .ad-placements { grid-template-columns: 1fr; }
+    }
+
+    @media (prefers-reduced-motion: reduce) {
+      *, *::before, *::after {
+        animation-duration: 0.01ms !important;
+        transition-duration: 0.01ms !important;
+      }
+    }
+  </style>
+</head>
+<body>
+
+  <!-- ── Parallax World ─────────────────────────────────────── -->
+  <div class="parallax-world" aria-hidden="true">
+    <div class="parallax-layer" data-speed="0.1" style="transform: translate3d(0, 0, 0)">
+      <!-- particles injected by JS -->
+    </div>
+  </div>
+  <div class="grid-bg" aria-hidden="true"></div>
+
+  <!-- ── Navigation ─────────────────────────────────────────── -->
+  <nav class="nav" role="navigation" aria-label="Main">
+    <div class="nav-logo">SIGNAL<span>_</span>RUSH</div>
+    <ul class="nav-links">
+      <li><a href="#modes">Modes</a></li>
+      <li><a href="#tech">Tech</a></li>
+      <li><a href="#advertise">Advertise</a></li>
+      <li><a href="https://github.com/LongshotAI/signal-rush" target="_blank" rel="noopener">GitHub</a></li>
+    </ul>
+  </nav>
+
+  <!-- ── Content ────────────────────────────────────────────── -->
+  <main class="content">
+
+    <!-- ═══════════════ HERO ═══════════════ -->
+    <section class="hero" id="hero">
+      <div class="scanlines"></div>
+      <div class="hero-inner">
+        <pre class="hero-logo" aria-hidden="true">
+███████╗ ██████╗ ███╗   ██╗ ██████╗ ██╗   ██╗███████╗██╗  ██╗
+██╔════╝██╔════╝ ████╗  ██║██╔════╝ ██║   ██║██╔════╝██║  ██║
+███████╗██║  ███╗██║██╗ ██║██║     ██║   ██║███████╗███████║
+╚════██║██║   ██║██║╚██╗██║██║     ██║   ██║╚════██║██╔══██║
+███████║╚██████╔╝██║ ╚████║███████╗██║  ██║╚██████╔╝███████║██║  ██║
+╚══════╝ ╚═════╝ ╚═╝  ╚═══╝╚══════╝╚═╝  ╚═╝ ╚═════╝ ╚══════╝╚═╝  ╚═╝</pre>
+        <h1 class="hero-tagline reveal">
+          The arcade for the<br />
+          <span class="accent">terminal generation</span>.
+        </h1>
+        <p class="hero-sub reveal reveal-delay-1">
+          Signal Rush is a reflex game built natively for the people who already live in a CLI.
+          Dodge hazards. Collect signal. Chain combos. Two modes. Zero server cost.
+        </p>
+        <div class="hero-cta-group reveal reveal-delay-2">
+          <a href="#modes" class="hero-cta">▶ Play Now</a>
+          <a href="https://github.com/LongshotAI/signal-rush" target="_blank" rel="noopener" class="hero-cta hero-cta-secondary">View on GitHub</a>
+        </div>
+      </div>
+      <div class="hero-scroll-hint" aria-hidden="true">Scroll</div>
+    </section>
+
+    <!-- ═══════════════ GAMEPLAY MODES ═══════════════ -->
+    <section class="section" id="modes">
+      <div class="reveal">
+        <div class="section-label">01 — Gameplay</div>
+        <h2 class="section-title">Two modes.<br /><span class="accent">One engine.</span></h2>
+        <p class="section-body">
+          Each mode is a fully independent state machine with its own pacing, scoring curve, and death condition.
+          The engine steps deterministically — no <code>Math.random()</code> in the core. Every run is reproducible.
+        </p>
+      </div>
+
+      <div class="modes-grid">
+        <div class="tilt-wrap reveal reveal-delay-1">
+          <div class="mode-card" data-tilt>
+            <span class="mode-tag">Survival</span>
+            <span class="mode-icon" aria-hidden="true">🎯</span>
+            <h3 class="mode-name">AI Hunt</h3>
+            <p class="mode-desc">
+              Continuous dodge-survival against escalating AI threats. Near-miss risk/reward system.
+              Threat meter, HP pips, dynamic danger halos with overlap detection. The longer you survive,
+              the harder it gets.
+            </p>
+            <div class="mode-stats">
+              <div class="mode-stat">
+                <div class="mode-stat-val" data-count="3">0</div>
+                <div class="mode-stat-label">Hazard Types</div>
+              </div>
+              <div class="mode-stat">
+                <div class="mode-stat-val" data-count="12">0</div>
+                <div class="mode-stat-label">Hazard/sec Peak</div>
+              </div>
+              <div class="mode-stat">
+                <div class="mode-stat-val" data-count="300">0</div>
+                <div class="mode-stat-label">Sec Survival</div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div class="tilt-wrap reveal reveal-delay-2">
+          <div class="mode-card" data-tilt>
+            <span class="mode-tag">Lane-Cross</span>
+            <span class="mode-icon" aria-hidden="true">📡</span>
+            <h3 class="mode-name">Packet Hop</h3>
+            <p class="mode-desc">
+              Frogger-style lane crossing with home slots, water/log lanes, and a visible GOAL bar.
+              GET READY countdown, forward-progress scoring, lives system. Reach the top. Fill your slots.
+              Level up.
+            </p>
+            <div class="mode-stats">
+              <div class="mode-stat">
+                <div class="mode-stat-val" data-count="8">0</div>
+                <div class="mode-stat-label">Lane Types</div>
+              </div>
+              <div class="mode-stat">
+                <div class="mode-stat-val" data-count="5">0</div>
+                <div class="mode-stat-label">Lives</div>
+              </div>
+              <div class="mode-stat">
+                <div class="mode-stat-val">∞</div>
+                <div class="mode-stat-label">Levels</div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ═══════════════ PITCH / STATS ═══════════════ -->
+    <section class="section pitch" id="pitch">
+      <div class="reveal">
+        <div class="section-label">02 — The Market</div>
+        <h2 class="section-title">
+          The only screen with a<br />
+          <span class="accent-cyan">billion-hour audience</span><br />
+          and no games on it.
+        </h2>
+        <p class="section-body">
+          98M+ CLI-agent downloads in 30 days. That's a new audience in a new channel that
+          traditional gaming doesn't reach. Signal Rush is the first to claim that surface.
+        </p>
+      </div>
+
+      <div class="stats-grid">
+        <div class="stat-item reveal reveal-delay-1">
+          <div class="stat-number" data-count="98">0</div>
+          <div class="stat-label">M+ CLI agent downloads</div>
+          <div class="stat-context">30-day npm stats, 2026</div>
+        </div>
+        <div class="stat-item reveal reveal-delay-2">
+          <div class="stat-number" data-count="229">0</div>
+          <div class="stat-label">Tests passing</div>
+          <div class="stat-context">Mechanics + smoke + render</div>
+        </div>
+        <div class="stat-item reveal reveal-delay-3">
+          <div class="stat-number" data-count="0">$0</div>
+          <div class="stat-label">Server cost / month</div>
+          <div class="stat-context">Pure client-side product</div>
+        </div>
+        <div class="stat-item reveal reveal-delay-4">
+          <div class="stat-number" data-count="3">0</div>
+          <div class="stat-label">Render surfaces</div>
+          <div class="stat-context">CLI · Web · Telegram Mini App</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ═══════════════ TECH CREDIBILITY ═══════════════ -->
+    <section class="section" id="tech">
+      <div class="reveal">
+        <div class="section-label">03 — Architecture</div>
+        <h2 class="section-title">
+          Engine-first.<br />
+          <span class="accent">Deterministic.</span> Testable.
+        </h2>
+        <p class="section-body">
+          The engine has zero I/O dependencies. It steps pure state. The CLI renderer reads that state.
+          The web renderer reads that state. Your future plugin reads that state. One core, many surfaces.
+        </p>
+      </div>
+
+      <div class="tech-grid">
+        <div class="tech-card reveal reveal-delay-1">
+          <span class="tech-card-icon" aria-hidden="true">⚙️</span>
+          <h3 class="tech-card-title">Pure Core Engine</h3>
+          <p class="tech-card-body">
+            940 lines of deterministic game logic. No <code>Math.random()</code> in engine code — seeded RNG only.
+            Reusable by browser, CLI, and future mobile renderers.
+          </p>
+        </div>
+        <div class="tech-card reveal reveal-delay-2">
+          <span class="tech-card-icon" aria-hidden="true">🧪</span>
+          <h3 class="tech-card-title">229+ Tests</h3>
+          <p class="tech-card-body">
+            Mechanics, smoke, persistence, compact renderer, embedded widget, economy integration, replay verification.
+            Fresh-clone proofed. Auto-synced via GitHub.
+          </p>
+        </div>
+        <div class="tech-card reveal reveal-delay-3">
+          <span class="tech-card-icon" aria-hidden="true">🔌</span>
+          <h3 class="tech-card-title">Embed-Ready</h3>
+          <p class="tech-card-body">
+            A 6–10 row widget that lives in the bottom band of any agent CLI.
+            Never steals keystrokes. ANSI scroll-region. Idempotent lifecycle.
+          </p>
+        </div>
+        <div class="tech-card reveal reveal-delay-4">
+          <span class="tech-card-icon" aria-hidden="true">💰</span>
+          <h3 class="tech-card-title">Economy Layer</h3>
+          <p class="tech-card-body">
+            SQLite ledger, ad-funded rewards pool, ppq.ai redemption.
+            Credit diffing in the event bridge — no double-counting, never blocks gameplay.
+          </p>
+        </div>
+      </div>
+
+      <!-- Terminal Demo -->
+      <div class="code-block reveal">
+        <pre><span class="prompt">$</span> node src/cli/index.js --mode=aiHunt
+<span class="comment"># Signal Rush — AI Hunt mode</span>
+<span class="prompt">&gt;</span> Engine initialized. Seeded RNG active.
+<span class="prompt">&gt;</span> Renderer: CLI (80×24)
+<span class="prompt">&gt;</span> Tests: <span class="string">229 passing</span>
+<span class="prompt">&gt;</span> Press <span class="keyword">WASD</span> to move, <span class="keyword">Space</span> to dash
+<span class="comment">// █ player  · hazard  ~ pickup  ! danger halo</span></pre>
+      </div>
+    </section>
+
+    <!-- ═══════════════ ADVERTISER SECTION ═══════════════ -->
+    <section class="section" id="advertise">
+      <div class="reveal">
+        <div class="section-label">04 — For Advertisers</div>
+        <h2 class="section-title">
+          Premium placement.<br />
+          <span class="accent-pink">Zero noise.</span>
+        </h2>
+        <p class="section-body">
+          Three placement types. Self-serve portal. Manual approval for brand safety.
+          Your message reaches the exact demographic with budget: developers, founders, CTOs.
+        </p>
+      </div>
+
+      <div class="ad-placements">
+        <div class="placement-card reveal reveal-delay-1">
+          <span class="placement-icon" aria-hidden="true">🖼️</span>
+          <h3 class="placement-name">HUD Frame</h3>
+          <p class="placement-desc">Passive brand label visible during gameplay. Rotates between campaigns. Non-intrusive.</p>
+        </div>
+        <div class="placement-card reveal reveal-delay-2">
+          <span class="placement-icon" aria-hidden="true">📺</span>
+          <h3 class="placement-name">Interstitial</h3>
+          <p class="placement-desc">Between-run sponsor card. Headline + body + CTA. Frequency-capped. Never mid-run.</p>
+        </div>
+        <div class="placement-card reveal reveal-delay-3">
+          <span class="placement-icon" aria-hidden="true">🎨</span>
+          <h3 class="placement-name">Custom Creative</h3>
+          <p class="placement-desc">Upload ASCII art, brand logos, taglines. Approved before going live.</p>
+        </div>
+      </div>
+    </section>
+
+    <!-- ═══════════════ CTA ═══════════════ -->
+    <section class="cta-banner">
+      <h2 class="cta-title reveal">Ready to <span class="accent">play</span>?</h2>
+      <p class="cta-sub reveal reveal-delay-1">Open your terminal. Clone the repo. Run it.</p>
+      <a href="https://github.com/LongshotAI/signal-rush" target="_blank" rel="noopener" class="hero-cta reveal reveal-delay-2">
+        ⚡ Clone &amp; Play
+      </a>
+    </section>
+
+  </main>
+
+  <!-- ── Footer ─────────────────────────────────────────────── -->
+  <footer class="footer" role="contentinfo">
+    <div class="footer-brand">SIGNAL RUSH</div>
+    <div class="footer-links">
+      <a href="https://github.com/LongshotAI/signal-rush" target="_blank" rel="noopener">GitHub</a>
+      <a href="https://github.com/LongshotAI" target="_blank" rel="noopener">LongshotAI</a>
+      <a href="#modes">Modes</a>
+      <a href="#tech">Tech</a>
+      <a href="#advertise">Advertise</a>
+    </div>
+    <p class="footer-copy">© 2026 LongshotAI · USP × Temple Works</p>
+  </footer>
+
+  <!-- ── JavaScript ─────────────────────────────────────────── -->
+  <script>
+    (() => {
+      'use strict';
+
+      // ── Scroll Reveal ───────────────────────────────────────
+      const revealObserver = new IntersectionObserver((entries) => {
+        entries.forEach(entry => {
+          if (entry.isIntersecting) {
+            entry.target.classList.add('visible');
+            revealObserver.unobserve(entry.target);
+          }
+        });
+      }, { threshold: 0.15, rootMargin: '0px 0px -40px 0px' });
+
+      document.querySelectorAll('.reveal').forEach(el => revealObserver.observe(el));
+
+      // ── Counter Animation ────────────────────────────────────
+      const counterObserver = new IntersectionObserver((entries) => {
+        entries.forEach(entry => {
+          if (entry.isIntersecting) {
+            animateCounter(entry.target);
+            counterObserver.unobserve(entry.target);
+          }
+        });
+      }, { threshold: 0.5 });
+
+      document.querySelectorAll('[data-count]').forEach(el => counterObserver.observe(el));
+
+      function animateCounter(el) {
+        const target = el.getAttribute('data-count');
+        if (target === '∞' || target === '$0') return;
+        const num = parseInt(target, 10);
+        if (isNaN(num)) return;
+        const duration = 1500;
+        const start = performance.now();
+
+        function tick(now) {
+          const elapsed = now - start;
+          const progress = Math.min(elapsed / duration, 1);
+          // ease-out cubic
+          const eased = 1 - Math.pow(1 - progress, 3);
+          el.textContent = Math.round(num * eased);
+          if (progress < 1) requestAnimationFrame(tick);
+          else el.textContent = num;
+        }
+        requestAnimationFrame(tick);
+      }
+
+      // ── 3D Tilt Cards ───────────────────────────────────────
+      document.querySelectorAll('[data-tilt]').forEach(card => {
+        const wrap = card.closest('.tilt-wrap') || card.parentElement;
+        let raf = null;
+
+        card.addEventListener('mousemove', (e) => {
+          if (raf) cancelAnimationFrame(raf);
+          raf = requestAnimationFrame(() => {
+            const rect = card.getBoundingClientRect();
+            const x = (e.clientX - rect.left) / rect.width - 0.5;
+            const y = (e.clientY - rect.top) / rect.height - 0.5;
+            const rotateX = y * -12;
+            const rotateY = x * 12;
+            card.style.transform = `perspective(800px) rotateX(${rotateX}deg) rotateY(${rotateY}deg) scale3d(1.02, 1.02, 1.02)`;
+          });
+        });
+
+        card.addEventListener('mouseleave', () => {
+          if (raf) cancelAnimationFrame(raf);
+          card.style.transform = 'perspective(800px) rotateX(0deg) rotateY(0deg) scale3d(1, 1, 1)';
+        });
+      });
+
+      // ── Parallax ────────────────────────────────────────────
+      const world = document.querySelector('.parallax-world');
+      const layers = document.querySelectorAll('.parallax-layer');
+      let scrollY = 0;
+      let parallaxRaf = null;
+
+      function updateParallax() {
+        layers.forEach(layer => {
+          const speed = parseFloat(layer.dataset.speed) || 0.2;
+          const y = scrollY * speed * -1;
+          layer.style.transform = `translate3d(0, ${y}px, 0)`;
+        });
+      }
+
+      window.addEventListener('scroll', () => {
+        scrollY = window.scrollY;
+        if (!parallaxRaf) {
+          parallaxRaf = requestAnimationFrame(() => {
+            updateParallax();
+            parallaxRaf = null;
+          });
+        }
+      }, { passive: true });
+
+      // ── Particles ───────────────────────────────────────────
+      function createParticles() {
+        const layer = world.querySelector('.parallax-layer');
+        if (!layer) return;
+        const count = Math.min(30, Math.floor(window.innerWidth / 50));
+        for (let i = 0; i < count; i++) {
+          const p = document.createElement('div');
+          p.className = 'particle';
+          p.style.left = Math.random() * 100 + '%';
+          p.style.animationDuration = (8 + Math.random() * 12) + 's';
+          p.style.animationDelay = (Math.random() * 10) + 's';
+          p.style.width = p.style.height = (1 + Math.random() * 2) + 'px';
+          // vary color
+          const colors = ['#00ff88', '#00d4ff', '#ff3355', '#ffdd44'];
+          p.style.background = colors[Math.floor(Math.random() * colors.length)];
+          layer.appendChild(p);
+        }
+      }
+      createParticles();
+
+      // ── Nav shrink ──────────────────────────────────────────
+      const nav = document.querySelector('.nav');
+      window.addEventListener('scroll', () => {
+        nav.classList.toggle('scrolled', window.scrollY > 60);
+      }, { passive: true });
+
+      // ── Smooth scroll for nav links ─────────────────────────
+      document.querySelectorAll('a[href^="#"]').forEach(link => {
+        link.addEventListener('click', (e) => {
+          const target = document.querySelector(link.getAttribute('href'));
+          if (target) {
+            e.preventDefault();
+            target.scrollIntoView({ behavior: 'smooth', block: 'start' });
+          }
+        });
+      });
+
+    })();
+  </script>
+
+</body>
+</html>

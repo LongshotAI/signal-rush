@@ -51,16 +51,22 @@ function postToEconomyPayload(endpoint, payload) {
   const { hostname, port } = getEconomyHost();
   return new Promise((resolve, reject) => {
     const body = JSON.stringify(payload);
+    const headers = {
+      'Content-Type': 'application/json',
+      'Content-Length': Buffer.byteLength(body),
+    };
+    // Pass shared secret for /internal/* endpoints when ECONOMY_API_KEY is set
+    const apiKey = process.env.ECONOMY_API_KEY || null;
+    if (apiKey && endpoint.startsWith('/internal/')) {
+      headers['Authorization'] = `Bearer ${apiKey}`;
+    }
     const req = http.request(
       {
         hostname,
         port,
         path: endpoint,
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Content-Length': Buffer.byteLength(body),
-        },
+        headers,
         timeout: 500, // don't block the game loop
       },
       (res) => {
@@ -168,17 +174,122 @@ async function flushQueue() {
   flushInProgress = false;
 }
 
-// ─── Deprecated: forwardStep (removed) ─────────────────────────────
+// ─── Player Identity ──────────────────────────────────────────────
 //
-// The old forwardStep() function compared engine.state.credits before/after
-// step() and sent credits_delta to /internal/ingest. With the removal of the
-// legacy credit economy, this function is no longer needed. All sponsor
-// impression forwarding is now handled directly by the CLI game loop
-// (src/cli/index.js) and Mini App (telegram-mini-app/game.js), which attach
-// the correct campaign_id context.
+// CLI players are identified by a UUID stored in ~/.signal-rush/player.json.
+// This is separate from Telegram-authenticated players (Mini App).
+// For production, a merge/linking flow should be added.
+
+const PLAYER_FILE = path.join(os.homedir(), '.signal-rush', 'player.json');
+
+function getPlayerId() {
+  try {
+    if (fs.existsSync(PLAYER_FILE)) {
+      const data = JSON.parse(fs.readFileSync(PLAYER_FILE, 'utf-8'));
+      if (data.player_id) return data.player_id;
+    }
+  } catch {
+    // Corrupt file — regenerate
+  }
+  const newId = randomUUID();
+  try {
+    fs.mkdirSync(path.dirname(PLAYER_FILE), { recursive: true });
+    fs.writeFileSync(PLAYER_FILE, JSON.stringify({
+      player_id: newId,
+      created_at: new Date().toISOString(),
+    }, null, 2));
+  } catch {
+    // Best-effort — return ephemeral ID if we can't persist
+  }
+  return newId;
+}
+
+// ─── Reward Balance Fetch ──────────────────────────────────────────
+/**
+ * Fetch a player's current claimable reward balance from the economy service.
+ * Used by the CLI to display "X µ claimable" in the HUD.
+ * Returns { available_micros: number } or null on failure.
+ */
+async function fetchRewardBalance(playerId) {
+  try {
+    const res = await new Promise((resolve, reject) => {
+      const { hostname, port } = getEconomyHost();
+      const req = http.request(
+        { hostname, port, path: `/players/${encodeURIComponent(playerId)}/rewards`, method: 'GET', timeout: 3000 },
+        (res) => {
+          let d = '';
+          res.on('data', c => d += c);
+          res.on('end', () => {
+            try { resolve(JSON.parse(d)); } catch { resolve(null); }
+          });
+        }
+      );
+      req.on('error', reject);
+      req.on('timeout', () => { req.destroy(); reject(new Error('timeout')); });
+      req.end();
+    });
+    if (res && res.ok) {
+      return { available_micros: res.available_micros || 0 };
+    }
+    return null;
+  } catch {
+    return null; // Economy service down — graceful degradation
+  }
+}
+
+// ─── Forward Skill-Based Reward ────────────────────────────────────
+/**
+ * Forward end-of-run session stats to the economy service for skill-based
+ * reward calculation. POST /internal/earn-reward
+ * The economy service calculates earnings based on score/combo/level/tickCount
+ * and caps to available pool headroom.
+ * Returns { amount: number } or null on failure.
+ */
+async function forwardReward(playerId, { score, combo, level, tickCount, difficultyTier }) {
+  try {
+    const res = await new Promise((resolve, reject) => {
+      const { hostname, port } = getEconomyHost();
+      const body = JSON.stringify({
+        player_id: playerId,
+        score: score || 0,
+        combo: combo || 0,
+        level: level || 1,
+        tick_count: tickCount || 0,
+        difficulty_tier: difficultyTier || 0,
+      });
+      const headers = { 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(body) };
+      const apiKey = process.env.ECONOMY_API_KEY || null;
+      if (apiKey) headers['Authorization'] = `Bearer ${apiKey}`;
+      const req = http.request(
+        { hostname, port, path: '/internal/earn-reward', method: 'POST',
+          headers, timeout: 3000 },
+        (res) => {
+          let d = '';
+          res.on('data', c => d += c);
+          res.on('end', () => {
+            try { resolve(JSON.parse(d)); } catch { resolve(null); }
+          });
+        }
+      );
+      req.on('error', reject);
+      req.on('timeout', () => { req.destroy(); reject(new Error('timeout')); });
+      req.write(body);
+      req.end();
+    });
+    if (res && res.ok) {
+      return { amount: res.amount || 0 };
+    }
+    return null;
+  } catch {
+    return null; // Economy service down — graceful degradation
+  }
+}
 
 module.exports = {
   logAdImpression,
   enqueue,
   flushQueue,
+  getPlayerId,
+  fetchRewardBalance,
+  forwardReward,
 };

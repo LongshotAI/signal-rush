@@ -42,7 +42,8 @@ fi
 [ -n "$(git rev-parse HEAD 2>/dev/null)" ] || fail "HEAD does not resolve"
 
 section "tracked-file safety scan"
-ENV_TRACKED="$(git ls-files | grep -E '(^|/)\.env($|\.)|(^|/)\.openclaw-state/|(^|/)sessions/|(^|/)memory/' || true)"
+ENV_TRACKED="$(git ls-files | grep -E '(^|/)\.env($|\.)' | grep -v '\.env\.example$' || true)"
+ENV_TRACKED="$ENV_TRACKED$(git ls-files | grep -E '(^|/)\.openclaw-state/|(^|/)sessions/|(^|/)memory/' || true)"
 if [ -n "$ENV_TRACKED" ]; then
   printf '%s\n' "$ENV_TRACKED"
   fail "tracked local state/secret-looking files found"

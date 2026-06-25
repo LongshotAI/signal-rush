@@ -11,6 +11,19 @@ pnpm-debug.log*
 .envrc
 !.env.example
 
+# API keys and secrets — NEVER commit these
+.ppq_key.txt
+.ppq_key_b64.txt
+.test_js_b64.txt
+*.key
+*.pem
+*.enc
+
+# Database files (contain player data / economy state)
+*.db
+*.db-wal
+*.db-shm
+
 # Logs
 *.log
 logs/
