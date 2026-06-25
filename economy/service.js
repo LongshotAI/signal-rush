@@ -36,6 +36,7 @@ function createServer({ port = DEFAULT_PORT, host = DEFAULT_HOST, dbPath = ledge
   // legitimate Stripe webhook fails signature verification.
   app.addContentTypeParser('application/json', { parseAs: 'string' }, (req, body, done) => {
     req.rawBody = body;
+    if (process.env.DEBUG_RAWBODY) console.error('RAWBODY_DEBUG: len=' + body.length + ' first20=' + body.substring(0, 20));
     try {
       const parsed = body.length === 0 ? {} : JSON.parse(body);
       done(null, parsed);
@@ -936,14 +937,24 @@ function createServer({ port = DEFAULT_PORT, host = DEFAULT_HOST, dbPath = ledge
       }
       ledger.setCooldown(db, 'impression:' + validatedPlayerId);
     }
-    // Session validation: player must have an active session
+    // Session auto-creation: if player has no active session, start one.
+    // This replaces the old /internal/ingest session lifecycle.
+    let sessionId = null;
     if (validatedPlayerId) {
-      const activeSession = db.prepare(
-        'SELECT 1 FROM sessions WHERE player_id = ? AND ended_at IS NULL'
+      // Ensure player exists (auto-create on first impression)
+      if (!ledger.playerExists(db, validatedPlayerId)) {
+        db.prepare('INSERT INTO players (id, display_name) VALUES (?, ?)').run(validatedPlayerId, 'Player');
+      }
+      const existing = db.prepare(
+        'SELECT id FROM sessions WHERE player_id = ? AND ended_at IS NULL'
       ).get(validatedPlayerId);
-      if (!activeSession) {
-        reply.code(400);
-        return { error: 'no active session' };
+      if (existing) {
+        sessionId = existing.id;
+      } else {
+        sessionId = randomUUID();
+        db.prepare(
+          'INSERT INTO sessions (id, player_id, started_at) VALUES (?, ?, ?)'
+        ).run(sessionId, validatedPlayerId, new Date().toISOString());
       }
     }
     // Determine cost server-side — never trust client input
@@ -1947,12 +1958,32 @@ function createServer({ port = DEFAULT_PORT, host = DEFAULT_HOST, dbPath = ledge
   // Receives payment confirmation from Stripe and credits the advertiser.
   // When STRIPE_WEBHOOK_SECRET is set, this endpoint validates the webhook
   // signature and processes successful payments.
+  // TEMP DEBUG: echo env vars
+  app.get('/debug/env', async (req, reply) => {
+    return {
+      sk_len: process.env.STRIPE_SECRET_KEY?.length,
+      ws_len: process.env.STRIPE_WEBHOOK_SECRET?.length,
+      ws_start: process.env.STRIPE_WEBHOOK_SECRET?.substring(0, 15),
+      sk_start: process.env.STRIPE_SECRET_KEY?.substring(0, 10),
+    };
+  });
+  // TEMP DEBUG: echo rawBody for testing
+  app.post('/debug/rawbody', async (req, reply) => {
+    return { rawBody: req.rawBody, body: req.body };
+  });
   // POST /portal/webhooks/stripe
   app.post('/portal/webhooks/stripe', async (req, reply) => {
-    const webhookSecret = process.env.STRIPE_WEBHOOK_SECRET;
-    if (!webhookSecret) {
+    // Support multiple webhook secrets (comma-separated) for multi-destination setups.
+    // Stripe sends one signature per destination; we try each secret until one validates.
+    const secretEnv = process.env.STRIPE_WEBHOOK_SECRET;
+    if (!secretEnv) {
       reply.code(501);
       return { error: 'Stripe webhooks not configured' };
+    }
+    const secrets = secretEnv.split(',').map(s => s.trim()).filter(Boolean);
+    if (secrets.length === 0) {
+      reply.code(501);
+      return { error: 'Stripe webhooks not configured — no secrets' };
     }
 
     const sig = req.headers['stripe-signature'];
@@ -1967,17 +1998,44 @@ function createServer({ port = DEFAULT_PORT, host = DEFAULT_HOST, dbPath = ledge
       // req.rawBody is captured by our custom content-type parser (see top of file).
       // This is the EXACT bytes Stripe signed — using JSON.stringify(req.body) would
       // fail signature verification because of key ordering / whitespace differences.
-      const event = stripe.webhooks.constructEvent(
-        req.rawBody,
-        sig,
-        webhookSecret
-      );
+      let event = null;
+      const errors = [];
+      for (const secret of secrets) {
+        try {
+          event = stripe.webhooks.constructEvent(
+            req.rawBody,
+            sig,
+            secret
+          );
+          break; // first successful validation wins
+        } catch (err) {
+          errors.push(err.message.substring(0, 100));
+        }
+      }
+      if (!event) {
+        // TEMP DEBUG: log diagnostic info
+        console.error('WEBHOOK_DEBUG: rawBody len:', req.rawBody?.length, 'sig:', sig.substring(0, 20), 'secrets count:', secrets.length, 'secrets:', JSON.stringify(secrets.map(s => s.substring(0,12) + '...')));
+        console.error('WEBHOOK_DEBUG: first error:', errors[0]);
+        reply.code(400);
+        return { error: 'webhook signature verification failed for all secrets', details: errors };
+      }
 
       if (event.type === 'checkout.session.completed') {
         const session = event.data.object;
         const advertiserId = session.metadata?.advertiser_id;
         const amountMicros = parseInt(session.metadata?.amount_micros || '0', 10);
         if (advertiserId && amountMicros > 0) {
+          // Auto-create advertiser on first deposit if not yet exists
+          const existing = db.prepare('SELECT 1 FROM advertiser_accounts WHERE id = ?').get(advertiserId);
+          if (!existing) {
+            const email = session.customer_details?.email || `${advertiserId}@stripe-temp.local`;
+            const companyName = session.metadata?.advertiser_name || advertiserId.substring(0, 8);
+            const crypto = require('crypto');
+            const apiHash = crypto.createHash('sha256').update(advertiserId + '_stripe_' + Date.now()).digest('hex');
+            db.prepare(
+              'INSERT INTO advertiser_accounts (id, email, password_hash, company_name, api_key, api_key_hash, status) VALUES (?, ?, ?, ?, ?, ?, ?)'
+            ).run(advertiserId, email, 'stripe_oauth:' + advertiserId, companyName, 'stripe_' + advertiserId, apiHash, 'active');
+          }
           ledger.depositAdvertiserFunds(db, {
             advertiserId,
             amountMicros,
