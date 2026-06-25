@@ -1,0 +1,313 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Signal Rush — The Ad-Powered Arcade</title>
+  <link rel="stylesheet" href="/portal/shared.css">
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      background: #0a0a0f;
+      color: #e6edf3;
+      min-height: 100vh;
+      overflow-x: hidden;
+    }
+    
+    /* Animated background */
+    .bg-grid {
+      position: fixed;
+      top: 0; left: 0; right: 0; bottom: 0;
+      background-image:
+        linear-gradient(rgba(0,255,255,0.03) 1px, transparent 1px),
+        linear-gradient(90deg, rgba(0,255,255,0.03) 1px, transparent 1px);
+      background-size: 50px 50px;
+      animation: gridMove 20s linear infinite;
+      pointer-events: none;
+      z-index: 0;
+    }
+    @keyframes gridMove {
+      0% { transform: translate(0, 0); }
+      100% { transform: translate(50px, 50px); }
+    }
+    
+    .container {
+      position: relative;
+      z-index: 1;
+      max-width: 1100px;
+      margin: 0 auto;
+      padding: 0 24px;
+    }
+    
+    /* Nav */
+    nav {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      padding: 24px 0;
+      border-bottom: 1px solid rgba(255,255,255,0.06);
+    }
+    .logo {
+      font-size: 24px;
+      font-weight: 800;
+      background: linear-gradient(135deg, #00ffff, #ff00ff);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+      letter-spacing: -1px;
+    }
+    .nav-links {
+      display: flex;
+      gap: 32px;
+      align-items: center;
+    }
+    .nav-links a {
+      color: #8b949e;
+      text-decoration: none;
+      font-size: 14px;
+      font-weight: 500;
+      transition: color 0.2s;
+    }
+    .nav-links a:hover { color: #e6edf3; }
+    .btn {
+      display: inline-block;
+      padding: 10px 24px;
+      border-radius: 8px;
+      font-size: 14px;
+      font-weight: 600;
+      text-decoration: none;
+      transition: all 0.2s;
+      cursor: pointer;
+      border: none;
+    }
+    .btn-primary {
+      background: linear-gradient(135deg, #00ffff, #00cccc);
+      color: #0a0a0f;
+    }
+    .btn-primary:hover {
+      transform: translateY(-1px);
+      box-shadow: 0 4px 20px rgba(0,255,255,0.3);
+    }
+    .btn-secondary {
+      background: transparent;
+      color: #e6edf3;
+      border: 1px solid rgba(255,255,255,0.15);
+    }
+    .btn-secondary:hover {
+      border-color: rgba(255,255,255,0.3);
+      background: rgba(255,255,255,0.05);
+    }
+    
+    /* Hero */
+    .hero {
+      padding: 120px 0 80px;
+      text-align: center;
+    }
+    .hero h1 {
+      font-size: 64px;
+      font-weight: 800;
+      line-height: 1.1;
+      margin-bottom: 24px;
+      letter-spacing: -2px;
+    }
+    .hero h1 .gradient {
+      background: linear-gradient(135deg, #00ffff, #ff00ff, #ff8800);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+    }
+    .hero p {
+      font-size: 20px;
+      color: #8b949e;
+      max-width: 600px;
+      margin: 0 auto 40px;
+      line-height: 1.6;
+    }
+    .hero-buttons {
+      display: flex;
+      gap: 16px;
+      justify-content: center;
+    }
+    .hero .btn { padding: 14px 32px; font-size: 16px; }
+    
+    /* Stats */
+    .stats {
+      display: grid;
+      grid-template-columns: repeat(4, 1fr);
+      gap: 24px;
+      padding: 60px 0;
+      border-top: 1px solid rgba(255,255,255,0.06);
+      border-bottom: 1px solid rgba(255,255,255,0.06);
+    }
+    .stat { text-align: center; }
+    .stat-value {
+      font-size: 36px;
+      font-weight: 800;
+      background: linear-gradient(135deg, #00ffff, #00cccc);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+    }
+    .stat-label {
+      font-size: 13px;
+      color: #8b949e;
+      margin-top: 4px;
+      text-transform: uppercase;
+      letter-spacing: 1px;
+    }
+    
+    /* How it works */
+    .how-it-works {
+      padding: 80px 0;
+    }
+    .section-title {
+      text-align: center;
+      font-size: 36px;
+      font-weight: 700;
+      margin-bottom: 48px;
+    }
+    .steps {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 32px;
+    }
+    .step {
+      background: rgba(255,255,255,0.02);
+      border: 1px solid rgba(255,255,255,0.06);
+      border-radius: 16px;
+      padding: 32px;
+      transition: all 0.3s;
+    }
+    .step:hover {
+      border-color: rgba(0,255,255,0.2);
+      transform: translateY(-4px);
+    }
+    .step-icon {
+      font-size: 40px;
+      margin-bottom: 16px;
+    }
+    .step h3 {
+      font-size: 20px;
+      font-weight: 600;
+      margin-bottom: 8px;
+    }
+    .step p {
+      color: #8b949e;
+      font-size: 14px;
+      line-height: 1.6;
+    }
+    
+    /* CTA */
+    .cta {
+      padding: 80px 0 120px;
+      text-align: center;
+    }
+    .cta-box {
+      background: linear-gradient(135deg, rgba(0,255,255,0.05), rgba(255,0,255,0.05));
+      border: 1px solid rgba(0,255,255,0.15);
+      border-radius: 24px;
+      padding: 64px;
+    }
+    .cta-box h2 {
+      font-size: 36px;
+      font-weight: 700;
+      margin-bottom: 16px;
+    }
+    .cta-box p {
+      color: #8b949e;
+      font-size: 18px;
+      margin-bottom: 32px;
+    }
+    
+    /* Footer */
+    footer {
+      padding: 40px 0;
+      border-top: 1px solid rgba(255,255,255,0.06);
+      text-align: center;
+      color: #484f58;
+      font-size: 13px;
+    }
+    
+    /* Responsive */
+    @media (max-width: 768px) {
+      .hero h1 { font-size: 40px; }
+      .stats { grid-template-columns: repeat(2, 1fr); }
+      .steps { grid-template-columns: 1fr; }
+      .nav-links { display: none; }
+    }
+  </style>
+</head>
+<body>
+  <div class="bg-grid"></div>
+  
+  <div class="container">
+    <nav>
+      <div class="logo">SIGNAL RUSH</div>
+      <div class="nav-links">
+        <a href="#how-it-works">How It Works</a>
+        <a href="/portal/login.html">Login</a>
+        <a href="/portal/signup.html" class="btn btn-primary">Get Started</a>
+      </div>
+    </nav>
+    
+    <section class="hero">
+      <h1>Play Free.<br><span class="gradient">Earn Real.</span></h1>
+      <p>The ad-powered arcade where your time has value. Brands fund the rewards. You play the games. Everyone wins.</p>
+      <div class="hero-buttons">
+        <a href="/portal/signup.html" class="btn btn-primary">Create Free Account</a>
+        <a href="/portal/player.html" class="btn btn-secondary">Play Now</a>
+      </div>
+    </section>
+    
+    <section class="stats">
+      <div class="stat">
+        <div class="stat-value">$2,847</div>
+        <div class="stat-label">Reward Pool</div>
+      </div>
+      <div class="stat">
+        <div class="stat-value">1,247</div>
+        <div class="stat-label">Active Players</div>
+      </div>
+      <div class="stat">
+        <div class="stat-value">34.2K</div>
+        <div class="stat-label">Ads Served</div>
+      </div>
+      <div class="stat">
+        <div class="stat-value">20%</div>
+        <div class="stat-label">Payout Rate</div>
+      </div>
+    </section>
+    
+    <section class="how-it-works" id="how-it-works">
+      <h2 class="section-title">How It Works</h2>
+      <div class="steps">
+        <div class="step">
+          <div class="step-icon">🏢</div>
+          <h3>Advertisers Fund</h3>
+          <p>Brands create campaigns and fund the reward pool. Every impression adds real value to player earnings.</p>
+        </div>
+        <div class="step">
+          <div class="step-icon">🎮</div>
+          <h3>Players Earn</h3>
+          <p>Play AI Hunt or Packet Hop. Every action earns micro-rewards from the advertiser-funded pool.</p>
+        </div>
+        <div class="step">
+          <div class="step-icon">💰</div>
+          <h3>Real Payouts</h3>
+          <p>Accumulate earnings and withdraw. Transparent ledger, instant tracking, zero hidden fees.</p>
+        </div>
+      </div>
+    </section>
+    
+    <section class="cta">
+      <div class="cta-box">
+        <h2>Ready to Play?</h2>
+        <p>Create your free account in 30 seconds. No credit card required.</p>
+        <a href="/portal/signup.html" class="btn btn-primary">Sign Up Free</a>
+      </div>
+    </section>
+    
+    <footer>
+      <p>© 2026 Signal Rush. Ad-powered gaming. All rights reserved.</p>
+    </footer>
+  </div>
+</body>
+</html>

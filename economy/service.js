@@ -2166,6 +2166,17 @@ function createServer({ port = DEFAULT_PORT, host = DEFAULT_HOST, dbPath = ledge
     return app.close().then(() => db.close());
   }
 
+  // ─── Landing Page (Root) ───────────────────────────────────────
+  // Serve the public landing page at /
+  app.get('/', async (req, reply) => {
+    const indexPath = path.join(__dirname, 'portal', 'index.html');
+    if (fs.existsSync(indexPath)) {
+      reply.header('Content-Type', 'text/html; charset=utf-8');
+      return fs.createReadStream(indexPath);
+    }
+    reply.redirect('/portal/dashboard.html');
+  });
+
   // ─── Static File Serving (Portal Frontend) ─────────────────────
   // Serve the advertiser portal frontend from the portal/ directory.
   // Falls through to API routes if file not found.
