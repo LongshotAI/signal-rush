@@ -21,6 +21,7 @@ const MICROS_PER_CREDIT = 10_000;     // 10,000 micros earned → 1 VMCO credit 
 const CLAIM_COOLDOWN_MS = 60_000;     // 1 claim per minute per player
 const MAX_BUDGET_PER_CLAIM = 1_000_000; // 1M micros earned → 100 credits = $1.00 per claim
 const MIN_CLAIM_MICROS = 10_000;     // Need at least 10,000 micros to claim (≥1 credit)
+const MASTER_BALANCE_FLOOR = 50;     // Refuse claims if master balance < 50 credits ($0.50)
 
 function logAudit(db, entry) {
   try {
@@ -170,12 +171,20 @@ function register(app, { db }) {
     }
 
     // Master key check (so we fail fast with a useful error)
+    let masterAcct;
     try {
-      vmcoClient.healthCheck(); // throws if env var missing — we'll catch below
+      masterAcct = await vmcoClient.getAccount(); // throws if env var missing or auth bad
     } catch (err) {
       reply.code(503);
       logAudit(db, { player_id: playerId, amount_micros: amountMicros, result: 'failed', reason: 'master_key_missing' });
       return { error: 'VMCO integration not configured (master key missing)' };
+    }
+
+    // Low balance guard — protect the master account from draining to $0
+    if ((masterAcct.balance_credits || 0) < MASTER_BALANCE_FLOOR) {
+      reply.code(503);
+      logAudit(db, { player_id: playerId, amount_micros: amountMicros, result: 'failed', reason: 'master_balance_low' });
+      return { error: 'VMCO master account temporarily low — claims paused', balance_credits: masterAcct.balance_credits };
     }
 
     try {
