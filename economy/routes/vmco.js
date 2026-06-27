@@ -14,12 +14,13 @@
 const vmcoClient = require('../vmco-client');
 const ledger = require('../ledger');
 
-const CREDITS_PER_MICRO = 100;        // 100 credits = $1.00 (VMCO scale)
-const MICROS_PER_CREDIT = 100;        // 1000 micros = $0.001 = 0.01 credits
-                                   // → 100 micros = 1 VMCO credit = $0.01
-                                   // 1000 micros (typical small earn) → 10 credits = $0.10
+// VMCO pricing: 100 credits = $1.00 → 1 credit = $0.01
+// Signal Rush micros: 1,000,000 micros = $1.00 → 1 micro = $0.000001
+// Conversion: $0.01 / $0.000001 = 10,000 micros per VMCO credit
+const MICROS_PER_CREDIT = 10_000;     // 10,000 micros earned → 1 VMCO credit ($0.01)
 const CLAIM_COOLDOWN_MS = 60_000;     // 1 claim per minute per player
-const MAX_BUDGET_PER_CLAIM = 100_000; // 100,000 micros = 1000 credits = $10 per claim
+const MAX_BUDGET_PER_CLAIM = 1_000_000; // 1M micros earned → 100 credits = $1.00 per claim
+const MIN_CLAIM_MICROS = 10_000;     // Need at least 10,000 micros to claim (≥1 credit)
 
 function logAudit(db, entry) {
   try {
@@ -113,11 +114,18 @@ function register(app, { db }) {
     }
     if (amountMicros > MAX_BUDGET_PER_CLAIM) {
       reply.code(400);
-      return { error: `max claim is ${MAX_BUDGET_PER_CLAIM} micros (${MAX_BUDGET_PER_CLAIM/1000} credits)` };
+      const maxCredits = Math.floor(MAX_BUDGET_PER_CLAIM / MICROS_PER_CREDIT);
+      return { error: `max claim is ${MAX_BUDGET_PER_CLAIM} micros (${maxCredits} credits)` };
     }
-    if (amountMicros < 1000) {
+    if (amountMicros < MIN_CLAIM_MICROS) {
       reply.code(400);
-      return { error: 'minimum claim is 1000 micros' };
+      return { error: `minimum claim is ${MIN_CLAIM_MICROS} micros (${MIN_CLAIM_MICROS/MICROS_PER_CREDIT} credit)` };
+    }
+    // Claim must be a whole number of VMCO credits (no fractional credits)
+    if (amountMicros % MICROS_PER_CREDIT !== 0) {
+      reply.code(400);
+      const rounded = Math.floor(amountMicros / MICROS_PER_CREDIT) * MICROS_PER_CREDIT;
+      return { error: `amount must be a multiple of ${MICROS_PER_CREDIT} micros (try ${rounded} or ${rounded + MICROS_PER_CREDIT})` };
     }
 
     // Auth
@@ -151,8 +159,8 @@ function register(app, { db }) {
       return { error: `insufficient rewards — available ${available} micros` };
     }
 
-    // Convert micros → VMCO credits. 1000 micros = 1 credit (since 100 credits = $1.00)
-    const creditsToAdd = Math.floor(amountMicros / MICROS_PER_CREDIT);
+    // Convert micros → VMCO credits (integer division, already validated as multiple)
+    const creditsToAdd = amountMicros / MICROS_PER_CREDIT;  // exact integer after modulo check
 
     // Get current player state for existing sub-key
     const player = getPlayer(db, playerId);
