@@ -8,6 +8,21 @@
 
 import engineBundle from '/dist/signal-rush-engine.mjs';
 import { initTouchInput, destroyTouchInput, getDPadState } from './touch-input.js';
+
+/**
+ * Sanitize user-controlled text before innerHTML insertion.
+ * Prevents XSS from sponsor names, creative content, etc.
+ * Escapes HTML special characters.
+ */
+function sanitizeHtml(str) {
+  if (str == null) return '';
+  return String(str)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+}
 import {
   initTelegramMiniApp,
   hapticFeedback,
@@ -26,10 +41,37 @@ const { createEngine } = engineBundle.default || engineBundle;
 
 const ECONOMY_BASE_URL = '';
 
+// ── Helpers ────────────────────────────────────────────────────────────────────
+
+// Convert a Telegram user ID to a deterministic UUID v4-format string.
+// This ensures the same Telegram user ALWAYS maps to the same UUID,
+// so their points, rewards, and history persist across sessions.
+function _telegramIdToUuid(telegramId) {
+  // Hash the telegram ID into 16 bytes, then format as UUID
+  // Simple deterministic approach: pad/hash into 32 hex chars
+  const hash = _stableHash(String(telegramId));
+  const hex = hash.padStart(32, '0').slice(0, 32);
+  return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-4${hex.slice(13, 16)}-${hex.slice(16, 20)}-${hex.slice(20, 32)}`;
+}
+
+// Simple stable hash (FNV-1a variant) that gives deterministic output per input
+function _stableHash(str) {
+  let h = 0x811c9dc5;
+  for (let i = 0; i < str.length; i++) {
+    h ^= str.charCodeAt(i);
+    h = (h * 0x01000193) >>> 0;
+  }
+  return h.toString(16).padStart(8, '0')
+    + ((h * 0x12345678) >>> 0).toString(16).padStart(8, '0')
+    + ((h * 0x9abcdef0) >>> 0).toString(16).padStart(8, '0')
+    + ((h * 0x13579bdf) >>> 0).toString(16).padStart(8, '0');
+}
+
+
 // ── Configuration ────────────────────────────────────────────────────────────
 
-const CANVAS_COLS = 56;   // GAME_CONFIG.width
-const CANVAS_ROWS = 28;   // GAME_CONFIG.height
+let CANVAS_COLS = 56;   // GAME_CONFIG.width  — reduced on mobile for readability
+let CANVAS_ROWS = 28;   // GAME_CONFIG.height
 let CELL_SIZE   = 18;     // pixels per grid cell (overridden on mobile)
 let CANVAS_W    = 1008;
 let CANVAS_H    = 504;
@@ -48,10 +90,11 @@ const GAME_MODE_TAGLINES = {
 };
 
 // Colours
+const isMobile = (typeof window !== 'undefined' && window.innerWidth < 600);
 const C = {
-  bg:          '#0a0a1a',
-  grid:        'rgba(255,255,255,0.04)',
-  gridLine:    'rgba(255,255,255,0.06)',
+  bg:          isMobile ? '#0d0d20' : '#0a0a1a',
+  grid:        isMobile ? 'rgba(255,255,255,0.06)' : 'rgba(255,255,255,0.04)',
+  gridLine:    isMobile ? 'rgba(255,255,255,0.10)' : 'rgba(255,255,255,0.06)',
   player:      '#00ff88',
   playerGlow:  'rgba(0,255,136,0.35)',
   playerShield:'rgba(0,180,255,0.30)',
@@ -111,6 +154,7 @@ let starsFar = [];
 let starfieldFrame = 0;
 let scorePopups = []; // {x, y, text, ttl, color}
 let _popupsInitialized = false;
+let wrapFlash = 0; // frames remaining for wrap-around visual effect
 let lastPickupPositions = []; // track pickup positions for popup spawning
 let nearMissFlash = 0;        // frames remaining for near-miss flash overlay
 let comboScale = 1;           // current combo text scale (1 = normal)
@@ -171,26 +215,45 @@ export async function init(containerSelector = '#game-container') {
 
   const tgInfo = await initTelegramMiniApp();
 
-  // Expand to fill the Telegram WebView
-  if (window.Telegram?.WebApp) {
-    window.Telegram.WebApp.expand();
-  }
+  // Expand to fill the Telegram WebView (only if not already expanded by telegram-sdk.js)
+  // telegram-sdk.js already calls expand() — calling it again causes relayout race on Android
+  // if (window.Telegram?.WebApp) {
+  //   window.Telegram.WebApp.expand();
+  // }
 
   // Calculate cell size — fill available width, clamp height
   const vw = window.innerWidth || 390;
   const vh = window.innerHeight || 700;
-  // Reserve room: header(~50) + mode-bar(~36) + HUD(~30) + touch-area(~140) + margins
-  const availableW = vw - 12;
-  const availableH = Math.max(vh - 170, 250);
 
-  CELL_SIZE = Math.max(7, Math.min(18, Math.floor(availableW / CANVAS_COLS)));
-  let calcH = CANVAS_ROWS * CELL_SIZE;
-  if (calcH > availableH) {
-    CELL_SIZE = Math.max(5, Math.floor(availableH / CANVAS_ROWS));
-    calcH = CANVAS_ROWS * CELL_SIZE;
+  // Keep engine's native grid dimensions (56×28) — the engine logic uses
+  // GAME_CONFIG.width/height for bounds. We just scale cells to fit the screen.
+  // Frogger has 22 lanes (y:1-22), all fit within 28 rows.
+  CANVAS_COLS = 56;
+  CANVAS_ROWS = 28;
+
+  // Reserve room: header(~30) + mode-bar(~28) + HUD(~24) + touch-area(~120)
+  // On mobile we CSS-scale the canvas, so we don't need to reserve as much — just the UI chrome
+  const uiChrome = vw < 600 ? 82 : 170;
+  const availableW = vw - 12;
+  const availableH = Math.max(vh - uiChrome, 250);
+
+  if (vw < 600) {
+    // On mobile: keep engine's 56×28 grid, compute cell size to fill width
+    // Canvas CSS will stretch to fill the wrapper completely
+    CELL_SIZE = Math.max(8, Math.floor(availableW / CANVAS_COLS));
+    CANVAS_W = CANVAS_COLS * CELL_SIZE;
+    CANVAS_H = CANVAS_ROWS * CELL_SIZE;
+    // The canvas backing store will be resized to match wrapper in the mobile block below
+  } else {
+    CELL_SIZE = Math.max(10, Math.min(18, Math.floor(availableW / CANVAS_COLS)));
+    let calcH = CANVAS_ROWS * CELL_SIZE;
+    if (calcH > availableH) {
+      CELL_SIZE = Math.max(8, Math.floor(availableH / CANVAS_ROWS));
+      calcH = CANVAS_ROWS * CELL_SIZE;
+    }
+    CANVAS_W = CANVAS_COLS * CELL_SIZE;
+    CANVAS_H = calcH;
   }
-  CANVAS_W = CANVAS_COLS * CELL_SIZE;
-  CANVAS_H = calcH;
   console.log(`[SignalRush] Canvas: ${CANVAS_W}x${CANVAS_H} (${CELL_SIZE}px/cell)`);
 
   // Init starfield
@@ -198,6 +261,9 @@ export async function init(containerSelector = '#game-container') {
 
   // Init economy client
   economyClient = new EconomyClient({ baseUrl: ECONOMY_BASE_URL });
+
+  // Store initData for auto-recovery on 401/403 (expired session token)
+  const _initData = tgInfo.initData || null;
 
   // If we have Telegram initData, authenticate
   if (tgInfo.initData) {
@@ -212,17 +278,64 @@ export async function init(containerSelector = '#game-container') {
     }
   }
 
-  // Fetch active campaigns
+  // SECURITY: Do NOT use initDataUnsafe for player ID generation.
+  // initDataUnsafe is client-controlled and NOT cryptographically verified.
+  // Only trust player IDs from server-validated initData (auth endpoint).
+  // Falling back to initDataUnsafe would allow session hijacking.
+
+  // Fallback: generate local player ID for non-Telegram contexts (CLI, dev)
+  if (!playerId) {
+    playerId = crypto.randomUUID();
+    economyOnline = false; // No economy without auth
+    console.log('[SignalRush] Local mode (no auth), player:', playerId);
+  }
+
+  // Fetch active campaigns with consistent rotation per player
   economyClient.fetchActiveCampaigns().then(result => {
     if (result.ok && result.campaigns && result.campaigns.length > 0) {
-      activeSponsor = result.campaigns[0];
-      console.log('[SignalRush] Active sponsor:', activeSponsor.brand_name);
+      // Deterministic rotation: pick campaign based on playerId hash
+      // This ensures same player sees same campaign (consistency)
+      // while different players see different campaigns (fair distribution)
+      const campaignCount = result.campaigns.length;
+      let hash = 0;
+      const seed = playerId || 'default';
+      for (let i = 0; i < seed.length; i++) {
+        hash = ((hash << 5) - hash + seed.charCodeAt(i)) | 0;
+      }
+      const selectedIndex = Math.abs(hash) % campaignCount;
+      activeSponsor = result.campaigns[selectedIndex];
+      console.log('[SignalRush] Active sponsor:', activeSponsor.brand_name, '(' + (selectedIndex + 1) + '/' + campaignCount + ')');
+      console.log('[SignalRush] DEBUG before _updateSponsorBanners, typeof:', typeof _updateSponsorBanners);
+      // Update HTML ad banners now that sponsor is loaded
+      _updateSponsorBanners();
+      console.log('[SignalRush] DEBUG after _updateSponsorBanners');
+      // Re-size canvas after banners settle into DOM layout
+      console.log(`[SignalRush] DEBUG: vw=${vw}, check=${vw < 600}`);
+      if (vw < 600) {
+        const rect = gameWrapper.getBoundingClientRect();
+        const targetW = Math.max(300, Math.floor(rect.width) - 4);
+        const targetH = Math.max(200, Math.floor(rect.height) - 4);
+        console.log(`[SignalRush] Post-campaign resize: wrapper=${targetW}x${targetH}, canvas=${canvasEl.width}x${canvasEl.height}`);
+        canvasEl.width = targetW * dpr;
+        canvasEl.height = targetH * dpr;
+        CELL_SIZE = Math.max(8, Math.min(22, Math.floor(targetW / CANVAS_COLS)));
+        CANVAS_W = CANVAS_COLS * CELL_SIZE;
+        CANVAS_H = CANVAS_ROWS * CELL_SIZE;
+        if (CANVAS_W < targetW) CANVAS_W = targetW;
+        if (CANVAS_H < targetH) CANVAS_H = targetH;
+      }
+      // Fetch logo as JSON (canvas-renderable)
       if (activeSponsor.id) {
-        const img = new Image();
-        img.crossOrigin = 'anonymous';
-        img.onload = () => { sponsorLogoImage = img; };
-        img.onerror = () => {};
-        img.src = '/api/campaigns/' + activeSponsor.id + '/logo';
+        economyClient.getCampaignLogo(activeSponsor.id).then(logoResult => {
+          if (logoResult.ok && logoResult.content) {
+            if (logoResult.content.ascii) {
+              // ASCII art logo — store for canvas rendering
+              sponsorLogoImage = logoResult.content;
+            } else if (logoResult.content.text) {
+              sponsorLogoImage = logoResult.content;
+            }
+          }
+        }).catch(() => {});
       }
     }
   }).catch(() => {});
@@ -242,6 +355,17 @@ export async function init(containerSelector = '#game-container') {
   gameWrapper.style.display = 'flex';
   gameWrapper.style.flexDirection = 'column';
   gameWrapper.style.alignItems = 'center';
+  // On mobile: make game wrapper fill viewport for maximum play area
+  if (vw < 600) {
+    gameWrapper.style.position = 'relative';
+    gameWrapper.style.top = 'auto';
+    gameWrapper.style.left = 'auto';
+    gameWrapper.style.transform = 'none';
+    gameWrapper.style.flex = '1 1 0%';
+    gameWrapper.style.minHeight = '0';
+    gameWrapper.style.width = '100%';
+    gameWrapper.style.justifyContent = 'center';
+  }
 
   canvasEl = document.createElement('canvas');
   canvasEl.width  = CANVAS_W * dpr;
@@ -252,6 +376,22 @@ export async function init(containerSelector = '#game-container') {
   canvasEl.style.borderRadius = '10px';
   canvasEl.style.boxShadow = '0 0 60px rgba(0,255,136,0.12), 0 0 30px rgba(255,51,85,0.08)';
   canvasEl.style.touchAction = 'none';
+  // On mobile: canvas fills wrapper completely, no dead space
+  if (vw < 600) {
+    canvasEl.style.width = '100%';
+    canvasEl.style.height = '100%';
+    canvasEl.style.objectFit = 'fill';
+    canvasEl.style.borderRadius = '0';
+    canvasEl.style.boxShadow = 'none';
+    gameWrapper.style.borderRadius = '0';
+    gameWrapper.style.overflow = 'hidden';
+    // Remove container border-radius and overflow clipping on mobile
+    container.style.borderRadius = '0';
+    container.style.overflow = 'visible';
+    container.style.boxShadow = 'none';
+    // Remove body padding on mobile for edge-to-edge game
+    document.body.style.padding = '0';
+  }
   gameWrapper.appendChild(canvasEl);
 
   // Floating score popups container
@@ -271,22 +411,24 @@ export async function init(containerSelector = '#game-container') {
 
   // HUD overlay
   hudEl = document.createElement('div');
+  const hudPadding = vw < 600 ? '3px 6px' : '6px 10px';
+  const hudFontSize = vw < 600 ? '9px' : '11px';
   Object.assign(hudEl.style, {
     position: 'absolute',
     top: '0',
     left: '0',
     right: '0',
-    padding: '6px 10px',
+    padding: hudPadding,
     display: 'flex',
     flexDirection: 'column',
-    gap: '3px',
+    gap: '1px',
     fontFamily: "'JetBrains Mono', 'SF Mono', 'Fira Code', monospace",
-    fontSize: '11px',
+    fontSize: hudFontSize,
     color: C.hudText,
     background: 'rgba(6,6,15,0.75)',
     backdropFilter: 'blur(4px)',
     WebkitBackdropFilter: 'blur(4px)',
-    borderRadius: '10px 10px 0 0',
+    borderRadius: '0',
     pointerEvents: 'none',
     zIndex: '10',
   });
@@ -294,11 +436,90 @@ export async function init(containerSelector = '#game-container') {
 
   container.appendChild(gameWrapper);
 
+  // On mobile: resize canvas to fill wrapper exactly after DOM layout
+  if (vw < 600) {
+    // Force layout before measuring (prevents zero-height on first paint)
+    gameWrapper.offsetHeight; // triggers reflow
+    const rect = gameWrapper.getBoundingClientRect();
+    const targetW = Math.floor(rect.width);
+    const targetH = Math.floor(rect.height);
+    // Set canvas backing store to match wrapper's CSS size exactly
+    // This avoids aspect-ratio distortion from stretching a fixed-size canvas
+    canvasEl.width = targetW * dpr;
+    canvasEl.height = targetH * dpr;
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    // CSS display size matches wrapper (no stretching)
+    canvasEl.style.width = targetW + 'px';
+    canvasEl.style.height = targetH + 'px';
+    // Recompute CELL_SIZE to fit the actual pixel width with the engine's 56-col grid
+    CELL_SIZE = Math.max(6, Math.floor(targetW / CANVAS_COLS));
+    CANVAS_W = CANVAS_COLS * CELL_SIZE;
+    CANVAS_H = CANVAS_ROWS * CELL_SIZE;
+    // If canvas grid doesn't fill the wrapper, expand to fit
+    if (CANVAS_W < targetW) CANVAS_W = targetW;
+    if (CANVAS_H < targetH) CANVAS_H = targetH;
+    console.log(`[SignalRush] Mobile canvas: ${canvasEl.width}x${canvasEl.height} (${targetW}x${targetH} CSS), grid ${CANVAS_COLS}x${CANVAS_ROWS}, cell ${CELL_SIZE}px`);
+  }
+
+  // ── Sponsor Ad Banner (HTML, below canvas — hidden on Mobile during gameplay) ──
+  if (activeSponsor && vw >= 600) {
+    const primaryColor = activeSponsor.creatives?.find(c => c.type === 'logo')?.content?.colors?.primary || '#ffdd44';
+    const brandColors = { cyan: '#00ffff', yellow: '#ffdd44', green: '#00ff88', white: '#ffffff', red: '#ff5555', magenta: '#ff44ff' };
+    const accent = brandColors[primaryColor] || primaryColor;
+    const label = activeSponsor.creatives?.find(c => c.type === 'label');
+    const interstitial = activeSponsor.creatives?.find(c => c.type === 'interstitial');
+
+    let sponsorAd = document.getElementById('sponsor-ad-banner');
+    if (!sponsorAd) {
+      sponsorAd = document.createElement('div');
+      sponsorAd.id = 'sponsor-ad-banner';
+      container.appendChild(sponsorAd);
+    }
+    sponsorAd.innerHTML = `
+      <div style="
+        display:flex; flex-direction:column; gap:2px;
+        padding:8px 12px; margin:4px auto 0;
+        max-width:390px; width:calc(100% - 16px);
+        background:rgba(0,0,0,0.7); border-radius:8px;
+        border:1px solid ${accent}44;
+        font-family:'JetBrains Mono','SF Mono',monospace;
+      ">
+        <div style="display:flex;align-items:center;gap:8px;">
+          <span style="color:${accent};font:bold 12px monospace;white-space:nowrap;">${sanitizeHtml(activeSponsor.brand_name)}</span>
+          ${interstitial?.content?.headline ? `<span style="color:rgba(255,255,255,0.5);font:10px monospace;">${sanitizeHtml(interstitial.content.headline)}</span>` : ''}
+        </div>
+        ${interstitial?.content?.body ? `<div style="color:rgba(255,255,255,0.4);font:9px monospace;margin-top:1px;">${sanitizeHtml(interstitial.content.body)}</div>` : ''}
+        ${interstitial?.content?.cta ? `<div style="color:${accent};font:bold 10px monospace;margin-top:2px;opacity:0.7;">${sanitizeHtml(interstitial.content.cta)}</div>` : ''}
+      </div>
+    `;
+  }
+
   // Wire keyboard
   window.removeEventListener('keydown', onKeyDown);
   window.removeEventListener('keyup',   onKeyUp);
   window.addEventListener('keydown', onKeyDown);
   window.addEventListener('keyup',   onKeyUp);
+
+  // Handle viewport resize (rotate, expand, etc.)
+  window.addEventListener('resize', () => {
+    if (!canvasEl) return;
+    const newVw = window.innerWidth;
+    if (newVw < 600) {
+      const rect = gameWrapper.getBoundingClientRect();
+      const targetW = Math.floor(rect.width);
+      const targetH = Math.floor(rect.height);
+      canvasEl.width = targetW * dpr;
+      canvasEl.height = targetH * dpr;
+      ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+      canvasEl.style.width = targetW + 'px';
+      canvasEl.style.height = targetH + 'px';
+      CELL_SIZE = Math.max(6, Math.floor(targetW / CANVAS_COLS));
+      CANVAS_W = CANVAS_COLS * CELL_SIZE;
+      CANVAS_H = CANVAS_ROWS * CELL_SIZE;
+      if (CANVAS_W < targetW) CANVAS_W = targetW;
+      if (CANVAS_H < targetH) CANVAS_H = targetH;
+    }
+  });
 
   // Init touch input
   initTouchInput(canvasEl, (move) => {
@@ -312,7 +533,7 @@ export async function init(containerSelector = '#game-container') {
   hideMainButton();
 
   // Build mode selector
-  _buildModeSelector(containerSelector);
+  _buildModeSelector(containerSelector, vw);
 
   rafId = requestAnimationFrame(loop);
 
@@ -321,7 +542,7 @@ export async function init(containerSelector = '#game-container') {
 
 // ── Mode selector ───────────────────────────────────────────────────────────
 
-function _buildModeSelector(containerSelector) {
+function _buildModeSelector(containerSelector, vw) {
   const container = document.querySelector(containerSelector);
   if (!container) return;
 
@@ -355,14 +576,16 @@ function _buildModeSelector(containerSelector) {
     chip.dataset.mode = mode;
 
     const isActive = mode === currentMode;
+    const mobilePadding = vw < 600 ? '3px 10px' : '5px 16px';
+    const mobileFontSize = vw < 600 ? '10px' : '12px';
     Object.assign(chip.style, {
-      padding: '5px 16px',
+      padding: mobilePadding,
       borderRadius: '18px',
       border: isActive ? '1px solid rgba(0,255,136,0.4)' : '1px solid rgba(255,255,255,0.15)',
       background: isActive ? 'rgba(0,255,136,0.15)' : 'rgba(255,255,255,0.05)',
       color: isActive ? '#00ff88' : 'rgba(255,255,255,0.5)',
       fontFamily: "'JetBrains Mono', 'SF Mono', 'Fira Code', monospace",
-      fontSize: '12px',
+      fontSize: mobileFontSize,
       cursor: 'pointer',
       transition: 'all 0.2s',
       touchAction: 'manipulation',
@@ -402,6 +625,27 @@ function _buildModeSelector(containerSelector) {
 
   if (container.parentNode) {
     container.parentNode.insertBefore(bar, container);
+
+    // Sponsor banner on menu/home screen
+    if (activeSponsor) {
+      const primaryColor = activeSponsor.creatives?.find(c => c.type === 'logo')?.content?.colors?.primary || '#ffdd44';
+      const brandColors = { cyan: '#00ffff', yellow: '#ffdd44', green: '#00ff88', white: '#ffffff', red: '#ff5555', magenta: '#ff44ff' };
+      const accent = brandColors[primaryColor] || primaryColor;
+      const label = activeSponsor.creatives?.find(c => c.type === 'label');
+
+      let sponsorBanner = document.getElementById('sponsor-menu-banner');
+      if (!sponsorBanner) {
+        sponsorBanner = document.createElement('div');
+        sponsorBanner.id = 'sponsor-menu-banner';
+        container.parentNode.insertBefore(sponsorBanner, container);
+      }
+      sponsorBanner.innerHTML = `
+        <div style="display:flex;align-items:center;gap:8px;padding:4px 10px;margin-bottom:8px;border-radius:6px;background:rgba(0,0,0,0.5);border:1px solid ${accent}33;">
+          <span style="color:${accent};font:bold 10px monospace;white-space:nowrap">${sanitizeHtml(activeSponsor.brand_name)}</span>
+          ${label?.content?.text ? `<span style="color:rgba(255,255,255,0.45);font:9px monospace;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${sanitizeHtml(label.content.text)}</span>` : ''}
+        </div>
+      `;
+    }
   }
 }
 
@@ -439,7 +683,7 @@ function _createEngine() {
 
   if (!redemptionUI && playerId) {
     redemptionUI = new RedemptionUI();
-    redemptionUI.init(economyClient, playerId, creditBalance);
+    redemptionUI.init(economyClient, playerId, creditBalance, _initData);
   }
 }
 
@@ -529,7 +773,14 @@ function loop(timestamp) {
         // Track pickup positions before step (for popup spawn)
         lastPickupPositions = state.pickups.map(p => ({ x: p.x, y: p.y }));
 
+        const prevPX = state.player.x;
         engine.step({ move });
+
+        // Detect Pac-Man wrap (player teleported from one edge to other)
+        if (Math.abs(state.player.x - prevPX) > CANVAS_COLS * 0.5) {
+          wrapFlash = 8;
+        }
+        if (wrapFlash > 0) wrapFlash--;
 
         // Log HUD ad impressions from sponsor_impression engine events
         // This mirrors the CLI's eventBridge.logAdImpression() behavior
@@ -738,6 +989,108 @@ function getRankProgress(score) {
 
 // ── Rendering ────────────────────────────────────────────────────────────────
 
+// ── HTML Sponsor Banners (created async when campaigns load) ──────────
+function _updateSponsorBanners() {
+  if (!activeSponsor) return;
+  const primaryColor = activeSponsor.creatives?.find(c => c.type === 'logo')?.content?.colors?.primary || '#ffdd44';
+  const brandColors = { cyan: '#00ffff', yellow: '#ffdd44', green: '#00ff88', white: '#ffffff', red: '#ff5555', magenta: '#ff44ff' };
+  const accent = brandColors[primaryColor] || primaryColor;
+  const interstitial = activeSponsor.creatives?.find(c => c.type === 'interstitial');
+  const label = activeSponsor.creatives?.find(c => c.type === 'label');
+
+  // Main ad banner (below canvas during gameplay)
+  let sponsorAd = document.getElementById('sponsor-ad-banner');
+  if (!sponsorAd) {
+    sponsorAd = document.createElement('div');
+    sponsorAd.id = 'sponsor-ad-banner';
+    const gameContainer = document.querySelector('#game-container');
+    if (gameContainer) gameContainer.appendChild(sponsorAd);
+    else document.body.appendChild(sponsorAd);
+  }
+  sponsorAd.innerHTML = `
+      <div style="
+        display:flex; flex-direction:column; gap:2px;
+        padding:8px 12px; margin:4px auto 0;
+        max-width:390px; width:calc(100% - 16px);
+        background:rgba(0,0,0,0.7); border-radius:8px;
+        border:1px solid ${accent}44;
+        font-family:'JetBrains Mono','SF Mono',monospace;
+      ">
+        <div style="display:flex;align-items:center;gap:8px;">
+          <span style="color:${accent};font:bold 12px monospace;white-space:nowrap;">${sanitizeHtml(activeSponsor.brand_name)}</span>
+          ${interstitial?.content?.headline ? `<span style="color:rgba(255,255,255,0.5);font:10px monospace;">${sanitizeHtml(interstitial.content.headline)}</span>` : ''}
+        </div>
+        ${interstitial?.content?.body ? `<div style="color:rgba(255,255,255,0.4);font:9px monospace;margin-top:1px;">${sanitizeHtml(interstitial.content.body)}</div>` : ''}
+        ${interstitial?.content?.cta ? `<div style="color:${accent};font:bold 10px monospace;margin-top:2px;opacity:0.7;">${sanitizeHtml(interstitial.content.cta)}</div>` : ''}
+      </div>
+    `;
+
+  // Menu banner (on home screen) — inside container on mobile for proper layout
+  let menuBanner = document.getElementById('sponsor-menu-banner');
+  if (!menuBanner) {
+    menuBanner = document.createElement('div');
+    menuBanner.id = 'sponsor-menu-banner';
+    if (window.innerWidth < 600) {
+      // Inside container, before game-wrapper
+      const gameContainer = document.querySelector('#game-container');
+      if (gameContainer) gameContainer.insertBefore(menuBanner, gameContainer.firstChild);
+      else document.body.appendChild(menuBanner);
+    } else {
+      const bar = document.getElementById('mode-selector-bar');
+      if (bar && bar.parentNode) bar.parentNode.insertBefore(menuBanner, bar.nextSibling);
+      else document.body.appendChild(menuBanner);
+    }
+  }
+  menuBanner.innerHTML = `
+    <div style="display:flex;align-items:center;gap:8px;padding:4px 10px;margin-bottom:8px;border-radius:6px;background:rgba(0,0,0,0.5);border:1px solid ${accent}33;">
+      <span style="color:${accent};font:bold 10px monospace;white-space:nowrap">${sanitizeHtml(activeSponsor.brand_name)}</span>
+      ${label?.content?.text ? `<span style="color:rgba(255,255,255,0.45);font:9px monospace;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${sanitizeHtml(label.content.text)}</span>` : ''}
+    </div>
+  `;
+}
+
+// ── Game Over Sponsor Ad (HTML overlay — readable on phone) ──────────
+function _showGameOverSponsorAd() {
+  if (!activeSponsor) return;
+  const primaryColor = activeSponsor.creatives?.find(c => c.type === 'logo')?.content?.colors?.primary || '#ffdd44';
+  const brandColors = { cyan: '#00ffff', yellow: '#ffdd44', green: '#00ff88', white: '#ffffff', red: '#ff5555', magenta: '#ff44ff' };
+  const accent = brandColors[primaryColor] || primaryColor;
+  const interstitial = activeSponsor.creatives?.find(c => c.type === 'interstitial');
+  const logo = activeSponsor.creatives?.find(c => c.type === 'logo');
+
+  let overlay = document.getElementById('sponsor-gameover-overlay');
+  if (!overlay) {
+    overlay = document.createElement('div');
+    overlay.id = 'sponsor-gameover-overlay';
+    const container = document.querySelector('#game-container');
+    if (container) container.parentNode.insertBefore(overlay, container.nextSibling);
+    else document.body.appendChild(overlay);
+  }
+  overlay.innerHTML = `
+    <div style="
+      margin:4px auto 0; padding:10px 14px;
+      max-width:390px; width:calc(100% - 16px);
+      background:rgba(0,0,0,0.85); border-radius:10px;
+      border:1px solid ${accent}66;
+      font-family:'JetBrains Mono','SF Mono',monospace;
+      text-align:center;
+      animation: fadeIn 0.3s ease-out;
+    ">
+      ${logo?.content?.text ? `<div style="color:${accent};font:bold 14px monospace;margin-bottom:4px;">${sanitizeHtml(logo.content.text)}</div>` : ''}
+      <div style="color:${accent};font:11px monospace;margin-bottom:2px;">${interstitial?.content?.headline || 'This round powered by'}</div>
+      <div style="color:#ffffff;font:bold 16px monospace;margin-bottom:4px;">${sanitizeHtml(activeSponsor.brand_name)}</div>
+      ${interstitial?.content?.body ? `<div style="color:rgba(255,255,255,0.6);font:11px monospace;margin-bottom:4px;">${sanitizeHtml(interstitial.content.body)}</div>` : ''}
+      ${interstitial?.content?.cta ? `<div style="color:${accent};font:bold 11px monospace;">${sanitizeHtml(interstitial.content.cta)}</div>` : ''}
+    </div>
+  `;
+  overlay.style.display = 'block';
+}
+
+function _hideGameOverSponsorAd() {
+  const overlay = document.getElementById('sponsor-gameover-overlay');
+  if (overlay) overlay.style.display = 'none';
+}
+
 function render() {
   if (!ctx || !engine) return;
   const state = engine.state;
@@ -791,6 +1144,9 @@ function render() {
     // Game-over overlay
     if (state.gameOver) {
       drawFroggerGameOver(state);
+      _showGameOverSponsorAd();
+    } else {
+      _hideGameOverSponsorAd();
     }
   } else {
     // ── AI HUNT RENDER ──────────────────────────────────────
@@ -875,6 +1231,10 @@ function render() {
     // Game-over overlay
     if (state.gameOver) {
       drawGameOver(state);
+      // Show HTML sponsor overlay (full-width, readable on phone)
+      _showGameOverSponsorAd();
+    } else {
+      _hideGameOverSponsorAd();
     }
   }
 
@@ -910,41 +1270,104 @@ function drawGrid() {
 }
 
 function drawBorder() {
-  // Outer glow
-  const glow = ctx.createLinearGradient(0, 0, CANVAS_W, 0);
-  glow.addColorStop(0, 'rgba(255,51,85,0.08)');
-  glow.addColorStop(0.5, 'rgba(0,255,136,0.08)');
-  glow.addColorStop(1, 'rgba(255,51,85,0.08)');
-  ctx.strokeStyle = glow;
-  ctx.lineWidth = 3;
-  ctx.strokeRect(CELL_SIZE - 1, CELL_SIZE - 1, (CANVAS_COLS - 2) * CELL_SIZE + 2, (CANVAS_ROWS - 2) * CELL_SIZE + 2);
+  // Subtle corner markers instead of hard red box
+  const cornerLen = CELL_SIZE * 3;
+  const cornerW = 2;
+  ctx.strokeStyle = 'rgba(255,51,85,0.35)';
+  ctx.lineWidth = cornerW;
+  ctx.lineCap = 'round';
 
-  // Inner border line
-  ctx.strokeStyle = 'rgba(255,51,85,0.50)';
-  ctx.lineWidth = 1.5;
-  ctx.strokeRect(CELL_SIZE, CELL_SIZE, (CANVAS_COLS - 2) * CELL_SIZE, (CANVAS_ROWS - 2) * CELL_SIZE);
+  // Top-left corner
+  ctx.beginPath();
+  ctx.moveTo(cornerLen, CELL_SIZE);
+  ctx.lineTo(CELL_SIZE, CELL_SIZE);
+  ctx.lineTo(CELL_SIZE, cornerLen);
+  ctx.stroke();
+
+  // Top-right corner
+  ctx.beginPath();
+  ctx.moveTo(CANVAS_W - cornerLen, CELL_SIZE);
+  ctx.lineTo(CANVAS_W - CELL_SIZE, CELL_SIZE);
+  ctx.lineTo(CANVAS_W - CELL_SIZE, cornerLen);
+  ctx.stroke();
+
+  // Bottom-left corner
+  ctx.beginPath();
+  ctx.moveTo(cornerLen, CANVAS_H - CELL_SIZE);
+  ctx.lineTo(CELL_SIZE, CANVAS_H - CELL_SIZE);
+  ctx.lineTo(CELL_SIZE, CANVAS_H - cornerLen);
+  ctx.stroke();
+
+  // Bottom-right corner
+  ctx.beginPath();
+  ctx.moveTo(CANVAS_W - cornerLen, CANVAS_H - CELL_SIZE);
+  ctx.lineTo(CANVAS_W - CELL_SIZE, CANVAS_H - CELL_SIZE);
+  ctx.lineTo(CANVAS_W - CELL_SIZE, CANVAS_H - cornerLen);
+  ctx.stroke();
+
+  // Subtle edge lines
+  ctx.strokeStyle = 'rgba(255,51,85,0.12)';
+  ctx.lineWidth = 0.5;
+  ctx.beginPath();
+  ctx.moveTo(CELL_SIZE, CELL_SIZE);
+  ctx.lineTo(CANVAS_W - CELL_SIZE, CELL_SIZE);
+  ctx.moveTo(CELL_SIZE, CANVAS_H - CELL_SIZE);
+  ctx.lineTo(CANVAS_W - CELL_SIZE, CANVAS_H - CELL_SIZE);
+  ctx.stroke();
 }
 
 function drawSponsorBadge() {
   if (!activeSponsor) return;
-  const padding = 6;
-  const text = `🎯 ${activeSponsor.brand_name}`;
-  ctx.font = '9px monospace';
-  const metrics = ctx.measureText(text);
-  const bw = metrics.width + padding * 2;
-  const bh = 18;
-  const bx = CANVAS_W - bw - 6;
-  const by = CANVAS_H - bh - 6;
 
-  ctx.fillStyle = 'rgba(0,0,0,0.55)';
-  ctx.beginPath();
-  ctx.roundRect(bx, by, bw, bh, 4);
-  ctx.fill();
+  // Get interstitial creative for richer display
+  const interstitial = activeSponsor.creatives?.find(c => c.type === 'interstitial');
+  const label = activeSponsor.creatives?.find(c => c.type === 'label');
+  const primaryColor = activeSponsor.creatives?.find(c => c.type === 'logo')?.content?.colors?.primary || '#ffdd44';
 
-  ctx.fillStyle = 'rgba(255,255,255,0.4)';
+  // Color mapping for sponsor brand accents
+  const brandColors = { cyan: '#00ffff', yellow: '#ffdd44', green: '#00ff88', white: '#ffffff', red: '#ff5555', magenta: '#ff44ff' };
+  const accentColor = brandColors[primaryColor] || primaryColor;
+
+  // Draw branded strip at bottom of playfield
+  const barH = 22;
+  const barY = CANVAS_H - barH;
+
+  // Semi-transparent background with brand accent border
+  ctx.fillStyle = 'rgba(0,0,0,0.75)';
+  ctx.fillRect(0, barY, CANVAS_W, barH);
+  ctx.fillStyle = accentColor;
+  ctx.globalAlpha = 0.6;
+  ctx.fillRect(0, barY, CANVAS_W, 1.5);  // top accent line
+  ctx.globalAlpha = 1.0;
+
+  // Brand name on left
+  ctx.font = 'bold 10px monospace';
+  ctx.fillStyle = accentColor;
   ctx.textAlign = 'left';
   ctx.textBaseline = 'middle';
-  ctx.fillText(text, bx + padding, by + bh / 2);
+  ctx.fillText(activeSponsor.brand_name, 8, barY + barH / 2);
+
+  // Label text on right (the tagline from creative)
+  if (label?.content?.text) {
+    ctx.font = '9px monospace';
+    ctx.fillStyle = 'rgba(255,255,255,0.55)';
+    ctx.textAlign = 'right';
+    const maxLabelW = CANVAS_W - 100;
+    let labelText = label.content.text;
+    // Truncate if too wide
+    while (ctx.measureText(labelText).width > maxLabelW && labelText.length > 10) {
+      labelText = labelText.slice(0, -4) + '…';
+    }
+    ctx.fillText(labelText, CANVAS_W - 8, barY + barH / 2);
+  }
+
+  // "Sponsored" indicator dot
+  ctx.fillStyle = accentColor;
+  ctx.globalAlpha = 0.4 + 0.3 * Math.abs(Math.sin(Date.now() / 1500)); // slow pulse
+  ctx.beginPath();
+  ctx.arc(CANVAS_W - 6, barY + 5, 2, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.globalAlpha = 1.0;
 }
 
 function drawPlayer(player, invulnerable) {
@@ -974,6 +1397,17 @@ function drawPlayer(player, invulnerable) {
   glow.addColorStop(1, 'rgba(0,255,136,0)');
   ctx.fillStyle = glow;
   ctx.fillRect(cx - r * 2.5, cy - r * 2.5, r * 5, r * 5);
+
+  // Wrap flash effect (Pac-Man teleport sparkle)
+  if (wrapFlash > 0) {
+    const flashAlpha = wrapFlash / 8;
+    const flashR = r * (1.5 + (8 - wrapFlash) * 0.3);
+    ctx.beginPath();
+    ctx.arc(cx, cy, flashR, 0, Math.PI * 2);
+    ctx.strokeStyle = `rgba(0,255,200,${flashAlpha * 0.6})`;
+    ctx.lineWidth = 2;
+    ctx.stroke();
+  }
 
   // Body
   ctx.beginPath();
@@ -1168,7 +1602,7 @@ function drawHUD(state) {
     : '';
 
   const sponsorDisplay = activeSponsor
-    ? `<span style="color:rgba(255,255,255,0.35);font-size:10px;margin-left:4px">| ${activeSponsor.brand_name}</span>`
+    ? `<span style="color:${(() => { const c = activeSponsor.creatives?.find(cr => cr.type === 'logo')?.content?.colors?.primary; const m = { cyan: '#00ffff', yellow: '#ffdd44', green: '#00ff88', white: '#ffffff' }; return m[c] || '#ffdd44'; })()};font-size:10px;font-weight:bold;margin-left:4px">${sanitizeHtml(activeSponsor.brand_name)}</span>`
     : '';
 
   hudEl.innerHTML = `
@@ -1213,22 +1647,76 @@ function drawGameOver(state) {
   ctx.fillStyle = C.hudDanger;
   ctx.fillText('GAME OVER', CANVAS_W / 2, CANVAS_H / 2 - CANVAS_H * 0.22);
 
-  // Sponsor interstitial
+  // Sponsor interstitial — full creative rendering
   if (activeSponsor) {
+    const interstitial = activeSponsor.creatives?.find(c => c.type === 'interstitial');
+    const label = activeSponsor.creatives?.find(c => c.type === 'label');
+    const primaryColor = activeSponsor.creatives?.find(c => c.type === 'logo')?.content?.colors?.primary || '#ffdd44';
+    const brandColors = { cyan: '#00ffff', yellow: '#ffdd44', green: '#00ff88', white: '#ffffff', red: '#ff5555', magenta: '#ff44ff' };
+    const accentColor = brandColors[primaryColor] || primaryColor;
+
+    // Accent line separator
+    ctx.fillStyle = accentColor;
+    ctx.globalAlpha = 0.4;
+    ctx.fillRect(CANVAS_W * 0.2, CANVAS_H / 2 - CANVAS_H * 0.20, CANVAS_W * 0.6, 1);
+    ctx.globalAlpha = 1.0;
+
+    // Logo rendering (ASCII art or text)
     if (sponsorLogoImage) {
-      const maxLogoW = Math.min(160, CANVAS_W * 0.4);
-      const maxLogoH = 60;
-      const scale = Math.min(maxLogoW / sponsorLogoImage.width, maxLogoH / sponsorLogoImage.height, 1);
-      const logoW = sponsorLogoImage.width * scale;
-      const logoH = sponsorLogoImage.height * scale;
-      ctx.drawImage(sponsorLogoImage, (CANVAS_W - logoW) / 2, CANVAS_H / 2 - CANVAS_H * 0.18, logoW, logoH);
+      const logoY = CANVAS_H / 2 - CANVAS_H * 0.16;
+      if (sponsorLogoImage.ascii && Array.isArray(sponsorLogoImage.ascii)) {
+        const asciiLines = sponsorLogoImage.ascii;
+        const lineHeight = Math.max(10, Math.min(14, CANVAS_H * 0.035));
+        const totalH = asciiLines.length * lineHeight;
+        const startY = logoY - totalH / 2;
+        ctx.font = `${lineHeight}px monospace`;
+        ctx.fillStyle = accentColor;
+        ctx.textAlign = 'center';
+        for (let i = 0; i < asciiLines.length; i++) {
+          ctx.fillText(asciiLines[i], CANVAS_W / 2, startY + i * lineHeight);
+        }
+      } else if (sponsorLogoImage.text) {
+        ctx.font = 'bold 16px monospace';
+        ctx.fillStyle = accentColor;
+        ctx.textAlign = 'center';
+        ctx.fillText(sponsorLogoImage.text, CANVAS_W / 2, logoY);
+      } else if (sponsorLogoImage.width && sponsorLogoImage.height) {
+        const maxLogoW = Math.min(160, CANVAS_W * 0.4);
+        const maxLogoH = 60;
+        const scale = Math.min(maxLogoW / sponsorLogoImage.width, maxLogoH / sponsorLogoImage.height, 1);
+        const logoW = sponsorLogoImage.width * scale;
+        const logoH = sponsorLogoImage.height * scale;
+        ctx.drawImage(sponsorLogoImage, (CANVAS_W - logoW) / 2, logoY - logoH / 2, logoW, logoH);
+      }
     }
+
+    // Headline from interstitial creative
+    const headline = interstitial?.content?.headline || 'This round powered by';
     ctx.font = '11px monospace';
-    ctx.fillStyle = '#ffdd44';
-    ctx.fillText('This round powered by', CANVAS_W / 2, CANVAS_H / 2 - CANVAS_H * 0.14);
-    ctx.font = 'bold 13px monospace';
+    ctx.fillStyle = accentColor;
+    ctx.textAlign = 'center';
+    ctx.fillText(headline, CANVAS_W / 2, CANVAS_H / 2 - CANVAS_H * 0.08);
+
+    // Brand name (always shown)
+    ctx.font = 'bold 15px monospace';
     ctx.fillStyle = '#ffffff';
-    ctx.fillText(activeSponsor.brand_name, CANVAS_W / 2, CANVAS_H / 2 - CANVAS_H * 0.10);
+    ctx.fillText(activeSponsor.brand_name, CANVAS_W / 2, CANVAS_H / 2 - CANVAS_H * 0.03);
+
+    // Body text from interstitial creative
+    if (interstitial?.content?.body) {
+      ctx.font = '10px monospace';
+      ctx.fillStyle = 'rgba(255,255,255,0.6)';
+      ctx.fillText(interstitial.content.body, CANVAS_W / 2, CANVAS_H / 2 + CANVAS_H * 0.03);
+    }
+
+    // CTA from interstitial creative
+    if (interstitial?.content?.cta) {
+      ctx.font = 'bold 10px monospace';
+      ctx.fillStyle = accentColor;
+      ctx.globalAlpha = 0.7 + 0.3 * Math.abs(Math.sin(Date.now() / 1000));
+      ctx.fillText(interstitial.content.cta, CANVAS_W / 2, CANVAS_H / 2 + CANVAS_H * 0.08);
+      ctx.globalAlpha = 1.0;
+    }
   }
 
   const fontSize = Math.max(14, Math.floor(CANVAS_W / 40));
@@ -1545,7 +2033,7 @@ function drawFroggerHUD(state) {
     : timeLeft < 10 ? '#ffdd44' : 'rgba(255,255,255,0.6)';
 
   const sponsorText = activeSponsor
-    ? `<span style="color:rgba(255,255,255,0.35);font-size:10px;margin-left:4px">| ${activeSponsor.brand_name}</span>`
+    ? `<span style="color:${(() => { const c = activeSponsor.creatives?.find(cr => cr.type === 'logo')?.content?.colors?.primary; const m = { cyan: '#00ffff', yellow: '#ffdd44', green: '#00ff88', white: '#ffffff' }; return m[c] || '#ffdd44'; })()};font-size:10px;font-weight:bold;margin-left:4px">${sanitizeHtml(activeSponsor.brand_name)}</span>`
     : '';
 
   hudEl.innerHTML = `
@@ -1607,14 +2095,45 @@ function drawFroggerGameOver(state) {
   ctx.fillStyle = C.hudDanger;
   ctx.fillText('ROUTE LOST', CANVAS_W / 2, CANVAS_H / 2 - CANVAS_H * 0.20);
 
-  // Sponsor interstitial
+  // Sponsor interstitial — full creative rendering
   if (activeSponsor) {
+    const interstitial = activeSponsor.creatives?.find(c => c.type === 'interstitial');
+    const primaryColor = activeSponsor.creatives?.find(c => c.type === 'logo')?.content?.colors?.primary || '#ffdd44';
+    const brandColors = { cyan: '#00ffff', yellow: '#ffdd44', green: '#00ff88', white: '#ffffff', red: '#ff5555', magenta: '#ff44ff' };
+    const accentColor = brandColors[primaryColor] || primaryColor;
+
+    // Accent line separator
+    ctx.fillStyle = accentColor;
+    ctx.globalAlpha = 0.4;
+    ctx.fillRect(CANVAS_W * 0.2, CANVAS_H / 2 - CANVAS_H * 0.16, CANVAS_W * 0.6, 1);
+    ctx.globalAlpha = 1.0;
+
+    // Headline
+    const headline = interstitial?.content?.headline || 'This round powered by';
     ctx.font = '10px monospace';
-    ctx.fillStyle = '#ffdd44';
-    ctx.fillText('This round powered by', CANVAS_W / 2, CANVAS_H / 2 - CANVAS_H * 0.13);
-    ctx.font = 'bold 13px monospace';
+    ctx.fillStyle = accentColor;
+    ctx.fillText(headline, CANVAS_W / 2, CANVAS_H / 2 - CANVAS_H * 0.11);
+
+    // Brand name
+    ctx.font = 'bold 15px monospace';
     ctx.fillStyle = '#ffffff';
-    ctx.fillText(activeSponsor.brand_name, CANVAS_W / 2, CANVAS_H / 2 - CANVAS_H * 0.09);
+    ctx.fillText(activeSponsor.brand_name, CANVAS_W / 2, CANVAS_H / 2 - CANVAS_H * 0.06);
+
+    // Body text
+    if (interstitial?.content?.body) {
+      ctx.font = '10px monospace';
+      ctx.fillStyle = 'rgba(255,255,255,0.6)';
+      ctx.fillText(interstitial.content.body, CANVAS_W / 2, CANVAS_H / 2 - CANVAS_H * 0.01);
+    }
+
+    // CTA
+    if (interstitial?.content?.cta) {
+      ctx.font = 'bold 10px monospace';
+      ctx.fillStyle = accentColor;
+      ctx.globalAlpha = 0.7 + 0.3 * Math.abs(Math.sin(Date.now() / 1000));
+      ctx.fillText(interstitial.content.cta, CANVAS_W / 2, CANVAS_H / 2 + CANVAS_H * 0.04);
+      ctx.globalAlpha = 1.0;
+    }
   }
 
   const fs = Math.max(13, Math.floor(CANVAS_W / 42));

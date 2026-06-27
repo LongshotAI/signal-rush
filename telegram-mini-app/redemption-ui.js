@@ -1,28 +1,45 @@
 /**
- * redemption-ui.js — Credit Balance Display + Redemption Panel
+ * redemption-ui.js — VMCO Sub-key Redemption Panel
  *
- * Shows credit balance in a collapsible panel with redemption flow.
- * Works in both Telegram Mini App mode and standalone browser mode.
+ * Shows player's earned micros + a "Get API Key" button that calls /vmco/claim.
+ * The player receives a VMCO sub-key (vmco-sk-XXXX) they own and can paste
+ * into their own agent (Hermes, OpenClaw, Claude Code, etc.).
+ *
+ * Key facts shown to player:
+ *  - 10,000 micros = 1 VMCO credit = $0.01
+ *  - The sub-key is THEIRS — Signal Rush never touches their API calls
+ *  - They can top up anytime they earn more micros
+ *  - They can revoke the key if they lose access
  */
+
+const MICROS_PER_CREDIT = 10_000;
 
 export class RedemptionUI {
   constructor(containerSelector = '#game-container') {
     this.container = document.querySelector(containerSelector);
     this.economyClient = null;
     this.playerId = null;
-    this.balance = 0;
-    this.rewardsMicros = 0;     // ad-funded reward pool earnings
-    this.ppqAccount = '';       // player's ppq.ai email/username
+    this.rewardsMicros = 0;     // earned micros from gameplay
     this.visible = false;
     this.el = null;
+    this._refreshTimer = null;
   }
 
-  init(economyClient, playerId, initialBalance = 0) {
+  init(economyClient, playerId, initialRewards = 0, initData = null) {
     this.economyClient = economyClient;
     this.playerId = playerId;
-    this.balance = initialBalance;
+    this.rewardsMicros = initialRewards;
+    this.initData = initData;
     this._build();
     this._refreshRewards();
+    // Auto-refresh balance every 10s while visible
+    this._refreshTimer = setInterval(() => {
+      if (this.visible) this._refreshRewards();
+    }, 10_000);
+  }
+
+  destroy() {
+    if (this._refreshTimer) clearInterval(this._refreshTimer);
   }
 
   _build() {
@@ -43,61 +60,72 @@ export class RedemptionUI {
       color: '#ffffff',
       display: 'none',
       zIndex: '100',
-      maxHeight: '60vh',
+      maxHeight: '70vh',
       overflowY: 'auto',
       backdropFilter: 'blur(10px)',
       WebkitBackdropFilter: 'blur(10px)',
     });
 
     this.el.innerHTML = `
-      <div style="display:flex;flex-direction:column;gap:4px;margin-bottom:10px;">
+      <div style="display:flex;flex-direction:column;gap:6px;margin-bottom:10px;">
         <div style="display:flex;justify-content:space-between;align-items:center;">
-          <span style="color:#00ff88;font-weight:bold">💰 <span id="credit-balance">0</span> Credits</span>
-          <span style="color:rgba(0,255,136,0.6);font-size:12px">🎯 <span id="reward-balance">0</span> µ from ads</span>
+          <span style="color:#00ff88;font-weight:bold">🎯 <span id="reward-balance">0</span> µ earned</span>
+          <span style="color:rgba(0,255,136,0.6);font-size:11px">=<span id="reward-credits">0</span> VMCO credits</span>
           <button id="redeem-close" style="background:none;border:none;color:rgba(255,255,255,0.5);font-size:18px;cursor:pointer;padding:0 4px;">✕</button>
         </div>
-        <div style="font-size:11px;color:rgba(255,255,255,0.35)">Sponsors fund your AI credits. Play well to earn more.</div>
+        <div style="font-size:11px;color:rgba(255,255,255,0.4)">10,000 µ = 1 credit = $0.01 • Claim as your own API key</div>
       </div>
 
-      <div id="rewards-claim-area" style="margin-bottom:10px;padding:8px;background:rgba(0,255,136,0.06);border-radius:6px;border:1px solid rgba(0,255,136,0.15);display:flex;flex-direction:column;gap:6px;">
-        <div style="font-size:11px;color:rgba(255,255,255,0.6)">🎯 <strong>Sponsor Reward Claim</strong> — send to your ppq.ai account</div>
-        <div style="display:flex;gap:6px;align-items:center;">
-          <input id="rewards-ppq-account" type="text" placeholder="ppq.ai email/username" value="${this.ppqAccount}" style="flex:1;background:rgba(255,255,255,0.05);border:1px solid rgba(255,255,255,0.15);color:#fff;padding:6px 8px;border-radius:6px;font-family:inherit;font-size:12px;" />
-          <button id="rewards-claim-btn" style="background:rgba(0,255,136,0.15);border:1px solid rgba(0,255,136,0.3);color:#00ff88;padding:6px 12px;border-radius:6px;cursor:pointer;font-family:inherit;font-size:12px;white-space:nowrap;">Claim All</button>
-        </div>
-        <div id="rewards-claim-result" style="display:none;font-size:11px;color:rgba(255,255,255,0.6);margin-top:2px;"></div>
-      </div>
-
-      <div id="redeem-form" style="display:flex;flex-direction:column;gap:8px;">
-        <div style="display:flex;gap:8px;">
-          <select id="redeem-model" style="flex:1;background:rgba(255,255,255,0.05);border:1px solid rgba(255,255,255,0.15);color:#fff;padding:6px 10px;border-radius:6px;font-family:inherit;font-size:12px;">
-            <option value="gpt-4o-mini">GPT-4o Mini (10 credits)</option>
-            <option value="gpt-4o">GPT-4o (50 credits)</option>
-            <option value="claude-3-haiku">Claude 3 Haiku (15 credits)</option>
+      <!-- Claim Section -->
+      <div id="vmco-claim-area" style="margin-bottom:10px;padding:10px;background:rgba(0,255,136,0.06);border-radius:6px;border:1px solid rgba(0,255,136,0.15);display:flex;flex-direction:column;gap:8px;">
+        <div style="display:flex;gap:8px;align-items:center;">
+          <select id="vmco-claim-amount" style="flex:1;background:rgba(255,255,255,0.05);border:1px solid rgba(255,255,255,0.15);color:#fff;padding:8px;border-radius:6px;font-family:inherit;font-size:12px;">
+            <option value="10000">1 credit (10,000 µ) — $0.01</option>
+            <option value="50000">5 credits (50,000 µ) — $0.05</option>
+            <option value="100000">10 credits (100,000 µ) — $0.10</option>
+            <option value="all">All available (rounds down)</option>
           </select>
-          <input id="redeem-credits" type="number" min="1" value="10" style="width:80px;background:rgba(255,255,255,0.05);border:1px solid rgba(255,255,255,0.15);color:#fff;padding:6px 10px;border-radius:6px;font-family:inherit;font-size:12px;" />
+          <button id="vmco-claim-btn" style="background:rgba(0,255,136,0.15);border:1px solid rgba(0,255,136,0.4);color:#00ff88;padding:8px 14px;border-radius:6px;cursor:pointer;font-family:inherit;font-size:12px;font-weight:bold;white-space:nowrap;transition:background 0.2s;">🔑 Get API Key</button>
         </div>
-        <textarea id="redeem-prompt" placeholder="Ask AI anything..." rows="3" style="background:rgba(255,255,255,0.05);border:1px solid rgba(255,255,255,0.15);color:#fff;padding:8px 10px;border-radius:6px;font-family:inherit;font-size:12px;resize:none;outline:none;"></textarea>
-        <button id="redeem-submit" style="background:rgba(0,255,136,0.15);border:1px solid rgba(0,255,136,0.3);color:#00ff88;padding:8px;border-radius:6px;cursor:pointer;font-family:inherit;font-size:13px;font-weight:bold;transition:background 0.2s;">
-          ⚡ Redeem & Send
-        </button>
+        <div style="font-size:11px;color:rgba(255,255,255,0.45)" id="vmco-claim-note">Creates a VMCO sub-key you own. Paste into your AI agent.</div>
+        <div id="vmco-claim-result" style="display:none;font-size:12px;margin-top:4px;"></div>
       </div>
-      <div id="redeem-result" style="display:none;margin-top:8px;padding:8px;background:rgba(255,255,255,0.03);border-radius:6px;white-space:pre-wrap;word-break:break-word;max-height:200px;overflow-y:auto;"></div>
+
+      <!-- Active Key Display (shown after claim) -->
+      <div id="vmco-key-area" style="display:none;margin-bottom:10px;padding:10px;background:rgba(0,150,255,0.08);border-radius:6px;border:1px solid rgba(0,150,255,0.25);flex-direction:column;gap:8px;">
+        <div style="font-size:11px;color:rgba(0,200,255,0.8);font-weight:bold;">YOUR VMCO API KEY</div>
+        <div style="display:flex;gap:6px;align-items:center;">
+          <code id="vmco-key-display" style="flex:1;background:rgba(0,0,0,0.4);color:#00ccff;padding:8px;border-radius:4px;font-size:11px;word-break:break-all;user-select:all;cursor:text;">vmco-sk-XXXX...</code>
+          <button id="vmco-copy-btn" style="background:rgba(0,150,255,0.2);border:1px solid rgba(0,150,255,0.4);color:#00ccff;padding:6px 10px;border-radius:6px;cursor:pointer;font-family:inherit;font-size:11px;white-space:nowrap;">📋 Copy</button>
+        </div>
+        <div style="display:flex;justify-content:space-between;align-items:center;font-size:11px;color:rgba(255,255,255,0.5);">
+          <span>Budget: <strong id="vmco-key-budget" style="color:#00ff88;">0</strong> credits</span>
+          <span>= $<span id="vmco-key-dollars">0.00</span></span>
+        </div>
+        <div style="font-size:10px;color:rgba(255,255,255,0.35)">
+          Use in your agent:<br/>
+          <code style="color:rgba(255,255,255,0.5)">Authorization: Bearer vmco-s...</code><br/>
+          Endpoint: <code style="color:rgba(255,255,255,0.5)">https://api.vmco.ai/v1/chat/completions</code>
+        </div>
+        <div style="display:flex;gap:6px;margin-top:4px;">
+          <button id="vmco-revoke-btn" style="background:rgba(255,50,50,0.1);border:1px solid rgba(255,50,50,0.3);color:#ff5555;padding:4px 8px;border-radius:4px;cursor:pointer;font-family:inherit;font-size:10px;">🗑 Revoke Key</button>
+        </div>
+      </div>
     `;
 
     this.container.parentElement.appendChild(this.el);
 
-    // Wire events
+    // Event wiring
     this.el.querySelector('#redeem-close').addEventListener('click', () => this.hide());
-    this.el.querySelector('#redeem-submit').addEventListener('click', () => this._submitRedemption());
-    this.el.querySelector('#rewards-claim-btn').addEventListener('click', () => this._claimRewards());
+    this.el.querySelector('#vmco-claim-btn').addEventListener('click', () => this._claimVmco());
+    this.el.querySelector('#vmco-copy-btn').addEventListener('click', () => this._copyKey());
+    this.el.querySelector('#vmco-revoke-btn').addEventListener('click', () => this._revokeKey());
   }
 
   show() {
     if (this.el) {
       this.el.style.display = 'block';
       this.visible = true;
-      this._refreshBalance();
       this._refreshRewards();
     }
   }
@@ -110,150 +138,186 @@ export class RedemptionUI {
   }
 
   toggle() {
-    if (this.visible) {
-      this.hide();
-    } else {
-      this.show();
-    }
+    if (this.visible) this.hide();
+    else this.show();
   }
 
-  updateBalance(newBalance) {
-    this.balance = newBalance;
-    const el = this.el?.querySelector('#credit-balance');
-    if (el) el.textContent = newBalance;
+  updateRewards(newMicros) {
+    this.rewardsMicros = newMicros;
+    this._renderRewards();
   }
 
-  async _refreshBalance() {
-    if (!this.economyClient || !this.playerId) return;
-    const result = await this.economyClient.getBalance(this.playerId);
-    if (result.ok && result.balance != null) {
-      this.updateBalance(result.balance);
-    }
+  _renderRewards() {
+    const el = this.el?.querySelector('#reward-balance');
+    if (el) el.textContent = this.rewardsMicros.toLocaleString();
+    const credEl = this.el?.querySelector('#reward-credits');
+    if (credEl) credEl.textContent = Math.floor(this.rewardsMicros / MICROS_PER_CREDIT);
   }
 
   async _refreshRewards() {
     if (!this.economyClient || !this.playerId) return;
-    const result = await this.economyClient.getRewards(this.playerId);
-    if (result.ok) {
-      this.rewardsMicros = result.available_micros || 0;
-      const el = this.el?.querySelector('#reward-balance');
-      if (el) el.textContent = this.rewardsMicros;
-      // Show/hide claim area based on available rewards
-      const claimArea = this.el?.querySelector('#rewards-claim-area');
-      if (claimArea) {
-        claimArea.style.display = this.rewardsMicros >= 1000 ? 'flex' : 'none';
+    try {
+      const result = await this.economyClient.getRewards(this.playerId);
+      if (result.ok) {
+        const available = result.available_micros || 0;
+        if (available !== this.rewardsMicros) {
+          this.rewardsMicros = available;
+          this._renderRewards();
+        }
       }
+    } catch {}
+
+    // Also check if player already has a sub-key
+    this._refreshSubKey();
+  }
+
+  async _refreshSubKey() {
+    if (!this.economyClient || !this.playerId) return;
+    try {
+      const result = await this.economyClient.vmcoGetSubKey({ playerId: this.playerId });
+      if (result.ok && result.has_sub_key) {
+        this._showSubKey(result.sub_key, result.budget_credits);
+      } else {
+        this._hideSubKey();
+      }
+    } catch {}
+  }
+
+  _showSubKey(keyValue, budgetCredits) {
+    const keyArea = this.el?.querySelector('#vmco-key-area');
+    const keyDisplay = this.el?.querySelector('#vmco-key-display');
+    const budgetEl = this.el?.querySelector('#vmco-key-budget');
+    const dollarsEl = this.el?.querySelector('#vmco-key-dollars');
+    const claimNote = this.el?.querySelector('#vmco-claim-note');
+
+    if (keyDisplay) keyDisplay.textContent = keyValue;
+    if (budgetEl) budgetEl.textContent = budgetCredits;
+    if (dollarsEl) dollarsEl.textContent = (budgetCredits * 0.01).toFixed(2);
+    if (keyArea) { keyArea.style.display = 'flex'; }
+    if (claimNote) claimNote.textContent = '✅ Key active! Earn more micros to top up, or use the key below in your agent.';
+  }
+
+  _hideSubKey() {
+    const keyArea = this.el?.querySelector('#vmco-key-area');
+    if (keyArea) keyArea.style.display = 'none';
+  }
+
+  async _claimVmco() {
+    if (!this.economyClient || !this.playerId) return;
+    if (this.rewardsMicros < MICROS_PER_CREDIT) {
+      this._showClaimResult(`Need at least ${MICROS_PER_CREDIT.toLocaleString()} micros to claim (you have ${this.rewardsMicros.toLocaleString()})`, '#ffdd44');
+      return;
+    }
+
+    const select = this.el.querySelector('#vmco-claim-amount');
+    const selectedValue = select?.value;
+    let amountMicros;
+    if (selectedValue === 'all') {
+      // Round down to nearest multiple of MICROS_PER_CREDIT
+      amountMicros = Math.floor(this.rewardsMicros / MICROS_PER_CREDIT) * MICROS_PER_CREDIT;
+    } else {
+      amountMicros = parseInt(selectedValue, 10) || MICROS_PER_CREDIT;
+    }
+
+    if (amountMicros > this.rewardsMicros) {
+      this._showClaimResult(`Not enough micros. You have ${this.rewardsMicros.toLocaleString()} µ.`, '#ff3355');
+      return;
+    }
+
+    const btn = this.el.querySelector('#vmco-claim-btn');
+    btn.disabled = true;
+    btn.textContent = 'Issuing key...';
+
+    try {
+      const result = await this.economyClient.vmcoClaim({
+        playerId: this.playerId,
+        amountMicros,
+        initData: this.initData,
+      });
+
+      if (result.ok) {
+        const isNew = result.is_new;
+        const credits = result.budget_credits || Math.floor(amountMicros / MICROS_PER_CREDIT);
+        this._showClaimResult(
+          `✅ ${isNew ? 'New key created!' : 'Key topped up!'} +${credits) credits added.${result.idempotent ? ' Check the key below.' : ''}`,
+          '#00ff88'
+        );
+        // Refresh rewards (decremented) and show the key
+        await this._refreshRewards();
+        if (result.sub_key) {
+          this._showSubKey(result.sub_key, result.budget_credits);
+        }
+      } else {
+        const err = result.error || 'Claim failed';
+        // Helpful hints for specific errors
+        let hint = '';
+        if (err.includes('multiple of')) hint = ' Must be a multiple of 10,000 micros.';
+        else if (err.includes('session token')) hint = ' Please reopen the mini-app.';
+        else if (err.includes('rate limited')) hint = ' Wait 60s between claims.';
+        else if (err.includes('insufficient')) hint = ' Earn more micros by playing.';
+        else if (err.includes('temporarily low')) hint = ' Master account needs top-up. Try again later.';
+        this._showClaimResult(`❌ ${err}.${hint}`, '#ff3355');
+      }
+    } catch (err) {
+      this._showClaimResult(`❌ Error: ${err.message}. Try again.`, '#ff3355');
+    } finally {
+      btn.disabled = false;
+      btn.textContent = '🔑 Get API Key';
     }
   }
 
-  async _claimRewards() {
-    if (!this.economyClient || !this.playerId) return;
-    if (this.rewardsMicros < 1000) {
-      this._showClaimResult(`Minimum claim: 1,000 micros (you have ${this.rewardsMicros})`, '#ffdd44');
-      return;
+  async _copyKey() {
+    const keyDisplay = this.el?.querySelector('#vmco-key-display');
+    const keyValue = keyDisplay?.textContent;
+    if (!keyValue) return;
+    try {
+      await navigator.clipboard.writeText(keyValue);
+      const btn = this.el.querySelector('#vmco-copy-btn');
+      const original = btn.textContent;
+      btn.textContent = 'Copied!';
+      setTimeout(() => { btn.textContent = original; }, 2000);
+    } catch {
+      // Fallback: select the text
+      const range = document.createRange();
+      range.selectNode(keyDisplay);
+      const sel = window.getSelection();
+      sel.removeAllRanges();
+      sel.addRange(range);
     }
+  }
 
-    const ppqInput = this.el?.querySelector('#rewards-ppq-account');
-    const ppqAccount = ppqInput?.value?.trim();
-    if (!ppqAccount) {
-      this._showClaimResult('Please enter your ppq.ai email or username', '#ff3355');
-      return;
-    }
+  async _revokeKey() {
+    if (!confirm('Revoke your VMCO API key? It will stop working immediately in all agents. You can re-create it by claiming again.')) return;
 
-    const btn = this.el.querySelector('#rewards-claim-btn');
+    const btn = this.el.querySelector('#vmco-revoke-btn');
     btn.disabled = true;
-    btn.textContent = '⏳ Claiming...';
+    btn.textContent = 'Revoking...';
 
     try {
-      const result = await this.economyClient.claimRewards({
-        playerId: this.playerId,
-        ppqAccount,
-        amountMicros: this.rewardsMicros,
-      });
+      const result = await this.economyClient.vmcoRevokeSubKey({ playerId: this.playerId });
       if (result.ok) {
-        this._showClaimResult(`✅ ${this.rewardsMicros} micros claimed! Sent to ${ppqAccount}`, '#00ff88');
-        this.rewardsMicros = 0;
-        const el = this.el?.querySelector('#reward-balance');
-        if (el) el.textContent = '0';
-        // Hide claim area
-        const claimArea = this.el?.querySelector('#rewards-claim-area');
-        if (claimArea) claimArea.style.display = 'none';
+        this._hideSubKey();
+        this._showClaimResult('Key revoked. You can claim a new one anytime by earning more micros.', '#00ff88');
       } else {
-        this._showClaimResult(`❌ ${result.error || 'Claim failed'}`, '#ff3355');
+        this._showClaimResult(`❌ ${result.error || 'Revoke failed'}`, '#ff3355');
       }
     } catch (err) {
       this._showClaimResult(`❌ Error: ${err.message}`, '#ff3355');
     } finally {
       btn.disabled = false;
-      btn.textContent = 'Claim All';
+      btn.textContent = '🗑 Revoke Key';
     }
   }
 
   _showClaimResult(msg, color = 'rgba(255,255,255,0.6)') {
-    const el = this.el?.querySelector('#rewards-claim-result');
+    const el = this.el?.querySelector('#vmco-claim-result');
     if (el) {
       el.textContent = msg;
       el.style.color = color;
       el.style.display = 'block';
-      setTimeout(() => { el.style.display = 'none'; }, 8000);
-    }
-  }
-
-  async _submitRedemption() {
-    if (!this.economyClient || !this.playerId) {
-      this._showResult('⚠️ Not connected to economy service');
-      return;
-    }
-
-    const credits = parseInt(this.el.querySelector('#redeem-credits').value) || 0;
-    const model = this.el.querySelector('#redeem-model').value;
-    const prompt = this.el.querySelector('#redeem-prompt').value.trim();
-
-    if (!credits || credits <= 0) {
-      this._showResult('⚠️ Enter a valid credit amount');
-      return;
-    }
-    if (!prompt) {
-      this._showResult('⚠️ Enter a prompt');
-      return;
-    }
-    if (credits > this.balance) {
-      this._showResult(`⚠️ Insufficient balance. You have ${this.balance} credits.`);
-      return;
-    }
-
-    const btn = this.el.querySelector('#redeem-submit');
-    btn.disabled = true;
-    btn.textContent = '⏳ Sending...';
-
-    try {
-      const result = await this.economyClient.redeemCredits({
-        playerId: this.playerId,
-        credits,
-        model,
-        prompt,
-      });
-
-      if (result.ok) {
-        this.updateBalance(result.balance_remaining ?? this.balance - credits);
-        this._showResult(`✅ AI Response (${result.model || model}):\n\n${result.content}`);
-        this.el.querySelector('#redeem-prompt').value = '';
-      } else {
-        this._showResult(`❌ ${result.error || 'Redemption failed'}`);
-      }
-    } catch (err) {
-      this._showResult(`❌ Error: ${err.message}`);
-    } finally {
-      btn.disabled = false;
-      btn.textContent = '⚡ Redeem & Send';
-    }
-  }
-
-  _showResult(text) {
-    const el = this.el?.querySelector('#redeem-result');
-    if (el) {
-      el.textContent = text;
-      el.style.display = 'block';
+      setTimeout(() => { el.style.display = 'none'; }, 6000);
     }
   }
 }
+
+export { MICROS_PER_CREDIT };

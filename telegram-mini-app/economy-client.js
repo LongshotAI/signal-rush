@@ -132,6 +132,15 @@ export class EconomyClient {
   }
 
   /**
+   * Fetch campaign logo/creative content as JSON.
+   * GET /api/campaigns/:id/logo
+   * Returns: { ok: true, content: { ascii: [...] } | { text: "..." }, brand_name: "..." }
+   */
+  async getCampaignLogo(campaignId) {
+    return this._fetch(`/api/campaigns/${encodeURIComponent(campaignId)}/logo`);
+  }
+
+  /**
    * Log an ad impression.
    * POST /ads/impression
    */
@@ -166,10 +175,10 @@ export class EconomyClient {
    * Claim ad-funded rewards (send to ppq.ai account).
    * POST /rewards/claim
    */
-  async claimRewards({ playerId, ppqAccount, amountMicros }) {
+  async claimRewards({ playerId, ppqAccount, amountMicros, idempotencyKey = null }) {
     return this._fetch('/rewards/claim', {
       method: 'POST',
-      body: { player_id: playerId, ppq_account: ppqAccount, amount_micros: amountMicros },
+      body: { player_id: playerId, ppq_account: ppqAccount, amount_micros: amountMicros, session_token: this.sessionToken, idempotency_key: idempotencyKey },
     });
   }
 
@@ -190,6 +199,73 @@ export class EconomyClient {
         tick_count: tickCount,
         difficulty_tier: difficultyTier,
       },
+    });
+  }
+
+  /**
+   * Claim earned micros as a VMCO sub-key.
+   * First claim creates the sub-key; subsequent claims top up budget.
+   * POST /vmco/claim
+   * Amount must be a multiple of 10,000 micros (1 VMCO credit = $0.01).
+   *
+   * Automatically re-authenticates if the session token expired (401/403).
+   * Pass `initData` from Telegram.WebApp.initData() for auto-retry.
+   */
+  async vmcoClaim({ playerId, amountMicros, initData = null }) {
+    let result = await this._fetch('/vmco/claim', {
+      method: 'POST',
+      body: {
+        player_id: playerId,
+        amount_micros: amountMicros,
+        session_token: this.sessionToken,
+      },
+    });
+
+    // Auto-recover from expired session token
+    if (!result.ok && (result.status === 401 || result.status === 403) && initData) {
+      const auth = await this.auth(initData);
+      if (auth.ok) {
+        result = await this._fetch('/vmco/claim', {
+          method: 'POST',
+          body: {
+            player_id: playerId,
+            amount_micros: amountMicros,
+            session_token: this.sessionToken,
+          },
+        });
+      }
+    }
+
+    return result;
+  }
+
+  /**
+   * Get the player's existing sub-key.
+   * Returns the vmco-sk-XXXX key value + budget info.
+   * GET /vmco/sub-key/:player_id
+   *
+   * Automatically re-authenticates if the session token expired.
+   */
+  async vmcoGetSubKey({ playerId, initData = null }) {
+    let result = await this._fetch(`/vmco/sub-key/${encodeURIComponent(playerId)}`);
+
+    if (!result.ok && (result.status === 401 || result.status === 403) && initData) {
+      const auth = await this.auth(initData);
+      if (auth.ok) {
+        result = await this._fetch(`/vmco/sub-key/${encodeURIComponent(playerId)}`);
+      }
+    }
+
+    return result;
+  }
+
+  /**
+   * Revoke / kill the player's sub-key.
+   * DELETE /vmco/sub-key/:player_id
+   */
+  async vmcoRevokeSubKey({ playerId }) {
+    return this._fetch(`/vmco/sub-key/${encodeURIComponent(playerId)}?session_token=${encodeURIComponent(this.sessionToken)}`, {
+      method: 'DELETE',
     });
   }
 }
