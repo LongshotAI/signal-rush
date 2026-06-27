@@ -66,4 +66,6 @@ scripts/verify-*.js
 
 # Temp files
 *.tmp
-*.bakeconomy.env
+*.bak
+# Service-specific env file — contains TELEGRAM_BOT_TOKEN, STRIPE keys, etc.
+economy.env
