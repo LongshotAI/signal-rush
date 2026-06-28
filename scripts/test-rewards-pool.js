@@ -83,7 +83,7 @@ async function main() {
 
   // 8. Claim rewards — must not exceed pool
   const claimableAmount = Math.min(rewards.available_micros, pool2.total_deposited_micros - pool2.total_claimed_micros);
-  const claimResult = ledger.claimReward(db, { playerId, ppqAccount: 'player@ppq.ai', amountMicros: claimableAmount });
+  const claimResult = ledger.claimReward(db, { playerId, ppqAccount: 'vmco:test-subkey', amountMicros: claimableAmount });
   assert('claim succeeded', claimResult.claim.status === 'pending', `got ${claimResult.claim.status}`);
 
   const rewardsAfter = ledger.getPlayerRewards(db, playerId);
@@ -91,7 +91,7 @@ async function main() {
   assert('available_micros decreased after claim', rewardsAfter.available_micros === rewards.available_micros - claimableAmount, `expected ${rewards.available_micros - claimableAmount}, got ${rewardsAfter.available_micros}`);
 
   // 9. Complete the claim
-  const completed = ledger.completeRewardClaim(db, { claimId: claimResult.claim.id, ppqTxId: 'ppq-tx-123' });
+  const completed = ledger.completeRewardClaim(db, { claimId: claimResult.claim.id, ppqTxId: 'vmco-tx-123' });
   assert('claim completed', completed.status === 'completed', `got ${completed.status}`);
 
   const poolAfter = ledger.getRewardsPoolStats(db);
@@ -103,7 +103,7 @@ async function main() {
   const poolAvailableForFail = Math.max(0, poolBeforeFail.total_deposited_micros - poolBeforeFail.total_claimed_micros);
   if (poolAvailableForFail > 0 && rewardsBeforeFail.available_micros > 0) {
     const claimAmount = Math.min(1000, rewardsBeforeFail.available_micros, poolAvailableForFail);
-    const claim2 = ledger.claimReward(db, { playerId, ppqAccount: 'player@ppq.ai', amountMicros: claimAmount });
+    const claim2 = ledger.claimReward(db, { playerId, ppqAccount: 'vmco:test-subkey', amountMicros: claimAmount });
     const failedClaim = ledger.failRewardClaim(db, claim2.claim.id);
     assert('failed claim status is failed', failedClaim.status === 'failed', `got ${failedClaim.status}`);
     const rewardsAfterFail = ledger.getPlayerRewards(db, playerId);

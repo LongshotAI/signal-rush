@@ -77,7 +77,7 @@ console.log('── redeemCredits ──');
   const pid = createPlayer(db);
   const result = redeem.redeemCredits(db, {
     playerId: pid,
-    provider: 'ppq',
+    provider: 'vmco',
     amountMicros: 1000,  // = 1 credit
     model: 'gpt-4o-mini',
     prompt: 'Hello world',
@@ -100,7 +100,7 @@ console.log('── redeemCredits ──');
   assert(tx.amount === 1, 'basic: transaction amount is 1 credit');
 
   // Verify token_balances updated (in micros)
-  const tb = db.prepare('SELECT * FROM token_balances WHERE player_id = ? AND provider = ?').get(pid, 'ppq');
+  const tb = db.prepare('SELECT * FROM token_balances WHERE player_id = ? AND provider = ?').get(pid, 'vmco');
   assert(tb !== undefined, 'basic: token_balance row created');
   assert(tb.total_redeemed === 1000, 'basic: total_redeemed is 1000 micros');
 
@@ -115,11 +115,11 @@ console.log('── redeemCredits ──');
   const db = createTestDb();
   const pid = createPlayer(db);
   const result1 = redeem.redeemCredits(db, {
-    playerId: pid, provider: 'ppq', amountMicros: 5000,  // = 5 credits
+    playerId: pid, provider: 'vmco', amountMicros: 5000,  // = 5 credits
     model: 'gpt-4o-mini', prompt: 'test', idempotencyKey: 'idem-1',
   });
   const result2 = redeem.redeemCredits(db, {
-    playerId: pid, provider: 'ppq', amountMicros: 5000,
+    playerId: pid, provider: 'vmco', amountMicros: 5000,
     model: 'gpt-4o-mini', prompt: 'test', idempotencyKey: 'idem-1',
   });
   assert(!result1.idempotent, 'idempotent: first call not idempotent');
@@ -137,7 +137,7 @@ console.log('── redeemCredits ──');
   const pid = createPlayer(db, 'p3', 100);
   assertThrows(() => {
     redeem.redeemCredits(db, {
-      playerId: pid, provider: 'ppq', amountMicros: 200000,  // = 200 credits > 100 balance
+      playerId: pid, provider: 'vmco', amountMicros: 200000,  // = 200 credits > 100 balance
       model: 'gpt-4o-mini', prompt: 'test', idempotencyKey: 'key-3',
     });
   }, 'insufficient balance', 'insufficient balance: throws');
@@ -161,7 +161,7 @@ console.log('── redeemCredits ──');
   const pid = createPlayer(db);
   assertThrows(() => {
     redeem.redeemCredits(db, {
-      playerId: pid, provider: 'ppq', amountMicros: 50,  // < 100 min
+      playerId: pid, provider: 'vmco', amountMicros: 50,  // < 100 min
       model: 'gpt-4o-mini', prompt: 'test', idempotencyKey: 'key-5',
     });
   }, 'below minimum', 'below min: throws');
@@ -173,7 +173,7 @@ console.log('── redeemCredits ──');
   const pid = createPlayer(db, 'p6', 200000);
   assertThrows(() => {
     redeem.redeemCredits(db, {
-      playerId: pid, provider: 'ppq', amountMicros: 200000,  // > 100,000 max
+      playerId: pid, provider: 'vmco', amountMicros: 200000,  // > 100,000 max
       model: 'gpt-4o-mini', prompt: 'test', idempotencyKey: 'key-6',
     });
   }, 'above maximum', 'above max: throws');
@@ -182,7 +182,7 @@ console.log('── redeemCredits ──');
 // Test 7: Missing required fields
 {
   const db = createTestDb();
-  const base = { playerId: 'x', provider: 'ppq', amountMicros: 1000, model: 'gpt-4o-mini', prompt: 'test', idempotencyKey: 'k' };
+  const base = { playerId: 'x', provider: 'vmco', amountMicros: 1000, model: 'gpt-4o-mini', prompt: 'test', idempotencyKey: 'k' };
   assertThrows(() => redeem.redeemCredits(db, { ...base, playerId: '' }), 'playerId is required', 'missing playerId');
   assertThrows(() => redeem.redeemCredits(db, { ...base, provider: '' }), 'provider is required', 'missing provider');
   assertThrows(() => redeem.redeemCredits(db, { ...base, amountMicros: 0 }), 'amountMicros must be positive', 'zero amount');
@@ -199,16 +199,16 @@ console.log('── completeRedemption ──');
   const db = createTestDb();
   const pid = createPlayer(db);
   const r = redeem.redeemCredits(db, {
-    playerId: pid, provider: 'ppq', amountMicros: 5000,
+    playerId: pid, provider: 'vmco', amountMicros: 5000,
     model: 'gpt-4o-mini', prompt: 'test', idempotencyKey: 'key-8',
   });
   const completed = redeem.completeRedemption(db, {
     redemptionId: r.redemption.id,
-    providerRef: 'ppq-ref-123',
+    providerRef: 'vmco-ref-123',
     providerResponse: { choices: [{ message: { content: 'Hello!' } }] },
   });
   assert(completed.status === 'completed', 'complete: status is completed');
-  assert(completed.provider_ref === 'ppq-ref-123', 'complete: provider_ref stored');
+  assert(completed.provider_ref === 'vmco-ref-123', 'complete: provider_ref stored');
   assert(completed.completed_at !== null, 'complete: completed_at set');
 
   // Verify audit
@@ -221,7 +221,7 @@ console.log('── completeRedemption ──');
   const db = createTestDb();
   const pid = createPlayer(db);
   const r = redeem.redeemCredits(db, {
-    playerId: pid, provider: 'ppq', amountMicros: 5000,
+    playerId: pid, provider: 'vmco', amountMicros: 5000,
     model: 'gpt-4o-mini', prompt: 'test', idempotencyKey: 'key-9',
   });
   redeem.completeRedemption(db, { redemptionId: r.redemption.id });
@@ -246,7 +246,7 @@ console.log('── failRedemption ──');
   const db = createTestDb();
   const pid = createPlayer(db);
   const r = redeem.redeemCredits(db, {
-    playerId: pid, provider: 'ppq', amountMicros: 5000,
+    playerId: pid, provider: 'vmco', amountMicros: 5000,
     model: 'gpt-4o-mini', prompt: 'test', idempotencyKey: 'key-11',
   });
   const failed = redeem.failRedemption(db, { redemptionId: r.redemption.id, reason: 'timeout' });
@@ -262,7 +262,7 @@ console.log('── failRedemption ──');
   const db = createTestDb();
   const pid = createPlayer(db);
   const r = redeem.redeemCredits(db, {
-    playerId: pid, provider: 'ppq', amountMicros: 5000,
+    playerId: pid, provider: 'vmco', amountMicros: 5000,
     model: 'gpt-4o-mini', prompt: 'test', idempotencyKey: 'key-12',
   });
   redeem.completeRedemption(db, { redemptionId: r.redemption.id });
@@ -279,7 +279,7 @@ console.log('── refundRedemption ──');
   const db = createTestDb();
   const pid = createPlayer(db);
   const r = redeem.redeemCredits(db, {
-    playerId: pid, provider: 'ppq', amountMicros: 1000,  // = 1 credit
+    playerId: pid, provider: 'vmco', amountMicros: 1000,  // = 1 credit
     model: 'gpt-4o-mini', prompt: 'test', idempotencyKey: 'key-13',
   });
   const refunded = redeem.refundRedemption(db, { redemptionId: r.redemption.id, reason: 'provider_error' });
@@ -297,7 +297,7 @@ console.log('── refundRedemption ──');
   assert(tx.amount === 1, 'refund: transaction amount is 1 credit');
 
   // Verify token_balances reversed
-  const tb = db.prepare('SELECT * FROM token_balances WHERE player_id = ? AND provider = ?').get(pid, 'ppq');
+  const tb = db.prepare('SELECT * FROM token_balances WHERE player_id = ? AND provider = ?').get(pid, 'vmco');
   assert(tb.total_redeemed === 0, 'refund: total_redeemed reversed to 0');
 
   // Verify audit
@@ -310,7 +310,7 @@ console.log('── refundRedemption ──');
   const db = createTestDb();
   const pid = createPlayer(db);
   const r = redeem.redeemCredits(db, {
-    playerId: pid, provider: 'ppq', amountMicros: 5000,  // = 5 credits
+    playerId: pid, provider: 'vmco', amountMicros: 5000,  // = 5 credits
     model: 'gpt-4o-mini', prompt: 'test', idempotencyKey: 'key-14',
   });
   redeem.failRedemption(db, { redemptionId: r.redemption.id, reason: 'timeout' });
@@ -326,7 +326,7 @@ console.log('── refundRedemption ──');
   const db = createTestDb();
   const pid = createPlayer(db);
   const r = redeem.redeemCredits(db, {
-    playerId: pid, provider: 'ppq', amountMicros: 5000,
+    playerId: pid, provider: 'vmco', amountMicros: 5000,
     model: 'gpt-4o-mini', prompt: 'test', idempotencyKey: 'key-15',
   });
   redeem.failRedemption(db, { redemptionId: r.redemption.id });
@@ -345,7 +345,7 @@ console.log('── refundRedemption ──');
   const db = createTestDb();
   const pid = createPlayer(db);
   const r = redeem.redeemCredits(db, {
-    playerId: pid, provider: 'ppq', amountMicros: 5000,
+    playerId: pid, provider: 'vmco', amountMicros: 5000,
     model: 'gpt-4o-mini', prompt: 'test', idempotencyKey: 'key-16',
   });
   redeem.completeRedemption(db, { redemptionId: r.redemption.id });
@@ -362,7 +362,7 @@ console.log('── getRedemptionStatus ──');
   const db = createTestDb();
   const pid = createPlayer(db);
   const r = redeem.redeemCredits(db, {
-    playerId: pid, provider: 'ppq', amountMicros: 5000,
+    playerId: pid, provider: 'vmco', amountMicros: 5000,
     model: 'gpt-4o-mini', prompt: 'test', idempotencyKey: 'key-17',
   });
   const status = redeem.getRedemptionStatus(db, r.redemption.id);
@@ -386,7 +386,7 @@ console.log('── getPlayerRedemptions ──');
   const pid = createPlayer(db);
   for (let i = 0; i < 3; i++) {
     redeem.redeemCredits(db, {
-      playerId: pid, provider: 'ppq', amountMicros: 1000,
+      playerId: pid, provider: 'vmco', amountMicros: 1000,
       model: 'gpt-4o-mini', prompt: `test ${i}`, idempotencyKey: `list-key-${i}`,
     });
   }
@@ -403,7 +403,7 @@ console.log('── getPlayerRedemptions ──');
   const pid = createPlayer(db);
   for (let i = 0; i < 5; i++) {
     redeem.redeemCredits(db, {
-      playerId: pid, provider: 'ppq', amountMicros: 1000,
+      playerId: pid, provider: 'vmco', amountMicros: 1000,
       model: 'gpt-4o-mini', prompt: `test ${i}`, idempotencyKey: `page-key-${i}`,
     });
   }
@@ -420,12 +420,12 @@ console.log('── getPlayerTokenBalances ──');
   const db = createTestDb();
   const pid = createPlayer(db);
   redeem.redeemCredits(db, {
-    playerId: pid, provider: 'ppq', amountMicros: 1000,
+    playerId: pid, provider: 'vmco', amountMicros: 1000,
     model: 'gpt-4o-mini', prompt: 'test', idempotencyKey: 'tb-key-1',
   });
   const balances = redeem.getPlayerTokenBalances(db, pid);
   assert(balances.length === 1, 'balances: returns 1 entry');
-  assert(balances[0].provider === 'ppq', 'balances: provider is ppq');
+  assert(balances[0].provider === 'vmco', 'balances: provider is vmco');
   assert(balances[0].total_redeemed === 1000, 'balances: total_redeemed is 1000 micros');
 }
 
@@ -434,11 +434,11 @@ console.log('── getPlayerTokenBalances ──');
   const db = createTestDb();
   const pid = createPlayer(db);
   redeem.redeemCredits(db, {
-    playerId: pid, provider: 'ppq', amountMicros: 5000,
+    playerId: pid, provider: 'vmco', amountMicros: 5000,
     model: 'gpt-4o-mini', prompt: 'test1', idempotencyKey: 'acc-key-1',
   });
   redeem.redeemCredits(db, {
-    playerId: pid, provider: 'ppq', amountMicros: 3000,
+    playerId: pid, provider: 'vmco', amountMicros: 3000,
     model: 'gpt-4o-mini', prompt: 'test2', idempotencyKey: 'acc-key-2',
   });
   const balances = redeem.getPlayerTokenBalances(db, pid);
@@ -455,7 +455,7 @@ console.log('── Full Lifecycle ──');
 
   // Redeem
   const r = redeem.redeemCredits(db, {
-    playerId: pid, provider: 'ppq', amountMicros: 2000,  // = 2 credits
+    playerId: pid, provider: 'vmco', amountMicros: 2000,  // = 2 credits
     model: 'gpt-4o-mini', prompt: 'Say hello', idempotencyKey: 'life-key-1',
   });
   assert(r.redemption.status === 'pending', 'lifecycle: pending after redeem');
@@ -466,11 +466,11 @@ console.log('── Full Lifecycle ──');
   // Complete
   const completed = redeem.completeRedemption(db, {
     redemptionId: r.redemption.id,
-    providerRef: 'ppq-abc-123',
+    providerRef: 'vmco-abc-123',
     providerResponse: { choices: [{ message: { content: 'Hello!' } }] },
   });
   assert(completed.status === 'completed', 'lifecycle: completed');
-  assert(completed.provider_ref === 'ppq-abc-123', 'lifecycle: provider_ref stored');
+  assert(completed.provider_ref === 'vmco-abc-123', 'lifecycle: provider_ref stored');
 
   const finalBalance = db.prepare('SELECT balance FROM players WHERE id = ?').get(pid);
   assert(finalBalance.balance === 9998, 'lifecycle: balance still 9998 after complete');
@@ -485,7 +485,7 @@ console.log('── Full Lifecycle ──');
   const pid = createPlayer(db, 'life-2', 10000);
 
   const r = redeem.redeemCredits(db, {
-    playerId: pid, provider: 'ppq', amountMicros: 3000,  // = 3 credits
+    playerId: pid, provider: 'vmco', amountMicros: 3000,  // = 3 credits
     model: 'gpt-4o-mini', prompt: 'test', idempotencyKey: 'life-key-2',
   });
   assert(r.redemption.status === 'pending', 'refund lifecycle: pending');
@@ -515,7 +515,7 @@ console.log('── Full Lifecycle ──');
   const db = createTestDb();
   const pid = createPlayer(db, 'large-1', 1000);
   const r = redeem.redeemCredits(db, {
-    playerId: pid, provider: 'ppq', amountMicros: 50000,  // = 50 credits
+    playerId: pid, provider: 'vmco', amountMicros: 50000,  // = 50 credits
     model: 'gpt-4o-mini', prompt: 'Large redemption test', idempotencyKey: 'large-key-1',
   });
   assert(r.redemption.status === 'pending', 'large: pending');

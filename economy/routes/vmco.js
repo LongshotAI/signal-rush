@@ -57,7 +57,7 @@ function decPlayerRewards(db, playerId, micros) {
 }
 
 function recordVmcoClaim(db, { playerId, subKeyId, amountMicros, idempotencyKey }) {
-  // Record the claim in reward_claims so the audit trail is consistent with PPQ flow
+  // Record the claim in reward_claims so the audit trail is consistent
   db.prepare(`
     INSERT INTO reward_claims
       (player_id, amount_micros, status, ppq_account, idempotency_key, claimed_at, completed_at)

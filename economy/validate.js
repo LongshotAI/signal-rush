@@ -488,39 +488,36 @@ function validateSinkType(value) {
 }
 
 /**
- * Validate a ppq.ai account identifier.
- * Accepts either an email address or a username.
- * Email: /^[^\s@]+@[^\s@]+\.[^\s@]+$/
- * Username: alphanumeric + dots + hyphens + underscores, 1-64 chars.
+ * Validate a VMCO.ai account identifier (sub-key ID or player email).
+ * Accepts either an email address or a username/sub-key reference.
  * @param {string} value
- * @returns {string} The validated ppq account (trimmed)
+ * @returns {string} The validated VMCO account (trimmed)
  * @throws {Error} If invalid
  */
-function validatePpqAccount(value) {
+function validateVmcoAccount(value) {
   if (typeof value !== 'string') {
-    throw new Error('ppq_account must be a string');
+    throw new Error('vmco_account must be a string');
   }
   const trimmed = value.trim();
   if (trimmed.length === 0) {
-    throw new Error('ppq_account is required (your ppq.ai email or username)');
+    throw new Error('vmco_account is required (your VMCO.ai email or sub-key ID)');
   }
   if (trimmed.length > 128) {
-    throw new Error('ppq_account must be 128 characters or less');
+    throw new Error('vmco_account must be 128 characters or less');
   }
 
   // Email format: a@b.co
   const EMAIL_LIKE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
   if (EMAIL_LIKE.test(trimmed)) {
-    // Looks like an email — accept it as-is (lowercased for consistency)
     return trimmed.toLowerCase();
   }
 
   // Username format: alphanumeric, dots, hyphens, underscores, max 64 chars
   if (trimmed.length > 64) {
-    throw new Error('ppq_account username must be 64 characters or less');
+    throw new Error('vmco_account username must be 64 characters or less');
   }
   if (!/^[a-zA-Z0-9._-]+$/.test(trimmed)) {
-    throw new Error('ppq_account must be a valid email or alphanumeric username (letters, numbers, dots, hyphens, underscores)');
+    throw new Error('vmco_account must be a valid email or alphanumeric username (letters, numbers, dots, hyphens, underscores)');
   }
 
   return trimmed;
@@ -547,7 +544,7 @@ module.exports = {
   validateModelName,
   validateProvider,
   validateSinkType,
-  validatePpqAccount,
+  validateVmcoAccount,
   UUID_RE,
   EMAIL_RE,
 };

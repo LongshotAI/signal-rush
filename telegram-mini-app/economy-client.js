@@ -172,13 +172,13 @@ export class EconomyClient {
   }
 
   /**
-   * Claim ad-funded rewards (send to ppq.ai account).
+   * Claim ad-funded rewards (send to VMCO.ai sub-key).
    * POST /rewards/claim
    */
-  async claimRewards({ playerId, ppqAccount, amountMicros, idempotencyKey = null }) {
+  async claimRewards({ playerId, vmcoSubKeyId, amountMicros, idempotencyKey = null }) {
     return this._fetch('/rewards/claim', {
       method: 'POST',
-      body: { player_id: playerId, ppq_account: ppqAccount, amount_micros: amountMicros, session_token: this.sessionToken, idempotency_key: idempotencyKey },
+      body: { player_id: playerId, vmco_sub_key_id: vmcoSubKeyId, amount_micros: amountMicros, session_token: this.sessionToken, idempotency_key: idempotencyKey },
     });
   }
 

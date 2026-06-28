@@ -715,7 +715,7 @@ function getPoolHealth(db) {
   };
 }
 
-function claimReward(db, { playerId, ppqAccount, amountMicros }) {
+function claimReward(db, { playerId, ppqAccount, amountMicros, idempotencyKey }) {
   if (!playerId) throw new Error('claimReward: playerId is required');
   if (!ppqAccount) throw new Error('claimReward: ppqAccount is required');
   if (!amountMicros || amountMicros <= 0) throw new Error('claimReward: amountMicros must be positive');
@@ -736,8 +736,8 @@ function claimReward(db, { playerId, ppqAccount, amountMicros }) {
 
     // Create claim record
     db.prepare(
-      'INSERT INTO reward_claims (id, player_id, amount_micros, ppq_account, status, claimed_at) VALUES (?, ?, ?, ?, ?, ?)'
-    ).run(id, playerId, amountMicros, ppqAccount, 'pending', now);
+      'INSERT INTO reward_claims (id, player_id, amount_micros, ppq_account, status, idempotency_key, claimed_at) VALUES (?, ?, ?, ?, ?, ?, ?)'
+    ).run(id, playerId, amountMicros, ppqAccount, 'pending', idempotencyKey, now);
 
     // Deduct from player's available rewards
     db.prepare(

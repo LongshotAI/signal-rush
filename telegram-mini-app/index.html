@@ -36,29 +36,29 @@
     /* ── Header ────────────────────────────────────────────── */
     #header {
       text-align: center;
-      padding: 4px 0 2px;
+      padding: 2px 0 1px;
       flex-shrink: 0;
     }
     #header h1 {
-      font-size: 18px;
+      font-size: 14px;
       font-weight: 700;
       color: #00ff88;
       letter-spacing: 2px;
       text-shadow: 0 0 20px rgba(0,255,136,0.3);
     }
     #header p {
-      font-size: 10px;
+      font-size: 9px;
       color: rgba(255,255,255,0.40);
-      margin-top: 1px;
+      margin-top: 0;
       transition: opacity 0.3s;
     }
 
     /* ── Mode selector bar ─────────────────────────────────── */
     #mode-selector-bar {
       display: flex;
-      gap: 6px;
+      gap: 4px;
       justify-content: center;
-      margin-bottom: 6px;
+      margin-bottom: 2px;
       padding: 0 4px;
       flex-shrink: 0;
       flex-wrap: wrap;
@@ -67,11 +67,14 @@
     /* ── Game container ────────────────────────────────────── */
     #game-container {
       position: relative;
-      border-radius: 8px;
+      border-radius: 0;
       overflow: hidden;
-      box-shadow: 0 0 60px rgba(0,255,136,0.08), 0 0 60px rgba(255,51,85,0.05);
-      flex-shrink: 1;
-      max-width: 100%;
+      box-shadow: none;
+      flex: 1 1 0%;
+      min-height: 0;
+      width: 100%;
+      display: flex;
+      flex-direction: column;
     }
 
     /* ── Controls hint ─────────────────────────────────────── */
@@ -89,6 +92,18 @@
     /* Hide keyboard hints on mobile */
     @media (hover: none) and (pointer: coarse) {
       #controls-hint { display: none !important; }
+    }
+
+    /* ── Game Over Sponsor Ad ──────────────────────────────── */
+    #sponsor-gameover-overlay {
+      flex-shrink: 0;
+    }
+    #sponsor-gameover-overlay > div {
+      animation: fadeIn 0.3s ease-out;
+    }
+    @keyframes fadeIn {
+      from { opacity: 0; transform: translateY(8px); }
+      to   { opacity: 1; transform: translateY(0); }
     }
   </style>
 </head>
@@ -109,20 +124,31 @@
   <script type="module">
     import { init, destroy } from './game.js';
 
-    let engine = await init('#game-container');
+    try {
+      let engine = await init('#game-container');
 
-    window.addEventListener('keydown', (e) => {
-      if (e.code === 'KeyP' && engine) {
-        engine.step({ pause: true });
-      }
-      if (e.code === 'KeyR' && engine) {
-        engine.reset();
-      }
-    });
+      window.addEventListener('keydown', (e) => {
+        if (e.code === 'KeyP' && engine) {
+          engine.step({ pause: true });
+        }
+        if (e.code === 'KeyR' && engine) {
+          engine.reset();
+        }
+      });
 
-    window.addEventListener('beforeunload', () => {
-      destroy();
-    });
+      window.addEventListener('beforeunload', () => {
+        destroy();
+      });
+    } catch (err) {
+      console.error('[SignalRush] Init failed:', err);
+      const container = document.querySelector('#game-container');
+      if (container) {
+        container.innerHTML = `<div style="color:#ff3355;padding:20px;text-align:center;font-family:monospace;">
+          Failed to load game: ${err.message}<br>
+          <small>${err.stack || ''}</small>
+        </div>`;
+      }
+    }
   </script>
 </body>
 </html>

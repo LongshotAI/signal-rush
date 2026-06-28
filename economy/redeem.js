@@ -7,7 +7,7 @@
 //
 // Flow:
 //   1. redeemCredits() — validates balance, deducts credits, creates pending redemption
-//   2. External provider (ppq.ai) is called by the service layer
+//   2. External provider (VMCO.ai) is called by the service layer
 //   3. completeRedemption() — marks redemption completed, stores provider response
 //   4. On failure: refundRedemption() — refunds credits, marks refunded
 
@@ -73,7 +73,8 @@ function redeemCredits(db, {
     }
 
     // Deduct credits (convert micro-credits back to credits for the balance column)
-    const creditsToDeduct = Math.ceil(amountMicros / prov.credit_rate);
+    // Use Math.round for fair conversion: 1000 micros / 1000 rate = 1 credit
+    const creditsToDeduct = Math.max(1, Math.round(amountMicros / prov.credit_rate));
     db.prepare(
       'UPDATE players SET balance = balance - ?, total_spent = total_spent + ? WHERE id = ?'
     ).run(creditsToDeduct, creditsToDeduct, playerId);
@@ -167,7 +168,8 @@ function refundRedemption(db, { redemptionId, reason = 'provider_error' }) {
     // Refund credits (convert micro-credits back to credits)
     const prov = db.prepare('SELECT credit_rate FROM providers WHERE id = ?').get(redemption.provider);
     const creditRate = prov ? prov.credit_rate : 1000; // fallback to default
-    const creditsToRefund = Math.ceil(redemption.amount_micros / creditRate);
+    // Use Math.round for consistent behavior with claim path
+    const creditsToRefund = Math.max(1, Math.round(redemption.amount_micros / creditRate));
 
     db.prepare(
       'UPDATE players SET balance = balance + ?, total_spent = total_spent - ? WHERE id = ?'

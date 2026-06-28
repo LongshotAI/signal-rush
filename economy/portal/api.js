@@ -183,8 +183,10 @@ const API = (() => {
 
   function formatCurrency(micros) {
     if (micros === null || micros === undefined) return '—';
-    const credits = micros / 1_000_000;
-    return new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(credits);
+    // Use integer math to avoid floating-point precision issues
+    // e.g., 9999999999 / 1e6 = 9999.999999 → wrong; Math.round first
+    const cents = Math.round(micros) / 1000000;
+    return new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(cents);
   }
 
   function formatNumber(n) {

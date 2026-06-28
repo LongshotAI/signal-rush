@@ -146,6 +146,10 @@ let economyOnline = false;
 let activeSponsor = null;
 let sponsorLogoImage = null;
 let interstitialImpressionLogged = false;
+let allCampaigns = [];       // All active campaigns for rotation
+let campaignRotationIndex = 0;
+let campaignRotationTimer = null;
+let campaignRefreshTimer = null;
 
 // ── Visual Effects State ──────────────────────────────────────────────────────
 
@@ -293,22 +297,26 @@ export async function init(containerSelector = '#game-container') {
   // Fetch active campaigns with consistent rotation per player
   economyClient.fetchActiveCampaigns().then(result => {
     if (result.ok && result.campaigns && result.campaigns.length > 0) {
-      // Deterministic rotation: pick campaign based on playerId hash
-      // This ensures same player sees same campaign (consistency)
+      // Store all campaigns for rotation
+      allCampaigns = result.campaigns;
+      // Deterministic starting point: pick campaign based on playerId hash
+      // This ensures same player sees same starting campaign (consistency)
       // while different players see different campaigns (fair distribution)
-      const campaignCount = result.campaigns.length;
+      const campaignCount = allCampaigns.length;
       let hash = 0;
       const seed = playerId || 'default';
       for (let i = 0; i < seed.length; i++) {
         hash = ((hash << 5) - hash + seed.charCodeAt(i)) | 0;
       }
-      const selectedIndex = Math.abs(hash) % campaignCount;
-      activeSponsor = result.campaigns[selectedIndex];
-      console.log('[SignalRush] Active sponsor:', activeSponsor.brand_name, '(' + (selectedIndex + 1) + '/' + campaignCount + ')');
+      campaignRotationIndex = Math.abs(hash) % campaignCount;
+      activeSponsor = allCampaigns[campaignRotationIndex];
+      console.log('[SignalRush] Active sponsor:', activeSponsor.brand_name, '(' + (campaignRotationIndex + 1) + '/' + campaignCount + ')');
       console.log('[SignalRush] DEBUG before _updateSponsorBanners, typeof:', typeof _updateSponsorBanners);
       // Update HTML ad banners now that sponsor is loaded
       _updateSponsorBanners();
       console.log('[SignalRush] DEBUG after _updateSponsorBanners');
+      // Set up periodic campaign rotation (every 60s) and refresh (every 5 min)
+      _startCampaignRotation();
       // Re-size canvas after banners settle into DOM layout
       console.log(`[SignalRush] DEBUG: vw=${vw}, check=${vw < 600}`);
       if (vw < 600) {
@@ -989,6 +997,62 @@ function getRankProgress(score) {
 
 // ── Rendering ────────────────────────────────────────────────────────────────
 
+// ── Campaign Rotation ─────────────────────────────────────────────────
+// Rotates through active campaigns every 60s so players see different
+// sponsors during a long session. Refreshes campaign list every 5 min
+// to pick up new approvals or pull out expired/exhausted campaigns.
+const CAMPAIGN_ROTATION_INTERVAL_MS = 60_000;
+const CAMPAIGN_REFRESH_INTERVAL_MS = 300_000;
+
+function _startCampaignRotation() {
+  // Clear any existing timers (safe to call multiple times)
+  if (campaignRotationTimer) clearInterval(campaignRotationTimer);
+  if (campaignRefreshTimer) clearInterval(campaignRefreshTimer);
+  // Rotate active campaign every 60s
+  campaignRotationTimer = setInterval(() => {
+    if (allCampaigns.length === 0) return;
+    campaignRotationIndex = (campaignRotationIndex + 1) % allCampaigns.length;
+    activeSponsor = allCampaigns[campaignRotationIndex];
+    console.log('[SignalRush] Rotated to:', activeSponsor.brand_name, '(' + (campaignRotationIndex + 1) + '/' + allCampaigns.length + ')');
+    _updateSponsorBanners();
+    // Fetch fresh logo for new sponsor
+    if (activeSponsor.id) {
+      economyClient.getCampaignLogo(activeSponsor.id).then(logoResult => {
+        if (logoResult.ok && logoResult.content) {
+          sponsorLogoImage = logoResult.content;
+        }
+      }).catch(() => {});
+    }
+  }, CAMPAIGN_ROTATION_INTERVAL_MS);
+
+  // Refresh campaign list from server every 5 min
+  // (picks up new approvals, removes expired/exhausted)
+  campaignRefreshTimer = setInterval(() => {
+    economyClient.fetchActiveCampaigns().then(result => {
+      if (result.ok && result.campaigns && result.campaigns.length > 0) {
+        const prevCount = allCampaigns.length;
+        allCampaigns = result.campaigns;
+        // Adjust index if campaigns shrank
+        if (campaignRotationIndex >= allCampaigns.length) {
+          campaignRotationIndex = 0;
+        }
+        activeSponsor = allCampaigns[campaignRotationIndex];
+        if (prevCount !== allCampaigns.length) {
+          console.log('[SignalRush] Campaign list updated:', prevCount, '→', allCampaigns.length);
+        }
+        _updateSponsorBanners();
+      } else {
+        // Server returned empty — clear campaigns, fall back to house ads
+        allCampaigns = [];
+        activeSponsor = null;
+        console.log('[SignalRush] No active campaigns from server');
+      }
+    }).catch(() => {
+      // Network failure — keep current campaigns, will retry in 5 min
+    });
+  }, CAMPAIGN_REFRESH_INTERVAL_MS);
+}
+
 // ── HTML Sponsor Banners (created async when campaigns load) ──────────
 function _updateSponsorBanners() {
   if (!activeSponsor) return;
@@ -1062,9 +1126,16 @@ function _showGameOverSponsorAd() {
   if (!overlay) {
     overlay = document.createElement('div');
     overlay.id = 'sponsor-gameover-overlay';
-    const container = document.querySelector('#game-container');
-    if (container) container.parentNode.insertBefore(overlay, container.nextSibling);
-    else document.body.appendChild(overlay);
+    if (window.innerWidth < 600) {
+      // Inside container on mobile (part of game layout)
+      const gameContainer = document.querySelector('#game-container');
+      if (gameContainer) gameContainer.appendChild(overlay);
+      else document.body.appendChild(overlay);
+    } else {
+      const container = document.querySelector('#game-container');
+      if (container) container.parentNode.insertBefore(overlay, container.nextSibling);
+      else document.body.appendChild(overlay);
+    }
   }
   overlay.innerHTML = `
     <div style="
@@ -2151,6 +2222,9 @@ function drawFroggerGameOver(state) {
 
 export function destroy() {
   if (rafId) cancelAnimationFrame(rafId);
+  // Clear campaign rotation timers
+  if (campaignRotationTimer) { clearInterval(campaignRotationTimer); campaignRotationTimer = null; }
+  if (campaignRefreshTimer) { clearInterval(campaignRefreshTimer); campaignRefreshTimer = null; }
   window.removeEventListener('keydown', onKeyDown);
   window.removeEventListener('keyup',   onKeyUp);
   destroyTouchInput();
@@ -2168,6 +2242,8 @@ export function destroy() {
   creditBalance = 0;
   sponsorBalance = 0;
   economyOnline = false;
+  allCampaigns = [];
+  activeSponsor = null;
 }
 
 // ── Auto-init ────────────────────────────────────────────────────────────────

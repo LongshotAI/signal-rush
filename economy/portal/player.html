@@ -44,7 +44,7 @@
 
         <div class="player-hero">
           <h1>🎮 Player Rewards</h1>
-          <p>Every time an advertiser runs a campaign, <strong>20%</strong> goes to a player rewards pool. Play well, earn your share, and claim ppq.ai credits.</p>
+          <p>Every time an advertiser runs a campaign, <strong>20%</strong> goes to a player rewards pool. Play well, earn your share, and claim VMCO.ai sub-key credits.</p>
         </div>
 
         <div class="player-id-input">
@@ -71,8 +71,8 @@
               <li><strong>Play games</strong> — Every run earns you skill-based rewards</li>
               <li><strong>Watch sponsors</strong> — 20% of every ad impression funds the player pool</li>
               <li><strong>Your skill matters</strong> — Higher combos, scores, and levels earn more from the pool</li>
-              <li><strong>Enter your ppq.ai account</strong> — Link once, claim anytime</li>
-              <li><strong>Claim your rewards</strong> — They're sent as ppq.ai credits for AI API access</li>
+              <li><strong>Enter your VMCO.ai sub-key ID</strong> — Link once, claim anytime</li>
+              <li><strong>Claim your rewards</strong> — They're sent as VMCO.ai sub-key budget for AI API access</li>
             </ol>
           </div>
 
@@ -93,10 +93,10 @@
 
           <div id="claim-section" class="claim-section" style="display:none;">
             <h2>🎯 Claim Your Rewards</h2>
-            <p style="font-size:13px;color:var(--text-muted);margin:0 0 16px;">Send your ad-funded rewards to your ppq.ai account as API credits.</p>
+            <p style="font-size:13px;color:var(--text-muted);margin:0 0 16px;">Send your ad-funded rewards to your VMCO.ai sub-key as API credits.</p>
             <div class="field">
-              <label>ppq.ai Email or Username</label>
-              <input type="text" id="ppq-account-input" placeholder="your-name@ppq.ai" />
+              <label>VMCO.ai Sub-key ID</label>
+              <input type="text" id="vmco-subkey-input" placeholder="vmco-s-..." />
             </div>
             <button class="btn-claim" id="claim-btn" disabled>⏳ Loading...</button>
             <div class="claim-result" id="claim-result"></div>
@@ -153,7 +153,7 @@
               claimSection.style.display = 'block';
               claimBtn.disabled = false;
               const claimDollars = (rewardsData.available_micros / 1000000).toFixed(4);
-              claimBtn.textContent = `Claim $${claimDollars} → ppq.ai`;
+              claimBtn.textContent = `Claim $${claimDollars} → VMCO.ai`;
             } else {
               claimSection.style.display = 'block';
               claimBtn.disabled = true;
@@ -207,12 +207,12 @@
       // Claim handler
       document.getElementById('claim-btn').addEventListener('click', async () => {
         const playerId = playerIdInput.value.trim();
-        const ppqAccount = document.getElementById('ppq-account-input').value.trim();
+        const vmcoSubKeyId = document.getElementById('vmco-subkey-input').value.trim();
         const resultEl = document.getElementById('claim-result');
 
-        if (!ppqAccount) {
+        if (!vmcoSubKeyId) {
           resultEl.className = 'claim-result error';
-          resultEl.textContent = 'Please enter your ppq.ai email or username';
+          resultEl.textContent = 'Please enter your VMCO.ai sub-key ID';
           return;
         }
 
@@ -232,14 +232,14 @@
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
               player_id: playerId,
-              ppq_account: ppqAccount,
+              vmco_sub_key_id: vmcoSubKeyId,
               amount_micros: amountMicros,
             }),
           });
           const data = await res.json();
           if (res.ok && data.ok !== false) {
             resultEl.className = 'claim-result success';
-            resultEl.textContent = `✅ $${(amountMicros / 1000000).toFixed(4)} claimed! Sent to ${ppqAccount}. Check your ppq.ai account.`;
+            resultEl.textContent = `✅ $${(amountMicros / 1000000).toFixed(4)} claimed! Sent to VMCO sub-key. Check your VMCO.ai account.`;
             // Refresh
             loadPlayerData(playerId);
           } else {
@@ -251,7 +251,7 @@
           resultEl.textContent = `❌ Network error: ${err.message}`;
         } finally {
           btn.disabled = false;
-          btn.textContent = `Claim ${amountMicros.toLocaleString()} µ → ppq.ai`;
+          btn.textContent = `Claim ${amountMicros.toLocaleString()} µ → VMCO.ai`;
         }
       });
     });

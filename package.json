@@ -13,7 +13,7 @@
     "test:smoke": "node scripts/smoke-test.js",
     "test:persistence": "node scripts/persistence-test.js && node scripts/persistence-e2e-test.js",
     "test:compact": "node scripts/compact-render-test.js",
-    "test:embedded": "node scripts/embedded-test.js",
+    "test:embedded": "node scripts/embedded-test.js && node scripts/embedded-economy-test.js",
     "test:widget": "node scripts/widget-integration-test.js",
     "test:economy": "node scripts/economy-integration-test.js",
     "test:replay": "node scripts/replay-test.js",

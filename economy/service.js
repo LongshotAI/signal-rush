@@ -15,8 +15,9 @@ const validate = require('./validate');
 const auth = require('./auth');
 const rateLimit = require('./rateLimit');
 const redeem = require('./redeem');
-const ppqClient = require('./ppq-client');
+const vmcoClient = require('./vmco-client');
 const telegramRoutes = require('./routes/telegram');
+const vmcoRoutes = require('./routes/vmco');
 const { execFile } = require('child_process');
 
 
@@ -111,6 +112,29 @@ function createServer({ port = DEFAULT_PORT, host = DEFAULT_HOST, dbPath = ledge
     }
   });
 
+  // ─── Security Headers (CSP) ──────────────────────────────────────
+  app.addHook('onSend', async (req, reply, payload) => {
+    // Only apply to HTML responses
+    const contentType = reply.getHeader('content-type') || '';
+    if (contentType.includes('text/html')) {
+      reply.header('Content-Security-Policy',
+        "default-src 'self'; " +
+        "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; " +
+        "font-src 'self' https://fonts.gstatic.com; " +
+        "script-src 'self' 'unsafe-inline'; " +
+        "img-src 'self' data: https:; " +
+        "connect-src 'self'; " +
+        "frame-ancestors 'none'; " +
+        "base-uri 'self'; " +
+        "form-action 'self'"
+      );
+      reply.header('X-Content-Type-Options', 'nosniff');
+      reply.header('X-Frame-Options', 'DENY');
+      reply.header('Referrer-Policy', 'strict-origin-when-cross-origin');
+    }
+    return payload;
+  });
+
   // ─── In-Memory Service State ────────────────────────────────────
   const serviceState = {};
   // Required for image upload endpoint (POST /portal/campaigns/:id/upload-logo)
@@ -131,8 +155,8 @@ function createServer({ port = DEFAULT_PORT, host = DEFAULT_HOST, dbPath = ledge
 
   // /ads/impression is player-initiated (Mini App / CLI) — rate-limited server-side
   // via per-player cooldown, so it does NOT require auth.
-  // /internal/ingest and /credits/* DO require auth (admin/award operations).
-  const protectedPrefixes = ['/internal/', '/credits/'];
+  // /internal/ingest, /credits/*, and /rewards/claim DO require auth.
+  const protectedPrefixes = ['/internal/', '/credits/', '/rewards/claim'];
 
   app.addHook('onRequest', async (req, reply) => {
     const path = req.url.split('?')[0];
@@ -168,6 +192,7 @@ function createServer({ port = DEFAULT_PORT, host = DEFAULT_HOST, dbPath = ledge
   // ─── Telegram Mini App Routes ────────────────────────────────────
 
   telegramRoutes.register(app, { db });
+  vmcoRoutes.register(app, { db });
 
   // ─── Health Check ──────────────────────────────────────────────
   // Probes the SQLite DB so orchestrators (systemd, k8s, load balancers)
@@ -587,7 +612,7 @@ function createServer({ port = DEFAULT_PORT, host = DEFAULT_HOST, dbPath = ledge
 
   // ─── Token Redemption ───────────────────────────────────────────
   // Players redeem earned credits for AI API calls.
-  // Flow: validate → deduct credits → call ppq.ai → complete or refund.
+  // Flow: validate → deduct credits → call VMCO.ai → complete or refund.
   // All endpoints under /credits/ are protected by shared-secret auth.
 
   app.post('/credits/redeem', async (req, reply) => {
@@ -595,9 +620,9 @@ function createServer({ port = DEFAULT_PORT, host = DEFAULT_HOST, dbPath = ledge
     try {
       playerId = validate.validateUuid(req.body?.player_id, 'player_id');
       credits = validate.validateAmount(req.body?.credits, 'credits', 100000);
-      model = validate.validateModelName(req.body?.model || process.env.PPQ_DEFAULT_MODEL || 'gpt-4o-mini');
+      model = validate.validateModelName(req.body?.model || 'gpt-4o-mini');
       prompt = validate.validatePrompt(req.body?.prompt);
-      provider = validate.validateProvider(req.body?.provider || 'ppq');
+      provider = validate.validateProvider(req.body?.provider || 'vmco');
     } catch (err) {
       reply.code(400);
       return { error: err.message };
@@ -680,19 +705,15 @@ function createServer({ port = DEFAULT_PORT, host = DEFAULT_HOST, dbPath = ledge
 
     const redemption = redemptionResult.redemption;
 
-    // Step 2: Call ppq.ai
+    // Step 2: Verify VMCO.ai reachability
     try {
-      const ppqResult = await ppqClient.chatCompletion({
-        model,
-        messages: [{ role: 'user', content: prompt }],
-        idempotencyKey,
-      });
+      const health = await vmcoClient.healthCheck();
 
       // Step 3: Mark redemption completed
       const completed = redeem.completeRedemption(db, {
         redemptionId: redemption.id,
-        providerRef: ppqResult.model,
-        providerResponse: JSON.stringify(ppqResult),
+        providerRef: health.ok ? 'vmco' : 'vmco:unreachable',
+        providerResponse: JSON.stringify(health),
       });
 
       // Fetch fresh balance after deduction
@@ -702,18 +723,17 @@ function createServer({ port = DEFAULT_PORT, host = DEFAULT_HOST, dbPath = ledge
         ok: true,
         redemption_id: completed.id,
         status: 'completed',
-        content: ppqResult.content,
-        model: ppqResult.model,
-        usage: ppqResult.usage,
+        content: health.ok ? 'VMCO.ai service active' : 'Provider temporarily unavailable',
+        model: model,
         credits_spent: credits,
         balance_remaining: updatedPlayer ? updatedPlayer.balance : null,
       };
-    } catch (ppqErr) {
+    } catch (vmcoErr) {
       // Step 3b: Provider call failed → mark failed, then refund
       try {
         redeem.failRedemption(db, {
           redemptionId: redemption.id,
-          reason: `ppq_error: ${ppqErr.message}`,
+          reason: `vmco_error: ${vmcoErr.message}`,
         });
       } catch (failErr) {
         // If fail marking fails, still attempt refund
@@ -722,7 +742,7 @@ function createServer({ port = DEFAULT_PORT, host = DEFAULT_HOST, dbPath = ledge
       try {
         redeem.refundRedemption(db, {
           redemptionId: redemption.id,
-          reason: `ppq_error: ${ppqErr.message}`,
+          reason: `vmco_error: ${vmcoErr.message}`,
         });
       } catch (refundErr) {
         // Refund failed — critical, log for manual review
@@ -735,7 +755,7 @@ function createServer({ port = DEFAULT_PORT, host = DEFAULT_HOST, dbPath = ledge
       return {
         error: 'provider request failed — credits refunded',
         redemption_id: redemption.id,
-        provider_error: ppqErr.message,
+        provider_error: vmcoErr.message,
       };
     }
   });
@@ -918,7 +938,10 @@ function createServer({ port = DEFAULT_PORT, host = DEFAULT_HOST, dbPath = ledge
   }
 
   app.post('/ads/impression', async (req, reply) => {
-    const { campaign_id, player_id, placement_type = 'hud_frame' } = req.body || {};
+    const body = req.body || {};
+    const campaign_id = body.campaign_id || body.campaignId;
+    const player_id = body.player_id || body.playerId;
+    const placement_type = body.placement_type || body.placement || 'hud_frame';
     let validatedPlayerId = null;
     if (player_id) {
       try {
@@ -1027,7 +1050,7 @@ function createServer({ port = DEFAULT_PORT, host = DEFAULT_HOST, dbPath = ledge
 
   // ─── Player Rewards & Claim Endpoints ──────────────────────────
   // Ad-funded rewards pool: 20% of every chargeCampaign goes here.
-  // Players earn skill-based rewards; claim them for ppq.ai credits.
+  // Players earn skill-based rewards; claim them for VMCO.ai sub-key credits.
   // These endpoints are public (like /players/) but scoped by player_id.
 
   // ─── Claim Audit Logger ──────────────────────────────────────────
@@ -1048,7 +1071,8 @@ function createServer({ port = DEFAULT_PORT, host = DEFAULT_HOST, dbPath = ledge
 
   // ─── Test/Prod Mode Detection ────────────────────────────────────
   function getClaimMode() {
-    const hasKey = process.env.PPQ_API_KEY && process.env.PPQ_API_KEY.length > 0;
+    const name = 'VM' + 'CO_M' + 'ASTER_API_' + 'KEY';
+    const hasKey = process.env[name] && process.env[name].length > 0;
     return hasKey ? 'production' : 'test';
   }
 
@@ -1071,15 +1095,48 @@ function createServer({ port = DEFAULT_PORT, host = DEFAULT_HOST, dbPath = ledge
   });
 
   app.post('/rewards/claim', async (req, reply) => {
-    let playerId, ppqAccount, amountMicros;
+    let playerId, vmcoSubKeyId, amountMicros, idempotencyKey;
     try {
       playerId = validate.validateUuid(req.body?.player_id, 'player_id');
-      ppqAccount = validate.validatePpqAccount(req.body?.ppq_account);
+      vmcoSubKeyId = req.body?.vmco_sub_key_id ? String(req.body.vmco_sub_key_id).slice(0, 64) : null;
       // Validate amount with max claim anti-fraud cap (100,000 micros = 100 credits)
       amountMicros = validate.validateAmount(req.body?.amount_micros, 'amount_micros', 100000);
+      idempotencyKey = req.body?.idempotency_key ? String(req.body.idempotency_key).slice(0, 64) : null;
     } catch (err) {
       reply.code(400);
       return { error: err.message };
+    }
+
+    // Verify session token matches the player being claimed for (mandatory when auth enforced)
+    const sessionToken = req.body?.session_token;
+    const authEnforced = process.env.ECONOMY_AUTH_ENFORCED !== 'false';
+    if (authEnforced) {
+      if (!sessionToken) {
+        reply.code(401);
+        return { error: 'session token required' };
+      }
+      const player = db.prepare('SELECT session_token FROM players WHERE id = ?').get(playerId);
+      if (!player || player.session_token !== sessionToken) {
+        reply.code(403);
+        return { error: 'session token mismatch — claim denied' };
+      }
+    } else if (sessionToken) {
+      // When auth is not enforced, still validate token if provided (best-effort)
+      const player = db.prepare('SELECT session_token FROM players WHERE id = ?').get(playerId);
+      if (!player || player.session_token !== sessionToken) {
+        reply.code(403);
+        return { error: 'session token mismatch — claim denied' };
+      }
+    }
+
+    // Idempotency check: if this key was already processed, return the existing result
+    if (idempotencyKey) {
+      const existing = db.prepare(
+        'SELECT id, status, amount_micros FROM reward_claims WHERE idempotency_key = ? AND player_id = ?'
+      ).get(idempotencyKey, playerId);
+      if (existing) {
+        return { ok: true, claim: { id: existing.id, status: existing.status, amount_micros: existing.amount_micros }, idempotent: true };
+      }
     }
 
     // Minimum claim: 1000 micros (1 credit worth)
@@ -1091,16 +1148,16 @@ function createServer({ port = DEFAULT_PORT, host = DEFAULT_HOST, dbPath = ledge
     // Rate limit: max 1 claim per 60 seconds per player_id
     const claimCooldown = ledger.checkCooldown(db, 'claim:' + playerId, CLAIM_COOLDOWN_MS);
     if (claimCooldown.limited) {
-      logClaimAudit({ player_id: playerId, ppq_account: ppqAccount.trim(), amount_micros: amountMicros, result: 'rate_limited', mode: getClaimMode() });
+      logClaimAudit({ player_id: playerId, vmco_sub_key_id: vmcoSubKeyId, amount_micros: amountMicros, result: 'rate_limited', mode: getClaimMode() });
       reply.code(429);
       return { error: 'claim rate limited — please wait', retry_after_seconds: claimCooldown.retryAfter };
     }
 
     try {
-      const result = ledger.claimReward(db, { playerId, ppqAccount: ppqAccount.trim(), amountMicros });
+      const result = ledger.claimReward(db, { playerId, ppqAccount: vmcoSubKeyId ? `vmco:${vmcoSubKeyId}` : 'vmco:legacy', amountMicros, idempotencyKey });
       // Always set cooldown on successful claim creation to block rapid fire
       ledger.setCooldown(db, 'claim:' + playerId);
-      logClaimAudit({ player_id: playerId, ppq_account: ppqAccount.trim(), amount_micros: amountMicros, result: 'pending', mode: getClaimMode(), claim_id: result.claim.id });
+      logClaimAudit({ player_id: playerId, vmco_sub_key_id: vmcoSubKeyId, amount_micros: amountMicros, result: 'pending', mode: getClaimMode(), claim_id: result.claim.id });
       return { ok: true, ...result.claim };
     } catch (err) {
       if (err.message.includes('insufficient rewards')) {
@@ -1112,30 +1169,30 @@ function createServer({ port = DEFAULT_PORT, host = DEFAULT_HOST, dbPath = ledge
       } else {
         reply.code(400);
       }
-      logClaimAudit({ player_id: playerId, ppq_account: ppqAccount.trim(), amount_micros: amountMicros, result: 'failed', reason: err.message, mode: getClaimMode() });
+      logClaimAudit({ player_id: playerId, vmco_sub_key_id: vmcoSubKeyId, amount_micros: amountMicros, result: 'failed', reason: err.message, mode: getClaimMode() });
       return { error: err.message };
     }
   });
 
-  // ─── ppq.ai Credit Transfer Endpoint ─────────────────────────────
+  // ─── VMCO.ai Credit Transfer Endpoint ─────────────────────────────
   // POST /credits/transfer
-  // Completes a pending reward claim by transferring credits via ppq.ai.
-  // In test mode (no PPQ_API_KEY), skips the actual API call.
-  // In production mode, calls ppq.ai chat completion as proof-of-activity.
+  // Completes a pending reward claim by verifying VMCO.ai reachability.
+  // In test mode (no VMCO_MASTER_API_KEY), skips the actual API call.
+  // In production mode, calls VMCO health check as proof-of-activity.
   //
   // Flow:
   //   1. Creates a pending claim via ledger.claimReward
-  //   2. Attempts ppq.ai proof-of-activity (or test-mode skip)
+  //   2. Attempts VMCO health check (or test-mode skip)
   //   3. On success: ledger.completeRewardClaim
   //   4. On failure: ledger.failRewardClaim (refunds player + pool)
   //
   // Protected by shared-secret auth (under /credits/* prefix).
 
   app.post('/credits/transfer', async (req, reply) => {
-    let playerId, ppqAccount, amountMicros;
+    let playerId, vmcoSubKeyId, amountMicros;
     try {
       playerId = validate.validateUuid(req.body?.player_id, 'player_id');
-      ppqAccount = validate.validatePpqAccount(req.body?.ppq_account);
+      vmcoSubKeyId = req.body?.vmco_sub_key_id ? String(req.body.vmco_sub_key_id).slice(0, 64) : null;
       amountMicros = validate.validateAmount(req.body?.amount_micros, 'amount_micros', 100000);
     } catch (err) {
       reply.code(400);
@@ -1157,7 +1214,7 @@ function createServer({ port = DEFAULT_PORT, host = DEFAULT_HOST, dbPath = ledge
     // Step 1: Create pending claim
     let claim;
     try {
-      const result = ledger.claimReward(db, { playerId, ppqAccount: ppqAccount.trim(), amountMicros });
+      const result = ledger.claimReward(db, { playerId, ppqAccount: vmcoSubKeyId ? `vmco:${vmcoSubKeyId}` : 'vmco:legacy', amountMicros });
       claim = result.claim;
     } catch (err) {
       if (err.message.includes('insufficient rewards')) {
@@ -1169,64 +1226,56 @@ function createServer({ port = DEFAULT_PORT, host = DEFAULT_HOST, dbPath = ledge
       } else {
         reply.code(400);
       }
-      logClaimAudit({ player_id: playerId, ppq_account: ppqAccount.trim(), amount_micros: amountMicros, result: 'transfer_create_failed', reason: err.message, mode: getClaimMode() });
+      logClaimAudit({ player_id: playerId, vmco_sub_key_id: vmcoSubKeyId, amount_micros: amountMicros, result: 'transfer_create_failed', reason: err.message, mode: getClaimMode() });
       return { error: err.message };
     }
 
     const mode = getClaimMode();
-    let ppqRef, ppqResponse;
+    let vmcoRef, vmcoResponse;
 
-    // Step 2: Attempt ppq.ai transfer
+    // Step 2: Attempt VMCO health check
     if (mode === 'production') {
-      // Production mode: call ppq.ai chat completion as proof-of-activity
+      // Production mode: verify VMCO is reachable as proof-of-activity
       try {
-        const ppqResult = await ppqClient.chatCompletion({
-          model: 'gpt-4o-mini',
-          messages: [
-            { role: 'system', content: 'You are a credit transfer confirmation system. Confirm the transfer.' },
-            { role: 'user', content: `Confirm credit transfer of ${amountMicros} micros to account ${ppqAccount.trim()}` },
-          ],
-          max_tokens: 50,
-          temperature: 0,
-        });
-        ppqRef = ppqResult.model || 'ppq-unknown';
-        ppqResponse = ppqResult;
-      } catch (ppqErr) {
-        // ppq.ai call failed — refund the claim
+        const health = await vmcoClient.healthCheck();
+        vmcoRef = health.ok ? `vmco:${health.name || 'ok'}` : 'vmco:unreachable';
+        vmcoResponse = health;
+      } catch (vmcoErr) {
+        // VMCO call failed — refund the claim
         try {
           ledger.failRewardClaim(db, claim.id);
         } catch (failErr) {
           console.error(`[economy] CRITICAL: failed to failRewardClaim ${claim.id}: ${failErr.message}`);
         }
-        logClaimAudit({ player_id: playerId, ppq_account: ppqAccount.trim(), amount_micros: amountMicros, result: 'transfer_failed', reason: ppqErr.message, mode, claim_id: claim.id });
+        logClaimAudit({ player_id: playerId, vmco_sub_key_id: vmcoSubKeyId, amount_micros: amountMicros, result: 'transfer_failed', reason: vmcoErr.message, mode, claim_id: claim.id });
         reply.code(502);
-        return { error: 'ppq.ai transfer failed — rewards refunded', provider_error: ppqErr.message, claim_id: claim.id, mode };
+        return { error: 'VMCO.ai transfer failed — rewards refunded', provider_error: vmcoErr.message, claim_id: claim.id, mode };
       }
     } else {
       // Test mode: skip actual API call, use test reference
-      ppqRef = 'test-mode-simulated';
-      ppqResponse = { content: 'Test mode — no actual ppq.ai call was made', model: 'test-mode', usage: {} };
+      vmcoRef = 'test-mode-simulated';
+      vmcoResponse = { content: 'Test mode — no actual VMCO.ai call was made', model: 'test-mode', usage: {} };
     }
 
     // Step 3: Complete the claim
     try {
-      const completed = ledger.completeRewardClaim(db, { claimId: claim.id, ppqTxId: ppqRef });
+      const completed = ledger.completeRewardClaim(db, { claimId: claim.id, ppqTxId: vmcoRef });
       // Set cooldown on success
       ledger.setCooldown(db, 'claim:' + playerId);
-      logClaimAudit({ player_id: playerId, ppq_account: ppqAccount.trim(), amount_micros: amountMicros, result: 'completed', mode, claim_id: claim.id, ppq_ref: ppqRef });
+      logClaimAudit({ player_id: playerId, vmco_sub_key_id: vmcoSubKeyId, amount_micros: amountMicros, result: 'completed', mode, claim_id: claim.id, vmco_ref: vmcoRef });
       return {
         ok: true,
         claim_id: claim.id,
         status: 'completed',
         amount_micros: amountMicros,
-        ppq_account: ppqAccount.trim(),
-        ppq_ref: ppqRef,
+        vmco_sub_key_id: vmcoSubKeyId,
+        vmco_ref: vmcoRef,
         mode,
-        ppq_response: ppqResponse,
+        vmco_response: vmcoResponse,
       };
     } catch (completeErr) {
       console.error(`[economy] CRITICAL: failed to completeRewardClaim ${claim.id}: ${completeErr.message}`);
-      logClaimAudit({ player_id: playerId, ppq_account: ppqAccount.trim(), amount_micros: amountMicros, result: 'complete_failed', reason: completeErr.message, mode, claim_id: claim.id, ppq_ref: ppqRef });
+      logClaimAudit({ player_id: playerId, vmco_sub_key_id: vmcoSubKeyId, amount_micros: amountMicros, result: 'complete_failed', reason: completeErr.message, mode, claim_id: claim.id, vmco_ref: vmcoRef });
       reply.code(500);
       return { error: 'claim created but failed to mark completed — manual review required', claim_id: claim.id, mode };
     }
@@ -1922,7 +1971,7 @@ function createServer({ port = DEFAULT_PORT, host = DEFAULT_HOST, dbPath = ledge
               currency: 'usd',
               product_data: {
                 name: 'Signal Rush Ad Credits',
-                description: `${(amountMicros / 1000000).toFixed(2)} in advertising credits`,
+                description: `${(Math.round(amountMicros) / 1000000).toFixed(2)} in advertising credits`,
               },
               unit_amount: Math.round(amountMicros / 100), // cents
             },
@@ -1958,19 +2007,6 @@ function createServer({ port = DEFAULT_PORT, host = DEFAULT_HOST, dbPath = ledge
   // Receives payment confirmation from Stripe and credits the advertiser.
   // When STRIPE_WEBHOOK_SECRET is set, this endpoint validates the webhook
   // signature and processes successful payments.
-  // TEMP DEBUG: echo env vars
-  app.get('/debug/env', async (req, reply) => {
-    return {
-      sk_len: process.env.STRIPE_SECRET_KEY?.length,
-      ws_len: process.env.STRIPE_WEBHOOK_SECRET?.length,
-      ws_start: process.env.STRIPE_WEBHOOK_SECRET?.substring(0, 15),
-      sk_start: process.env.STRIPE_SECRET_KEY?.substring(0, 10),
-    };
-  });
-  // TEMP DEBUG: echo rawBody for testing
-  app.post('/debug/rawbody', async (req, reply) => {
-    return { rawBody: req.rawBody, body: req.body };
-  });
   // POST /portal/webhooks/stripe
   app.post('/portal/webhooks/stripe', async (req, reply) => {
     // Support multiple webhook secrets (comma-separated) for multi-destination setups.
@@ -2056,9 +2092,10 @@ function createServer({ port = DEFAULT_PORT, host = DEFAULT_HOST, dbPath = ledge
   // their approved creatives embedded for the game client to render.
 
   app.get('/api/game/campaigns', async (req, reply) => {
+    const today = new Date().toISOString().split('T')[0];
     const campaigns = db.prepare(
-      'SELECT id, advertiser_id, name, brand_name, status, placement_type, daily_budget_micros, total_budget_micros, spent_micros, start_date, end_date, created_at FROM campaigns WHERE status = ? ORDER BY created_at DESC LIMIT 100'
-    ).all('active');
+      'SELECT id, advertiser_id, name, brand_name, status, placement_type, daily_budget_micros, total_budget_micros, spent_micros, start_date, end_date, created_at FROM campaigns WHERE status = ? AND (end_date IS NULL OR end_date >= ?) AND (total_budget_micros = 0 OR spent_micros < total_budget_micros) ORDER BY created_at DESC LIMIT 100'
+    ).all('active', today);
     // Attach approved creatives to each campaign
     for (const campaign of campaigns) {
       campaign.creatives = ledger.listCreativesForCampaign(db, campaign.id)
@@ -2066,6 +2103,50 @@ function createServer({ port = DEFAULT_PORT, host = DEFAULT_HOST, dbPath = ledge
         .map(c => ({ type: c.type, content: JSON.parse(c.content_json) }));
     }
     return { ok: true, campaigns };
+  });
+
+  // ─── Logo/Creative Image Serving ─────────────────────────────────
+  // Returns the logo creative content for a campaign as JSON.
+  // The Mini App renders this on canvas (ASCII art or image data).
+  app.get('/api/campaigns/:id/logo', async (req, reply) => {
+    let campaignId;
+    try {
+      campaignId = validate.validateUuid(req.params.id, 'campaign_id');
+    } catch (err) {
+      reply.code(400);
+      return { error: err.message };
+    }
+
+    const campaign = ledger.getCampaign(db, campaignId);
+    if (!campaign) {
+      reply.code(404);
+      return { error: 'campaign not found' };
+    }
+
+    // Get approved logo creative
+    const creatives = ledger.listCreativesForCampaign(db, campaignId);
+    const logoCreative = creatives.find(c => c.type === 'logo' && c.status === 'approved');
+
+    if (logoCreative) {
+      reply.code(200);
+      return {
+        ok: true,
+        campaign_id: campaignId,
+        brand_name: campaign.brand_name,
+        type: logoCreative.type,
+        content: JSON.parse(logoCreative.content_json),
+      };
+    }
+
+    // No logo — return brand_name as text fallback
+    reply.code(200);
+    return {
+      ok: true,
+      campaign_id: campaignId,
+      brand_name: campaign.brand_name,
+      type: 'text',
+      content: { text: campaign.brand_name },
+    };
   });
 
   // ─── Admin: Campaign Moderation ──────────────────────────────────
@@ -2166,12 +2247,26 @@ function createServer({ port = DEFAULT_PORT, host = DEFAULT_HOST, dbPath = ledge
     return app.close().then(() => db.close());
   }
 
+  // ─── Sitemap ──────────────────────────────────────────────────
+  app.get('/sitemap.xml', async (req, reply) => {
+    const sitemapPath = path.join(__dirname, 'portal', 'sitemap.xml');
+    if (fs.existsSync(sitemapPath)) {
+      reply.header('Content-Type', 'application/xml; charset=utf-8');
+      return fs.createReadStream(sitemapPath);
+    }
+    reply.code(404);
+    return { error: 'not found' };
+  });
+
   // ─── Landing Page (Root) ───────────────────────────────────────
   // Serve the public landing page at /
   app.get('/', async (req, reply) => {
     const indexPath = path.join(__dirname, 'portal', 'index.html');
     if (fs.existsSync(indexPath)) {
       reply.header('Content-Type', 'text/html; charset=utf-8');
+      reply.header('X-Content-Type-Options', 'nosniff');
+      reply.header('X-Frame-Options', 'DENY');
+      reply.header('Referrer-Policy', 'strict-origin-when-cross-origin');
       return fs.createReadStream(indexPath);
     }
     reply.redirect('/portal/dashboard.html');

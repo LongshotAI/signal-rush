@@ -320,7 +320,9 @@ function stepFrogger(state, input) {
     if (move) {
       const prevX = state.player.x;
       const prevY = state.player.y;
-      const newX = clamp(state.player.x + move.x, 1, GAME_CONFIG.width - 2);
+      // Pac-Man wrap on horizontal edges
+      const rawX = state.player.x + move.x;
+      const newX = rawX < 0 ? GAME_CONFIG.width - 1 : rawX >= GAME_CONFIG.width ? 0 : clamp(rawX, 1, GAME_CONFIG.width - 2);
       const newY = clamp(state.player.y + move.y, 1, GAME_CONFIG.height - 2);
       // Check if the new position would be lethal
       const lane = state.lanes.find((l) => l.y === newY);
@@ -405,7 +407,9 @@ function stepFrogger(state, input) {
   // 2. Apply player hop input (one-tile).
   const move = input.move || null;
   if (move) {
-    state.player.x = clamp(state.player.x + move.x, 1, GAME_CONFIG.width - 2);
+    // Pac-Man wrap on horizontal edges
+    const rawX = state.player.x + move.x;
+    state.player.x = rawX < 0 ? GAME_CONFIG.width - 1 : rawX >= GAME_CONFIG.width ? 0 : clamp(rawX, 1, GAME_CONFIG.width - 2);
     state.player.y = clamp(state.player.y + move.y, 1, GAME_CONFIG.height - 2);
     state.lastMove = move;
     state.inputPulse = 2;

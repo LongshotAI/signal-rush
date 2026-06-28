@@ -1,0 +1,89 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="630" viewBox="0 0 1200 630">
+  <defs>
+    <radialGradient id="bg" cx="50%" cy="40%" r="70%">
+      <stop offset="0%" stop-color="#0a0a1e"/>
+      <stop offset="100%" stop-color="#03030a"/>
+    </radialGradient>
+    <filter id="glow">
+      <feGaussianBlur stdDeviation="3" result="blur"/>
+      <feMerge><feMergeNode in="blur"/><feMergeNode in="SourceGraphic"/></feMerge>
+    </filter>
+    <filter id="strongglow">
+      <feGaussianBlur stdDeviation="8" result="blur"/>
+      <feMerge><feMergeNode in="blur"/><feMergeNode in="SourceGraphic"/></feMerge>
+    </filter>
+  </defs>
+
+  <!-- Background -->
+  <rect width="1200" height="630" fill="url(#bg)"/>
+
+  <!-- Perspective grid floor -->
+  <g opacity="0.12">
+    <line x1="200" y1="630" x2="600" y2="300" stroke="#00ff88" stroke-width="0.5"/>
+    <line x1="1000" y1="630" x2="600" y2="300" stroke="#00ff88" stroke-width="0.5"/>
+    <line x1="0" y1="450" x2="1200" y2="450" stroke="#00ff88" stroke-width="0.3"/>
+    <line x1="0" y1="520" x2="1200" y2="520" stroke="#00ff88" stroke-width="0.3"/>
+    <line x1="0" y1="590" x2="1200" y2="590" stroke="#00ff88" stroke-width="0.3"/>
+    <line x1="400" y1="300" x2="200" y2="630" stroke="#00ff88" stroke-width="0.3"/>
+    <line x1="800" y1="300" x2="1000" y2="630" stroke="#00ff88" stroke-width="0.3"/>
+  </g>
+
+  <!-- Glow orbs -->
+  <circle cx="200" cy="180" r="160" fill="#00ff88" opacity="0.06"/>
+  <circle cx="1000" cy="200" r="120" fill="#00e4ff" opacity="0.05"/>
+  <circle cx="600" cy="500" r="200" fill="#00ff88" opacity="0.03"/>
+
+  <!-- Left terminal bracket -->
+  <g opacity="0.35">
+    <rect x="40" y="40" width="3" height="550" fill="#00ff88"/>
+    <rect x="40" y="40" width="60" height="3" fill="#00ff88"/>
+    <rect x="40" y="587" width="60" height="3" fill="#00ff88"/>
+  </g>
+
+  <!-- Right terminal bracket -->
+  <g opacity="0.35">
+    <rect x="1160" y="40" width="3" height="550" fill="#00ff88"/>
+    <rect x="1100" y="40" width="60" height="3" fill="#00ff88"/>
+    <rect x="1100" y="587" width="60" height="3" fill="#00ff88"/>
+  </g>
+
+  <!-- Main title -->
+  <text x="600" y="180" font-family="'JetBrains Mono', 'Courier New', monospace" font-size="72" font-weight="800" fill="#00ff88" text-anchor="middle" filter="url(#glow)">SIGNAL RUSH</text>
+
+  <!-- Tagline -->
+  <text x="600" y="235" font-family="'JetBrains Mono', 'Courier New', monospace" font-size="22" font-weight="600" fill="#e8edf3" opacity="0.9" text-anchor="middle">Play. Earn API Credits. Reach the AI Audience.</text>
+
+  <!-- Decorative line -->
+  <line x1="380" y1="265" x2="820" y2="265" stroke="#00ff88" stroke-width="1" opacity="0.4"/>
+
+  <!-- Three value props -->
+  <g filter="url(#glow)">
+    <!-- Players -->
+    <rect x="130" y="300" width="260" height="120" rx="6" fill="none" stroke="#00ff88" stroke-width="1" opacity="0.3"/>
+    <text x="260" y="335" font-family="'JetBrains Mono', monospace" font-size="14" font-weight="700" fill="#00ff88" text-anchor="middle">🎮 PLAYERS</text>
+    <text x="260" y="365" font-family="'JetBrains Mono', monospace" font-size="12" fill="#e8edf3" opacity="0.7" text-anchor="middle">Earn real API credits</text>
+    <text x="260" y="385" font-family="'JetBrains Mono', monospace" font-size="12" fill="#e8edf3" opacity="0.7" text-anchor="middle">by playing arcade games</text>
+    <text x="260" y="405" font-family="'JetBrains Mono', monospace" font-size="12" fill="#e8edf3" opacity="0.7" text-anchor="middle">in your terminal</text>
+
+    <!-- Advertisers -->
+    <rect x="470" y="300" width="260" height="120" rx="6" fill="none" stroke="#00e4ff" stroke-width="1" opacity="0.3"/>
+    <text x="600" y="335" font-family="'JetBrains Mono', monospace" font-size="14" font-weight="700" fill="#00e4ff" text-anchor="middle">📡 ADVERTISERS</text>
+    <text x="600" y="365" font-family="'JetBrains Mono', monospace" font-size="12" fill="#e8edf3" opacity="0.7" text-anchor="middle">Reach Hermes Agent's</text>
+    <text x="600" y="385" font-family="'JetBrains Mono', monospace" font-size="12" fill="#e8edf3" opacity="0.7" text-anchor="middle">most engaged AI users</text>
+    <text x="600" y="405" font-family="'JetBrains Mono', monospace" font-size="12" fill="#e8edf3" opacity="0.7" text-anchor="middle">in a focused environment</text>
+
+    <!-- Audience -->
+    <rect x="810" y="300" width="260" height="120" rx="6" fill="none" stroke="#ff3355" stroke-width="1" opacity="0.3"/>
+    <text x="940" y="335" font-family="'JetBrains Mono', monospace" font-size="14" font-weight="700" fill="#ff3355" text-anchor="middle">⚡ AUDIENCE</text>
+    <text x="940" y="365" font-family="'JetBrains Mono', monospace" font-size="12" fill="#e8edf3" opacity="0.7" text-anchor="middle">98M+ CLI agent</text>
+    <text x="940" y="385" font-family="'JetBrains Mono', monospace" font-size="12" fill="#e8edf3" opacity="0.7" text-anchor="middle">downloads. AI-first</text>
+    <text x="940" y="405" font-family="'JetBrains Mono', monospace" font-size="12" fill="#e8edf3" opacity="0.7" text-anchor="middle">users who live in text</text>
+  </g>
+
+  <!-- CTA button -->
+  <rect x="440" y="470" width="320" height="52" rx="4" fill="#00ff88" filter="url(#strongglow)"/>
+  <text x="600" y="503" font-family="'JetBrains Mono', monospace" font-size="20" font-weight="700" fill="#03030a" text-anchor="middle">▶ PLAY NOW</text>
+
+  <!-- Bottom tagline -->
+  <text x="600" y="570" font-family="'JetBrains Mono', monospace" font-size="13" fill="#e8edf3" opacity="0.3" text-anchor="middle">synth.com.co · gamified marketing for the AI era</text>
+</svg>

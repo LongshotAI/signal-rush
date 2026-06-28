@@ -64,7 +64,9 @@ for (const file of files) {
   console.log(`[migrate]   [apply] ${file} — ${description}`);
   try {
     db.transaction(() => {
-      db.exec(sql);
+      // Remove transaction wrappers from the SQL since we're already in one
+      const cleanSql = sql.replace(/^\s*BEGIN TRANSACTION;\s*$/gim, '').replace(/^\s*COMMIT;\s*$/gim, '');
+      db.exec(cleanSql);
       db.prepare('INSERT INTO schema_migrations (version, description) VALUES (?, ?)').run(version, description);
     })();
     appliedCount++;

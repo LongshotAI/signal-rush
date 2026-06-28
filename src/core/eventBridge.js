@@ -97,7 +97,6 @@ const QUEUE_DIR = path.join(os.homedir(), '.signal-rush');
 const QUEUE_FILE = path.join(QUEUE_DIR, 'event-queue.json');
 
 let pendingQueue = [];
-let flushInProgress = false;
 
 loadQueue();
 
@@ -149,13 +148,25 @@ function enqueue(payloadOrEndpoint, maybePayload) {
   saveQueue();
 }
 
+let flushPromise = null;
+
 /**
  * Flush any queued events to the economy service.
  * Called after a successful send to clear the backlog.
+ * Uses a promise mutex to prevent concurrent flushes.
  */
 async function flushQueue() {
-  if (flushInProgress || pendingQueue.length === 0) return;
-  flushInProgress = true;
+  if (flushPromise) return flushPromise; // Already flushing — wait for existing
+  flushPromise = _flushQueueInner();
+  try {
+    return await flushPromise;
+  } finally {
+    flushPromise = null;
+  }
+}
+
+async function _flushQueueInner() {
+  if (pendingQueue.length === 0) return;
 
   const batch = [...pendingQueue];
   pendingQueue = [];
@@ -170,8 +181,6 @@ async function flushQueue() {
       enqueue(endpoint, item.payload);
     }
   }
-
-  flushInProgress = false;
 }
 
 // ─── Player Identity ──────────────────────────────────────────────

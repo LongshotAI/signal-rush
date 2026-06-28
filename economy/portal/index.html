@@ -1,313 +1,1160 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Signal Rush — The Ad-Powered Arcade</title>
-  <link rel="stylesheet" href="/portal/shared.css">
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="theme-color" content="#06060f" />
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; script-src 'self' 'unsafe-inline'; img-src 'self' https:; connect-src 'self'; frame-ancestors 'none'; base-uri 'self'; form-action 'self'" />
+  <title>Signal Rush — Play. Earn API Credits. Reach AI Users.</title>
+  <meta name="description" content="Signal Rush is a gamified marketing platform for the AI era. Players earn real API credits by playing. Advertisers reach the most engaged audience in tech — Hermes Agent users, CLI natives, and AI-first developers. Two game modes. Zero server cost." />
+  <meta name="keywords" content="signal rush, gamified advertising, API credits, hermes agent, AI marketing, terminal game, CLI arcade, play to earn, developer audience" />
+  <meta name="author" content="LongshotAI" />
+  <meta name="robots" content="index, follow" />
+  <link rel="canonical" href="https://synth.com.co/" />
+  <meta property="og:type" content="website" />
+  <meta property="og:title" content="Signal Rush — Play. Earn API Credits." />
+  <meta property="og:description" content="Gamified marketing for the AI era. Players earn real API credits by playing. Advertisers reach Hermes Agent's most engaged users." />
+  <meta property="og:url" content="https://synth.com.co/" />
+  <meta property="og:site_name" content="Signal Rush" />
+  <meta property="og:locale" content="en_US" />
+  <meta property="og:image" content="https://synth.com.co/portal/og-image.png" />
+  <meta property="og:image:width" content="1200" />
+  <meta property="og:image:height" content="630" />
+  <meta property="og:image:alt" content="Signal Rush — The Arcade for the Terminal Generation. Two modes: AI Hunt and Packet Hop." />
+  <meta name="twitter:image" content="https://synth.com.co/portal/og-image.png" />
+  <meta name="twitter:image:alt" content="Signal Rush — The Terminal Arcade Game" />
+  <meta name="twitter:card" content="summary_large_image" />
+  <meta name="twitter:title" content="Signal Rush — Play. Earn API Credits." />
+  <meta name="twitter:description" content="Gamified marketing for the AI era. Players earn real API credits. Advertisers reach Hermes Agent users." />
+  <script type="application/ld+json">
+  {
+    "@context": "https://schema.org",
+    "@type": "VideoGame",
+    "name": "Signal Rush",
+    "alternateName": ["Signal Rush Game", "Terminal Arcade", "CLI Game", "Gamified Marketing Platform"],
+    "description": "Signal Rush is a gamified marketing platform for the AI era. Players earn real API credits by playing reflex arcade games in their terminal, browser, or Telegram. Advertisers reach the most engaged audience in tech — Hermes Agent users, CLI natives, and AI-first developers.",
+    "applicationCategory": "Game",
+    "operatingSystem": "Any (Node.js 18+)",
+    "url": "https://synth.com.co/",
+    "offers": {
+      "@type": "Offer",
+      "price": 0,
+      "priceCurrency": "USD",
+      "availability": "https://schema.org/InStock"
+    },
+    "author": {
+      "@type": "Organization",
+      "name": "LongshotAI",
+      "url": "https://github.com/LongshotAI"
+    },
+    "publisher": {
+      "@type": "Organization",
+      "name": "LongshotAI",
+      "url": "https://github.com/LongshotAI",
+      "logo": {
+        "@type": "ImageObject",
+        "url": "https://synth.com.co/portal/og-image.png"
+      }
+    },
+    "genre": "Arcade / Reflex / Gamified Marketing",
+    "playMode": "SinglePlayer",
+    "gamePlatform": ["Terminal CLI", "Web Browser", "Telegram Mini App"],
+    "sameAs": [
+      "https://github.com/LongshotAI/signal-rush"
+    ],
+    "datePublished": "2026-06-17",
+    "dateModified": "2026-06-27",
+    "inLanguage": "en",
+    "keywords": "signal rush, gamified advertising, API credits, hermes agent, AI marketing, terminal game, play to earn, developer audience",
+    "hasPart": [
+      {
+        "@type": "VideoGame",
+        "name": "AI Hunt",
+        "description": "Continuous dodge-survival against escalating AI threats. Near-miss risk/reward."
+      },
+      {
+        "@type": "VideoGame",
+        "name": "Packet Hop",
+        "description": "Frogger-style lane crossing with home slots and GOAL bar progression."
+      }
+    ]
+  }
+  </script>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600;700;800&family=Space+Grotesk:wght@500;600;700&display=swap" rel="stylesheet" />
+
   <style>
-    * { margin: 0; padding: 0; box-sizing: border-box; }
-    body {
-      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-      background: #0a0a0f;
-      color: #e6edf3;
-      min-height: 100vh;
-      overflow-x: hidden;
+    :root {
+      --bg: #03030a;
+      --surface: #080818;
+      --card: #0c0c22;
+      --green: #00ff88;
+      --green-glow: rgba(0,255,136,0.3);
+      --green-soft: rgba(0,255,136,0.07);
+      --pink: #ff3355;
+      --pink-glow: rgba(255,51,85,0.25);
+      --cyan: #00e4ff;
+      --cyan-glow: rgba(0,228,255,0.25);
+      --yellow: #ffdd44;
+      --white: #e8edf3;
+      --dim: rgba(232,237,243,0.68);
+      --muted: rgba(232,237,243,0.25);
+      --border: rgba(255,255,255,0.05);
+      --font-mono: 'JetBrains Mono', monospace;
+      --font-display: 'Space Grotesk', sans-serif;
     }
-    
-    /* Animated background */
+
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    html { scroll-behavior: smooth; -webkit-font-smoothing: antialiased; }
+    body { background: var(--bg); color: var(--white); font-family: var(--font-mono); overflow-x: hidden; }
+    ::selection { background: var(--green); color: var(--bg); }
+    a { color: var(--green); text-decoration: none; transition: color 0.2s; }
+    a:hover { color: var(--cyan); }
+
+    /* ═══════════════════════════════════════════════════════════
+       BACKGROUND — GRID + ORBS (VISIBLE)
+       ═══════════════════════════════════════════════════════════ */
+    .bg-fixed { position: fixed; inset: 0; pointer-events: none; z-index: 0; z-index: 0; overflow: hidden; }
+
     .bg-grid {
-      position: fixed;
-      top: 0; left: 0; right: 0; bottom: 0;
+      position: absolute; bottom: 0; left: -30%; right: -30%;
+      height: 200%;
       background-image:
-        linear-gradient(rgba(0,255,255,0.03) 1px, transparent 1px),
-        linear-gradient(90deg, rgba(0,255,255,0.03) 1px, transparent 1px);
-      background-size: 50px 50px;
-      animation: gridMove 20s linear infinite;
-      pointer-events: none;
-      z-index: 0;
+        linear-gradient(rgba(0,255,136,0.14) 1px, transparent 1px),
+        linear-gradient(90deg, rgba(0,255,136,0.14) 1px, transparent 1px);
+      background-size: 70px 70px;
+      transform: perspective(500px) rotateX(58deg);
+      transform-origin: center bottom;
+      animation: grid-pulse 8s ease-in-out infinite;
     }
-    @keyframes gridMove {
-      0% { transform: translate(0, 0); }
-      100% { transform: translate(50px, 50px); }
+    .bg-grid::after {
+      content: ''; position: absolute;
+      top: 0; left: 0; right: 0; height: 3px;
+      background: linear-gradient(90deg, transparent 10%, rgba(0,255,136,0.3) 50%, transparent 90%);
+      filter: blur(1px);
     }
-    
-    .container {
-      position: relative;
-      z-index: 1;
-      max-width: 1100px;
-      margin: 0 auto;
-      padding: 0 24px;
+    @keyframes grid-pulse {
+      0%,100% { opacity: 1; }
+      50% { opacity: 0.6; }
     }
-    
+
+    .bg-orb {
+      position: absolute; border-radius: 50%; filter: blur(90px);
+      will-change: transform;
+    }
+    .bg-orb-1 {
+      width: 800px; height: 800px;
+      background: radial-gradient(circle, rgba(0,255,136,0.22), transparent 65%);
+      top: -5%; left: -10%;
+      animation: orb1 28s ease-in-out infinite;
+    }
+    .bg-orb-2 {
+      width: 600px; height: 600px;
+      background: radial-gradient(circle, rgba(0,228,255,0.15), transparent 65%);
+      top: 30%; right: -8%;
+      animation: orb2 32s ease-in-out infinite;
+    }
+    .bg-orb-3 {
+      width: 700px; height: 700px;
+      background: radial-gradient(circle, rgba(255,51,85,0.12), transparent 65%);
+      bottom: -5%; left: 20%;
+      animation: orb3 24s ease-in-out infinite;
+    }
+    @keyframes orb1 { 0%,100%{transform:translate(0,0)} 50%{transform:translate(80px,-40px)} }
+    @keyframes orb2 { 0%,100%{transform:translate(0,0)} 50%{transform:translate(-60px,50px)} }
+    @keyframes orb3 { 0%,100%{transform:translate(0,0)} 50%{transform:translate(50px,60px)} }
+
+    /* Particle field */
+    .bg-particles { position: absolute; inset: 0; overflow: hidden; }
+    .bg-particle {
+      position: absolute; border-radius: 50%; will-change: transform, opacity;
+    }
+
+    .scanlines {
+      position: fixed; inset: 0; pointer-events: none; z-index: 1;
+      background: repeating-linear-gradient(0deg, transparent, transparent 3px, rgba(0,0,0,0.015) 3px, rgba(0,0,0,0.015) 6px);
+    }
+    .vignette {
+      position: fixed; inset: 0; pointer-events: none; z-index: 1;
+      background: radial-gradient(ellipse 75% 65% at 50% 40%, transparent 0%, rgba(3,3,10,0.45) 100%);
+    }
+    .cursor-glow {
+      position: fixed; width: 500px; height: 500px; border-radius: 50%;
+      background: radial-gradient(circle, rgba(0,255,136,0.05) 0%, transparent 70%);
+      pointer-events: none; z-index: 1; transform: translate(-50%,-50%);
+      transition: left 0.12s ease-out, top 0.12s ease-out;
+    }
+
+    /* ═══════════════════════════════════════════════════════════
+       CONTENT
+       ═══════════════════════════════════════════════════════════ */
+    .content { position: relative; z-index: 2; }
+
     /* Nav */
-    nav {
-      display: flex;
-      justify-content: space-between;
-      align-items: center;
-      padding: 24px 0;
-      border-bottom: 1px solid rgba(255,255,255,0.06);
+    .nav {
+      position: fixed; top: 0; left: 0; right: 0; z-index: 100;
+      padding: 24px clamp(24px,5vw,80px);
+      display: flex; align-items: center; justify-content: space-between;
+      backdrop-filter: blur(24px); -webkit-backdrop-filter: blur(24px);
+      background: rgba(3,3,10,0.55);
+      border-bottom: 1px solid transparent;
+      transition: padding 0.3s, background 0.3s, border-color 0.3s;
     }
-    .logo {
-      font-size: 24px;
-      font-weight: 800;
-      background: linear-gradient(135deg, #00ffff, #ff00ff);
-      -webkit-background-clip: text;
-      -webkit-text-fill-color: transparent;
-      letter-spacing: -1px;
+    .nav.scrolled {
+      padding: 14px clamp(24px,5vw,80px);
+      background: rgba(3,3,10,0.93);
+      border-bottom-color: rgba(0,255,136,0.06);
     }
-    .nav-links {
-      display: flex;
-      gap: 32px;
-      align-items: center;
+    .nav-logo {
+      font-family: var(--font-display); font-weight: 700; font-size: 15px;
+      color: var(--green); letter-spacing: 3px;
+      text-shadow: 0 0 24px var(--green-glow);
     }
+    .nav-links { display: flex; gap: 36px; list-style: none; }
     .nav-links a {
-      color: #8b949e;
-      text-decoration: none;
-      font-size: 14px;
-      font-weight: 500;
-      transition: color 0.2s;
+      font-size: 10px; letter-spacing: 2.5px; text-transform: uppercase;
+      color: var(--muted); padding-bottom: 2px; transition: color 0.2s, text-shadow 0.2s;
     }
-    .nav-links a:hover { color: #e6edf3; }
-    .btn {
-      display: inline-block;
-      padding: 10px 24px;
-      border-radius: 8px;
-      font-size: 14px;
-      font-weight: 600;
-      text-decoration: none;
-      transition: all 0.2s;
-      cursor: pointer;
-      border: none;
+    .nav-links a:hover { color: var(--green); text-shadow: 0 0 10px var(--green-glow); }
+    @media (max-width: 768px) { .nav-links { display: none; } }
+
+    /* Section */
+    .section { padding: clamp(100px, 14vw, 200px) clamp(24px,5vw,80px); position: relative; }
+    .section-label {
+      font-size: 9px; letter-spacing: 5px; text-transform: uppercase;
+      color: var(--green); margin-bottom: 32px;
+      display: flex; align-items: center; gap: 16px; opacity: 0.6;
     }
-    .btn-primary {
-      background: linear-gradient(135deg, #00ffff, #00cccc);
-      color: #0a0a0f;
-    }
-    .btn-primary:hover {
-      transform: translateY(-1px);
-      box-shadow: 0 4px 20px rgba(0,255,255,0.3);
-    }
-    .btn-secondary {
-      background: transparent;
-      color: #e6edf3;
-      border: 1px solid rgba(255,255,255,0.15);
-    }
-    .btn-secondary:hover {
-      border-color: rgba(255,255,255,0.3);
-      background: rgba(255,255,255,0.05);
-    }
-    
-    /* Hero */
-    .hero {
-      padding: 120px 0 80px;
-      text-align: center;
-    }
-    .hero h1 {
-      font-size: 64px;
-      font-weight: 800;
-      line-height: 1.1;
-      margin-bottom: 24px;
-      letter-spacing: -2px;
-    }
-    .hero h1 .gradient {
-      background: linear-gradient(135deg, #00ffff, #ff00ff, #ff8800);
-      -webkit-background-clip: text;
-      -webkit-text-fill-color: transparent;
-    }
-    .hero p {
-      font-size: 20px;
-      color: #8b949e;
-      max-width: 600px;
-      margin: 0 auto 40px;
-      line-height: 1.6;
-    }
-    .hero-buttons {
-      display: flex;
-      gap: 16px;
-      justify-content: center;
-    }
-    .hero .btn { padding: 14px 32px; font-size: 16px; }
-    
-    /* Stats */
-    .stats {
-      display: grid;
-      grid-template-columns: repeat(4, 1fr);
-      gap: 24px;
-      padding: 60px 0;
-      border-top: 1px solid rgba(255,255,255,0.06);
-      border-bottom: 1px solid rgba(255,255,255,0.06);
-    }
-    .stat { text-align: center; }
-    .stat-value {
-      font-size: 36px;
-      font-weight: 800;
-      background: linear-gradient(135deg, #00ffff, #00cccc);
-      -webkit-background-clip: text;
-      -webkit-text-fill-color: transparent;
-    }
-    .stat-label {
-      font-size: 13px;
-      color: #8b949e;
-      margin-top: 4px;
-      text-transform: uppercase;
-      letter-spacing: 1px;
-    }
-    
-    /* How it works */
-    .how-it-works {
-      padding: 80px 0;
-    }
+    .section-label::before { content: ''; width: 32px; height: 1px; background: var(--green); opacity: 0.4; }
     .section-title {
-      text-align: center;
-      font-size: 36px;
-      font-weight: 700;
-      margin-bottom: 48px;
+      font-family: var(--font-display);
+      font-size: clamp(40px, 7vw, 80px);
+      font-weight: 700; line-height: 1; letter-spacing: -2px; margin-bottom: 32px;
     }
-    .steps {
-      display: grid;
-      grid-template-columns: repeat(3, 1fr);
-      gap: 32px;
+    .section-title .accent { color: var(--green); text-shadow: 0 0 60px var(--green-glow); }
+    .section-title .accent-pink { color: var(--pink); text-shadow: 0 0 40px var(--pink-glow); }
+    .section-title .accent-cyan { color: var(--cyan); text-shadow: 0 0 40px var(--cyan-glow); }
+    .section-body { max-width: 540px; font-size: 15px; line-height: 1.9; color: var(--dim); }
+
+    /* Reveal */
+    .reveal {
+      opacity: 0; transform: translateY(60px) scale(0.97);
+      transition: opacity 1.2s cubic-bezier(0.16,1,0.3,1), transform 1.2s cubic-bezier(0.16,1,0.3,1);
     }
-    .step {
-      background: rgba(255,255,255,0.02);
-      border: 1px solid rgba(255,255,255,0.06);
-      border-radius: 16px;
+    .reveal.visible { opacity: 1; transform: translateY(0) scale(1); }
+    .reveal-d1 { transition-delay: 0.15s; }
+    .reveal-d2 { transition-delay: 0.3s; }
+    .reveal-d3 { transition-delay: 0.45s; }
+    .reveal-d4 { transition-delay: 0.6s; }
+
+    /* ═══════════════════════════════════════════════════════════
+       HERO
+       ═══════════════════════════════════════════════════════════ */
+    .hero {
+      min-height: 100vh;
+      min-height: 100dvh;
+      display: flex; flex-direction: column; align-items: center; justify-content: center;
+      text-align: center; padding: 100px 20px 60px; position: relative;
+    }
+    .hero-inner { position: relative; z-index: 3; }
+    .hero-inner::before {
+      content: ''; position: absolute;
+      top: 50%; left: 50%; transform: translate(-50%, -50%);
+      width: 900px; height: 900px; border-radius: 50%;
+      background: radial-gradient(circle, rgba(0,255,136,0.04) 0%, transparent 70%);
+      pointer-events: none; z-index: -1;
+    }
+
+    .hero-logo {
+      font-family: var(--font-mono); font-size: clamp(8px, 1.3vw, 15px); line-height: 1.15;
+      white-space: pre; color: var(--green); margin-bottom: 52px; user-select: none;
+      filter: drop-shadow(0 0 40px var(--green-glow));
+      animation: logo-breathe 4s ease-in-out infinite;
+    }
+    @keyframes logo-breathe {
+      0%,100% { filter: drop-shadow(0 0 25px var(--green-glow)) brightness(1); }
+      50% { filter: drop-shadow(0 0 60px var(--green-glow)) brightness(1.25); }
+    }
+    .hero-logo .ch { display: inline-block; animation: ch-wave 2.5s ease-in-out infinite; }
+    @keyframes ch-wave { 0%,100%{transform:translateY(0)} 50%{transform:translateY(-4px)} }
+
+    .hero-tagline {
+      font-family: var(--font-display);
+      font-size: clamp(38px, 7.5vw, 84px);
+      font-weight: 700; line-height: 1; letter-spacing: -2px; margin-bottom: 28px;
+    }
+    .hero-tagline .line { display: block; overflow: hidden; }
+    .hero-tagline .line > span { display: inline-block; animation: slideUp 0.9s cubic-bezier(0.16,1,0.3,1) both; }
+    .hero-tagline .line:nth-child(2) > span { animation-delay: 0.12s; }
+    @keyframes slideUp { from { transform: translateY(105%); opacity: 0; } to { transform: translateY(0); opacity: 1; } }
+
+    .hero-sub {
+      font-size: clamp(14px,1.5vw,17px); color: var(--dim);
+      max-width: 520px; margin: 0 auto 56px; line-height: 1.8;
+      animation: fadeIn 1s cubic-bezier(0.16,1,0.3,1) 0.3s both;
+    }
+    @keyframes fadeIn { from{opacity:0;transform:translateY(24px)} to{opacity:1;transform:translateY(0)} }
+
+    .hero-cta-wrap {
+      display: flex; gap: 20px; justify-content: center; flex-wrap: wrap;
+      animation: fadeIn 1s cubic-bezier(0.16,1,0.3,1) 0.45s both;
+    }
+    .cta-btn {
+      display: inline-flex; align-items: center; gap: 10px;
+      padding: 18px 44px;
+      font-family: var(--font-mono); font-weight: 600;
+      font-size: 12px; letter-spacing: 2.5px; text-transform: uppercase;
+      border: none; border-radius: 6px; cursor: pointer;
+      transition: transform 0.3s cubic-bezier(0.03,0.98,0.52,0.99), box-shadow 0.3s;
+      position: relative; overflow: hidden;
+    }
+    .cta-btn::before {
+      content: ''; position: absolute; inset: 0;
+      background: linear-gradient(135deg, rgba(255,255,255,0.15) 0%, transparent 50%);
+      opacity: 0; transition: opacity 0.3s;
+    }
+    .cta-btn:hover::before { opacity: 1; }
+    .cta-primary {
+      background: var(--green); color: var(--bg);
+      box-shadow: 0 0 40px var(--green-glow), 0 8px 30px rgba(0,0,0,0.5);
+    }
+    .cta-primary:hover {
+      transform: translateY(-4px) scale(1.04);
+      box-shadow: 0 0 80px var(--green-glow), 0 16px 50px rgba(0,0,0,0.6);
+      color: var(--bg);
+    }
+    .cta-ghost {
+      background: rgba(0,255,136,0.03);
+      border: 1px solid rgba(0,255,136,0.25); color: var(--green);
+    }
+    .cta-ghost:hover {
+      border-color: var(--green); background: rgba(0,255,136,0.06);
+      box-shadow: 0 0 25px var(--green-glow); transform: translateY(-4px);
+    }
+
+    .scroll-hint {
+      position: absolute; bottom: 32px; left: 50%; transform: translateX(-50%);
+      display: flex; flex-direction: column; align-items: center; gap: 8px;
+      animation: bob 2.5s ease-in-out infinite;
+    }
+    @keyframes bob { 0%,100%{transform:translateX(-50%) translateY(0)} 50%{transform:translateX(-50%) translateY(10px)} }
+    .scroll-hint span { font-size: 8px; letter-spacing: 4px; text-transform: uppercase; color: var(--muted); }
+    .scroll-hint::after { content: ''; width: 1px; height: 40px; background: linear-gradient(to bottom, var(--muted), transparent); }
+
+    /* ═══════════════════════════════════════════════════════════
+       MODES — Cards with BAKED 3D PERSPECTIVE
+       ═══════════════════════════════════════════════════════════ */
+    .modes-section {
+      background: linear-gradient(180deg, transparent 0%, var(--surface) 12%, var(--surface) 88%, transparent 100%);
+    }
+    .modes-grid {
+      display: grid; grid-template-columns: repeat(auto-fit, minmax(380px, 1fr));
+      gap: 48px; margin-top: 64px;
+    }
+    .mode-card {
+      background: linear-gradient(160deg, rgba(14,14,40,0.95) 0%, rgba(6,6,18,0.98) 100%);
+      border: 1px solid rgba(0,255,136,0.1);
+      border-radius: 20px;
+      padding: 50px 42px 42px;
+      position: relative; overflow: hidden;
+      transform: perspective(800px) rotateX(14deg);
+      transform-style: preserve-3d;
+      transition: transform 0.5s cubic-bezier(0.03,0.98,0.52,0.99), border-color 0.4s, box-shadow 0.4s;
+      will-change: transform;
+      box-shadow:
+        0 30px 80px rgba(0,0,0,0.5),
+        0 -1px 0 rgba(0,255,136,0.08),
+        inset 0 1px 0 rgba(0,255,136,0.06),
+        inset 0 -2px 10px rgba(0,0,0,0.3);
+    }
+    .mode-card::before {
+      content: ''; position: absolute;
+      top: 0; left: 0; right: 0; height: 3px;
+      background: linear-gradient(90deg, transparent 5%, var(--green) 50%, transparent 95%);
+      opacity: 0; transition: opacity 0.4s;
+    }
+    .mode-card:hover::before { opacity: 0.6; }
+    .mode-card:hover {
+      transform: perspective(1000px) rotateX(0deg) translateY(-8px) scale(1.02);
+      border-color: rgba(0,255,136,0.2);
+      box-shadow: 0 50px 120px rgba(0,0,0,0.6), 0 0 70px var(--green-glow);
+    }
+    .mode-card:nth-child(2) {
+      transform: perspective(800px) rotateX(-14deg);
+      border-color: rgba(255,51,85,0.1);
+      box-shadow:
+        0 30px 80px rgba(0,0,0,0.5),
+        0 -1px 0 rgba(255,51,85,0.08),
+        inset 0 1px 0 rgba(255,51,85,0.06),
+        inset 0 -2px 10px rgba(0,0,0,0.3);
+    }
+    .mode-card:nth-child(2)::before {
+      background: linear-gradient(90deg, transparent 5%, var(--pink) 50%, transparent 95%);
+    }
+    .mode-card:nth-child(2):hover {
+      border-color: rgba(255,51,85,0.2);
+      box-shadow: 0 30px 70px rgba(0,0,0,0.5), 0 0 50px var(--pink-glow);
+    }
+    .mode-tag {
+      display: inline-block; padding: 5px 14px;
+      font-size: 9px; letter-spacing: 2.5px; text-transform: uppercase;
+      border-radius: 4px; margin-bottom: 32px;
+      background: var(--green-soft); color: var(--green);
+      border: 1px solid rgba(0,255,136,0.1);
+      transform: translateZ(40px);
+    }
+    .mode-card:nth-child(2) .mode-tag {
+      background: rgba(255,51,85,0.06); color: var(--pink);
+      border-color: rgba(255,51,85,0.1);
+    }
+    .mode-icon {
+      width: 76px; height: 76px;
+      display: flex; align-items: center; justify-content: center;
+      font-size: 30px; border-radius: 50%;
+      background: var(--green-soft);
+      border: 1px solid rgba(0,255,136,0.12);
+      margin-bottom: 28px;
+      box-shadow: 0 0 30px var(--green-glow), inset 0 0 15px rgba(0,255,136,0.04);
+      transform: translateZ(50px);
+    }
+    .mode-card:nth-child(2) .mode-icon {
+      background: rgba(255,51,85,0.06);
+      border-color: rgba(255,51,85,0.12);
+      box-shadow: 0 0 30px var(--pink-glow), inset 0 0 15px rgba(255,51,85,0.04);
+    }
+    .mode-name {
+      font-family: var(--font-display); font-size: 28px;
+      font-weight: 700; margin-bottom: 16px;
+      transform: translateZ(35px);
+    }
+    .mode-desc {
+      color: var(--dim); font-size: 14px; line-height: 1.85;
+      margin-bottom: 32px; transform: translateZ(25px);
+    }
+    .mode-stats {
+      display: flex; gap: 32px;
+      border-top: 1px solid rgba(255,255,255,0.04);
+      padding-top: 24px; transform: translateZ(15px);
+    }
+    .mode-stat-val {
+      font-family: var(--font-display); font-size: 24px;
+      font-weight: 700; color: var(--green);
+    }
+    .mode-card:nth-child(2) .mode-stat-val { color: var(--pink); }
+    .mode-stat-label { font-size: 9px; letter-spacing: 2px; text-transform: uppercase; color: var(--muted); margin-top: 4px; }
+
+    /* ═══════════════════════════════════════════════════════════
+       STATS
+       ═══════════════════════════════════════════════════════════ */
+    .stats-section { overflow: hidden; }
+    .stats-grid {
+      display: grid; grid-template-columns: repeat(2, 1fr);
+      gap: 56px 40px; margin-top: 64px;
+    }
+    .stat-item {
+      position: relative; padding-left: 24px;
+      border-left: 2px solid rgba(0,255,136,0.1);
+    }
+    .stat-item:nth-child(2) .stat-number { color: var(--cyan); text-shadow: 0 0 30px var(--cyan-glow); }
+    .stat-item:nth-child(3) .stat-number { color: var(--white); }
+    .stat-item:nth-child(4) .stat-number { color: var(--yellow); text-shadow: 0 0 30px rgba(255,221,68,0.15); }
+    .stat-number {
+      font-family: var(--font-display);
+      font-size: clamp(48px, 6vw, 72px);
+      font-weight: 700; color: var(--green);
+      line-height: 1; margin-bottom: 8px;
+      text-shadow: 0 0 30px var(--green-glow);
+      font-variant-numeric: tabular-nums;
+    }
+    .stat-label { font-size: 13px; color: var(--dim); }
+    .stat-sub { font-size: 10px; color: var(--muted); margin-top: 5px; letter-spacing: 0.5px; }
+
+    /* ═══════════════════════════════════════════════════════════
+       MARKET — Bar Chart
+       ═══════════════════════════════════════════════════════════ */
+    .market-breakdown {
+      margin-top: 56px;
       padding: 32px;
-      transition: all 0.3s;
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 14px;
     }
-    .step:hover {
-      border-color: rgba(0,255,255,0.2);
-      transform: translateY(-4px);
+    .market-label {
+      font-size: 11px;
+      letter-spacing: 2.5px;
+      text-transform: uppercase;
+      color: var(--muted);
+      margin-bottom: 24px;
     }
-    .step-icon {
-      font-size: 40px;
-      margin-bottom: 16px;
+    .market-bars { display: flex; flex-direction: column; gap: 16px; }
+    .market-bar-row {
+      display: grid;
+      grid-template-columns: 130px 1fr 70px;
+      align-items: center;
+      gap: 16px;
     }
-    .step h3 {
-      font-size: 20px;
+    .market-bar-name {
+      font-size: 12px;
+      color: var(--dim);
+      text-align: right;
       font-weight: 600;
-      margin-bottom: 8px;
     }
-    .step p {
-      color: #8b949e;
-      font-size: 14px;
-      line-height: 1.6;
+    .market-bar {
+      height: 8px;
+      background: rgba(255,255,255,0.04);
+      border-radius: 4px;
+      overflow: hidden;
     }
-    
-    /* CTA */
-    .cta {
-      padding: 80px 0 120px;
-      text-align: center;
+    .market-bar-fill {
+      height: 100%;
+      width: 0;
+      border-radius: 4px;
+      background: linear-gradient(90deg, var(--green), var(--cyan));
+      transition: width 1.5s cubic-bezier(0.16,1,0.3,1);
     }
-    .cta-box {
-      background: linear-gradient(135deg, rgba(0,255,255,0.05), rgba(255,0,255,0.05));
-      border: 1px solid rgba(0,255,255,0.15);
-      border-radius: 24px;
-      padding: 64px;
-    }
-    .cta-box h2 {
-      font-size: 36px;
+    .market-breakdown.visible .market-bar-fill { width: var(--bar-pct); }
+    .market-bar-val {
+      font-size: 12px;
+      color: var(--green);
       font-weight: 700;
-      margin-bottom: 16px;
+      font-family: var(--font-display);
     }
-    .cta-box p {
-      color: #8b949e;
-      font-size: 18px;
-      margin-bottom: 32px;
+
+    /* Native platform callout */
+    .market-native {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      margin-top: 18px;
+      padding: 14px 16px;
+      background: rgba(0, 255, 136, 0.04);
+      border: 1px solid rgba(0, 255, 136, 0.15);
+      border-radius: 8px;
+      flex-wrap: wrap;
     }
-    
-    /* Footer */
-    footer {
-      padding: 40px 0;
-      border-top: 1px solid rgba(255,255,255,0.06);
-      text-align: center;
-      color: #484f58;
+    .market-native-badge {
+      font-size: 10px;
+      font-weight: 700;
+      color: var(--accent);
+      letter-spacing: 0.1em;
+      text-transform: uppercase;
+    }
+    .market-native-name {
       font-size: 13px;
+      font-weight: 700;
+      color: var(--fg);
     }
-    
-    /* Responsive */
+    .market-native-val {
+      font-size: 13px;
+      font-weight: 700;
+      color: var(--accent-cyan);
+      background: rgba(0, 200, 255, 0.08);
+      padding: 2px 8px;
+      border-radius: 4px;
+    }
+    .market-native-note {
+      font-size: 11px;
+      color: var(--dim);
+      flex-basis: 100%;
+      line-height: 1.5;
+    }
+    .market-native-note strong { color: var(--fg); }
+    .market-footnote {
+      font-size: 9px;
+      color: var(--muted);
+      margin-top: 20px;
+      letter-spacing: 0.3px;
+      line-height: 1.5;
+    }
     @media (max-width: 768px) {
-      .hero h1 { font-size: 40px; }
-      .stats { grid-template-columns: repeat(2, 1fr); }
-      .steps { grid-template-columns: 1fr; }
-      .nav-links { display: none; }
+      .market-bar-row { grid-template-columns: 90px 1fr 55px; gap: 10px; }
+      .market-bar-name { font-size: 10px; text-align: left; }
+      .market-bar-val { font-size: 10px; }
+      .market-breakdown { padding: 20px; margin-top: 36px; }
+    }
+
+    /* ═══════════════════════════════════════════════════════════
+       TECH — Cards + Terminal
+       ═══════════════════════════════════════════════════════════ */
+    .tech-grid {
+      display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+      gap: 24px; margin-top: 60px;
+    }
+    .tech-card {
+      background: var(--bg-card); border: 1px solid var(--border);
+      border-radius: 14px; padding: 32px 28px;
+      transition: transform 0.45s cubic-bezier(0.03,0.98,0.52,0.99), border-color 0.3s, box-shadow 0.3s;
+    }
+    .tech-card:hover {
+      border-color: rgba(0,228,255,0.2);
+      transform: translateY(-8px) scale(1.02);
+      box-shadow: 0 35px 70px rgba(0,0,0,0.5), 0 0 35px var(--cyan-glow);
+    }
+    .tech-icon {
+      width: 48px; height: 48px;
+      display: flex; align-items: center; justify-content: center;
+      font-size: 20px; border-radius: 12px;
+      background: rgba(0,228,255,0.05);
+      border: 1px solid rgba(0,228,255,0.1);
+      margin-bottom: 20px;
+      box-shadow: 0 0 20px var(--cyan-glow);
+    }
+    .tech-title {
+      font-family: var(--font-display); font-size: 15px;
+      font-weight: 600; margin-bottom: 10px;
+    }
+    .tech-body { font-size: 12.5px; color: var(--dim); line-height: 1.8; }
+
+    .terminal {
+      background: #04040f; border: 1px solid rgba(0,255,136,0.06);
+      border-radius: 14px; margin-top: 48px; overflow: hidden;
+      box-shadow: inset 0 2px 30px rgba(0,0,0,0.5), 0 25px 70px rgba(0,0,0,0.3);
+    }
+    .terminal-header {
+      display: flex; align-items: center; gap: 8px;
+      padding: 14px 20px; background: rgba(255,255,255,0.02);
+      border-bottom: 1px solid rgba(255,255,255,0.03);
+    }
+    .t-dot { width: 10px; height: 10px; border-radius: 50%; }
+    .t-dot-r { background: #ff5f56; }
+    .t-dot-y { background: #ffbd2e; }
+    .t-dot-g { background: #27c93f; }
+    .t-label { font-size: 10px; color: var(--muted); margin-left: 10px; letter-spacing: 1px; }
+    .terminal-body { padding: 24px 28px; }
+    .terminal-body pre { font-family: var(--font-mono); font-size: 12.5px; line-height: 1.9; color: var(--dim); }
+    .t-prompt { color: var(--green); }
+    .t-comment { color: #4a5568; }
+    .t-string { color: var(--cyan); }
+    .t-keyword { color: var(--pink); }
+    .t-cursor { color: var(--green); animation: cursor-blink 1s step-end infinite; }
+    @keyframes cursor-blink { 0%,100%{opacity:1} 50%{opacity:0} }
+    .tech-stat { margin-top: 16px; padding-top: 12px; border-top: 1px solid var(--border); font-size: 11px; color: var(--muted); letter-spacing: 1px; }
+    .tech-stat-num { color: var(--cyan); font-weight: 700; font-family: var(--font-display); }
+    .arch-stats { display: grid; grid-template-columns: repeat(4, 1fr); gap: 20px; margin-top: 48px; }
+    .arch-stat-item { text-align: center; padding: 24px 16px; background: var(--bg-card); border: 1px solid var(--border); border-radius: 10px; transition: border-color 0.3s, transform 0.3s; }
+    .arch-stat-item:hover { border-color: rgba(0,255,136,0.2); transform: translateY(-4px); }
+    .arch-stat-num { display: block; font-family: var(--font-display); font-size: clamp(28px, 4vw, 42px); font-weight: 700; color: var(--green); margin-bottom: 4px; }
+    .arch-stat-label { font-size: 10px; color: var(--muted); letter-spacing: 1px; text-transform: uppercase; }
+    @media (max-width: 768px) { .arch-stats { grid-template-columns: repeat(2, 1fr); } }
+
+    /* ═══════════════════════════════════════════════════════════
+       PLACEMENTS
+       ═══════════════════════════════════════════════════════════ */
+    .placements-grid {
+      display: grid; grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+      gap: 24px; margin-top: 52px;
+    }
+    .place-card {
+      background: linear-gradient(180deg, var(--bg-card) 0%, rgba(6,6,18,0.7) 100%);
+      border: 1px solid var(--border); border-radius: 14px;
+      padding: 36px 28px; text-align: center;
+      transition: transform 0.5s cubic-bezier(0.03,0.98,0.52,0.99), border-color 0.3s;
+    }
+    .place-card:hover {
+      transform: translateY(-10px) rotateX(4deg);
+      border-color: rgba(0,255,136,0.15);
+      box-shadow: 0 35px 80px rgba(0,0,0,0.5), 0 0 30px var(--green-glow);
+    }
+    .place-icon { font-size: 40px; margin-bottom: 18px; display: block; }
+    .place-name { font-size: 16px; font-weight: 700; margin-bottom: 12px; color: var(--fg); }
+    .place-desc { font-size: 13px; color: var(--dim); line-height: 1.6; margin-bottom: 4px; }
+    .place-stat { margin-top: 12px; padding-top: 10px; border-top: 1px solid var(--border); font-size: 10px; color: var(--muted); letter-spacing: 1px; text-transform: uppercase; }
+    .place-stat-val { color: var(--green); font-weight: 700; font-family: var(--font-display); font-size: 13px; letter-spacing: 0; }
+    .audience-preview { margin-top: 48px; padding: 32px; background: linear-gradient(135deg, var(--surface) 0%, rgba(255,51,85,0.03) 100%); border: 1px solid rgba(255,51,85,0.1); border-radius: 14px; }
+    .audience-label { font-size: 11px; letter-spacing: 2.5px; text-transform: uppercase; color: var(--muted); margin-bottom: 20px; }
+    .audience-tags { display: flex; flex-wrap: wrap; gap: 10px; margin-bottom: 20px; }
+    .audience-tag { font-size: 12px; padding: 6px 14px; border-radius: 20px; background: rgba(255,51,85,0.08); border: 1px solid rgba(255,51,85,0.15); color: var(--pink); font-weight: 600; transition: background 0.3s, transform 0.3s; cursor: default; }
+    .audience-tag:hover { background: rgba(255,51,85,0.15); transform: scale(1.05); }
+    .audience-note { font-size: 11px; color: var(--dim); line-height: 1.6; }
+    .audience-note strong { color: var(--green); }
+
+    /* ═══════════════════════════════════════════════════════════
+       CTA
+       ═══════════════════════════════════════════════════════════ */
+    .cta-section {
+      text-align: center;
+      padding: clamp(100px, 15vw, 180px) 24px;
+      position: relative; overflow: hidden;
+    }
+    .cta-section::before {
+      content: ''; position: absolute; inset: 0;
+      background: radial-gradient(ellipse 50% 50% at 50% 50%, rgba(0,255,136,0.07) 0%, transparent 70%);
+      pointer-events: none;
+    }
+    .cta-title {
+      font-family: var(--font-display);
+      font-size: clamp(36px, 6vw, 64px);
+      font-weight: 700; margin-bottom: 24px; position: relative;
+    }
+    .cta-sub { color: var(--dim); font-size: 15px; margin-bottom: 48px; position: relative; }
+
+    /* ═══════════════════════════════════════════════════════════
+       FOOTER
+       ═══════════════════════════════════════════════════════════ */
+    .footer {
+      border-top: 1px solid var(--border);
+      padding: 60px 24px 44px; text-align: center;
+    }
+    .footer-links {
+      display: flex; justify-content: center; gap: 36px;
+      margin-bottom: 28px; flex-wrap: wrap;
+    }
+    .footer-links a { font-size: 10px; letter-spacing: 1.5px; color: var(--muted); transition: color 0.2s; }
+    .footer-links a:hover { color: var(--green); }
+    .footer-copy { font-size: 10px; color: var(--muted); }
+    .footer-brand {
+      font-family: var(--font-display); font-size: 14px;
+      font-weight: 600; color: var(--green); letter-spacing: 3px;
+      margin-bottom: 20px; text-shadow: 0 0 15px var(--green-glow);
+    }
+
+    @media (max-width: 768px) {
+      .hero-logo { font-size: 6px; }
+      .hero-tagline { font-size: clamp(28px, 10vw, 38px); letter-spacing: -1px; }
+      .hero-sub { font-size: 14px; padding: 0 12px; }
+      .hero-cta-wrap { flex-direction: column; align-items: center; gap: 14px; }
+      .cta-btn { width: 100%; max-width: 320px; justify-content: center; padding: 16px 28px; }
+      .section { padding: 72px 20px; }
+      .section-title { font-size: clamp(28px, 9vw, 40px); letter-spacing: -1px; }
+      .section-body { font-size: 14px; }
+      .modes-grid { grid-template-columns: 1fr; gap: 32px; }
+      .modes-grid { margin-top: 40px; }
+      .mode-card { padding: 36px 24px 30px; }
+      .stats-grid { grid-template-columns: 1fr 1fr; gap: 28px 20px; margin-top: 40px; }
+      .stat-number { font-size: clamp(32px, 10vw, 48px); }
+      .stat-label { font-size: 11px; }
+      .stat-sub { font-size: 9px; }
+      .tech-grid { grid-template-columns: 1fr; gap: 16px; margin-top: 40px; }
+      .placements-grid { grid-template-columns: 1fr; gap: 16px; margin-top: 36px; }
+      .place-card { padding: 28px 20px; }
+      .terminal { margin-top: 32px; }
+      .terminal-body { padding: 16px; overflow-x: auto; }
+      .terminal-body pre { font-size: 11px; }
+      .scroll-hint { display: none; }
+    }
+    @media (prefers-reduced-motion: reduce) {
+      *, *::before, *::after {
+        animation-duration: 0.01ms !important;
+        transition-duration: 0.01ms !important;
+      }
+    }
+
+    /* Skip link */
+    .skip-link {
+      position: absolute; top: -100px; left: 16px; z-index: 9999;
+      padding: 12px 20px; background: var(--green); color: var(--bg);
+      font-weight: 600; font-size: 13px; border-radius: 0 0 8px 8px;
+      transition: top 0.25s ease;
+    }
+    .skip-link:focus { top: 0; }
+
+    /* Focus visible styles */
+    a:focus-visible, button:focus-visible {
+      outline: 2px solid var(--green);
+      outline-offset: 3px;
     }
   </style>
 </head>
 <body>
-  <div class="bg-grid"></div>
-  
-  <div class="container">
-    <nav>
-      <div class="logo">SIGNAL RUSH</div>
-      <div class="nav-links">
-        <a href="#how-it-works">How It Works</a>
-        <a href="/portal/login.html">Login</a>
-        <a href="/portal/signup.html" class="btn btn-primary">Get Started</a>
-      </div>
-    </nav>
-    
-    <section class="hero">
-      <h1>Play Free.<br><span class="gradient">Earn Real.</span></h1>
-      <p>The ad-powered arcade where your time has value. Brands fund the rewards. You play the games. Everyone wins.</p>
-      <div class="hero-buttons">
-        <a href="/portal/signup.html" class="btn btn-primary">Create Free Account</a>
-        <a href="/portal/player.html" class="btn btn-secondary">Play Now</a>
-      </div>
-    </section>
-    
-    <section class="stats">
-      <div class="stat">
-        <div class="stat-value">$2,847</div>
-        <div class="stat-label">Reward Pool</div>
-      </div>
-      <div class="stat">
-        <div class="stat-value">1,247</div>
-        <div class="stat-label">Active Players</div>
-      </div>
-      <div class="stat">
-        <div class="stat-value">34.2K</div>
-        <div class="stat-label">Ads Served</div>
-      </div>
-      <div class="stat">
-        <div class="stat-value">20%</div>
-        <div class="stat-label">Payout Rate</div>
-      </div>
-    </section>
-    
-    <section class="how-it-works" id="how-it-works">
-      <h2 class="section-title">How It Works</h2>
-      <div class="steps">
-        <div class="step">
-          <div class="step-icon">🏢</div>
-          <h3>Advertisers Fund</h3>
-          <p>Brands create campaigns and fund the reward pool. Every impression adds real value to player earnings.</p>
-        </div>
-        <div class="step">
-          <div class="step-icon">🎮</div>
-          <h3>Players Earn</h3>
-          <p>Play AI Hunt or Packet Hop. Every action earns micro-rewards from the advertiser-funded pool.</p>
-        </div>
-        <div class="step">
-          <div class="step-icon">💰</div>
-          <h3>Real Payouts</h3>
-          <p>Accumulate earnings and withdraw. Transparent ledger, instant tracking, zero hidden fees.</p>
-        </div>
-      </div>
-    </section>
-    
-    <section class="cta">
-      <div class="cta-box">
-        <h2>Ready to Play?</h2>
-        <p>Create your free account in 30 seconds. No credit card required.</p>
-        <a href="/portal/signup.html" class="btn btn-primary">Sign Up Free</a>
-      </div>
-    </section>
-    
-    <footer>
-      <p>© 2026 Signal Rush. Ad-powered gaming. All rights reserved.</p>
-    </footer>
+  <a href="#hero" class="skip-link">Skip to main content</a>
+
+  <!-- BACKGROUND -->
+  <div class="bg-fixed" aria-hidden="true">
+    <div class="bg-grid" id="bgGrid"></div>
+    <div class="bg-orb bg-orb-1" id="orb1"></div>
+    <div class="bg-orb bg-orb-2" id="orb2"></div>
+    <div class="bg-orb bg-orb-3" id="orb3"></div>
+    <div class="bg-particles" id="particles"></div>
   </div>
+  <div class="scanlines" aria-hidden="true"></div>
+  <div class="vignette" aria-hidden="true"></div>
+  <div class="cursor-glow" id="glow" aria-hidden="true"></div>
+
+  <!-- NAV -->
+  <nav class="nav" role="navigation" aria-label="Main">
+    <div class="nav-logo">SIGNAL_RUSH</div>
+    <ul class="nav-links">
+      <li><a href="#modes">Modes</a></li>
+      <li><a href="#tech">Tech</a></li>
+      <li><a href="#advertise">Advertise</a></li>
+    </ul>
+  </nav>
+
+  <main class="content">
+
+    <!-- HERO -->
+    <section class="hero" id="hero">
+      <div class="hero-inner">
+        <div class="hero-logo" id="heroLogo" aria-hidden="true"></div>
+        <h1 class="hero-tagline">
+          <span class="line"><span>Play. Earn API credits.</span></span>
+          <span class="line"><span class="accent">Reach the AI audience.</span></span>
+        </h1>
+        <p class="hero-sub">
+          Signal Rush is a gamified marketing platform for the AI era. Players earn real API credits by playing reflex arcade games in their terminal, browser, or Telegram. Advertisers reach the most engaged audience in tech — Hermes Agent users, CLI natives, and AI-first developers.
+        </p>
+        <div class="hero-cta-wrap">
+          <a href="https://synth.com.co/mini-app/index.html" class="cta-btn cta-primary" rel="noopener">▶ Play Now</a>
+          <a href="#tech" class="cta-btn cta-ghost">See How It Works</a>
+        </div>
+      </div>
+      <div class="scroll-hint" aria-hidden="true"><span>Scroll</span></div>
+    </section>
+
+    <section class="section" id="what-is" style="padding-top:0">
+      <div class="reveal">
+        <div class="section-label">Overview</div>
+        <p class="section-body" style="max-width:680px">
+          Signal Rush is a <strong>gamified marketing platform</strong> built for the AI era. It turns the most underutilized screen real estate in tech — the terminal — into a high-engagement advertising surface that <strong>pays players in real API credits</strong> they can spend on their own AI workflows.
+        </p>
+        <p class="section-body" style="max-width:680px; margin-top:16px">
+          Our audience is the <strong>AI-first user</strong>: Hermes Agent operators, CLI natives, Telegram power users, and developers who already live in text-mode interfaces. They're highly technical, deeply engaged, and notoriously hard to reach through traditional advertising. Signal Rush meets them where they already are.
+        </p>
+        <p class="section-body" style="max-width:680px; margin-top:16px">
+          Advertisers get premium placement in a focused, distraction-free environment. Players get rewarded for their attention with API credits redeemable through VMCO.ai — no account binding, no strings attached. It's the first marketing channel that aligns incentives between brands and the AI-native audience.
+        </p>
+      </div>
+    </section>
+
+    <!-- ═══ MODES ═══ -->
+    <section class="section modes-section" id="modes">
+      <div class="reveal">
+        <div class="section-label">01 — Gameplay</div>
+        <h2 class="section-title">Two modes.<br><span class="accent">One engine.</span></h2>
+        <p class="section-body">
+          Each mode is a fully independent state machine with its own pacing, scoring curve, and death condition.
+          The engine steps deterministically — no Math.random() in the core. Every run is reproducible.
+        </p>
+      </div>
+      <div class="modes-grid">
+        <div class="reveal reveal-d1">
+          <div class="mode-card" data-tilt>
+            <div class="mode-tag">Survival</div>
+            <div class="mode-icon" role="img" aria-label="Target icon representing AI Hunt survival mode">🎯</div>
+            <h3 class="mode-name">AI Hunt</h3>
+            <p class="mode-desc">Continuous dodge-survival against escalating AI threats. Near-miss risk/reward. Threat meter, HP pips, dynamic danger halos with overlap detection. The longer you survive, the harder it gets.</p>
+            <div class="mode-stats">
+              <div class="mode-stat"><div class="mode-stat-val" data-count="12">0</div><div class="mode-stat-label">Hazard/sec</div></div>
+              <div class="mode-stat"><div class="mode-stat-val" data-count="300">0</div><div class="mode-stat-label">Sec Survival</div></div>
+            </div>
+          </div>
+        </div>
+        <div class="reveal reveal-d2">
+          <div class="mode-card" data-tilt>
+            <div class="mode-tag">Lane-Cross</div>
+            <div class="mode-icon" role="img" aria-label="Satellite icon representing Packet Hop lane-crossing mode">📡</div>
+            <h3 class="mode-name">Packet Hop</h3>
+            <p class="mode-desc">Frogger-style lane crossing with home slots, water/log lanes, and a visible GOAL bar. GET READY countdown, forward-progress scoring. Reach the top. Fill your slots. Level up.</p>
+            <div class="mode-stats">
+              <div class="mode-stat"><div class="mode-stat-val" data-count="8">0</div><div class="mode-stat-label">Lane Types</div></div>
+              <div class="mode-stat"><div class="mode-stat-val" data-count="5">0</div><div class="mode-stat-label">Lives</div></div>
+              <div class="mode-stat"><div class="mode-stat-val" data-count="99">0</div><div class="mode-stat-label">Levels</div></div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- STATS -->
+    <section class="section stats-section" id="pitch">
+      <div class="reveal">
+        <div class="section-label">02 — The Market</div>
+        <h2 class="section-title">The biggest audience<br><span class="accent-cyan">advertising forgot</span></h2>
+        <p class="section-body">107M+ monthly npm installs across Claude Code, OpenAI Codex, OpenClaw, and Gemini CLI. These are AI-first users — developers, researchers, and power users who live in text interfaces. They're highly engaged, technically sophisticated, and completely unreachable by traditional display advertising. Signal Rush is the first channel that turns their attention into value.</p>
+      </div>
+      <div class="stats-grid">
+        <div class="stat-item reveal reveal-d1"><div class="stat-number" data-count="107">0</div><div class="stat-label">M+ npm installs / mo</div><div class="stat-sub">Claude Code + Codex + OpenClaw + Gemini · npm, June 2026</div></div>
+        <div class="stat-item reveal reveal-d2"><div class="stat-number" data-count="814">0</div><div class="stat-label">K+ GitHub stars</div><div class="stat-sub">Combined ecosystem · Hermes + OpenClaw + Claude + Codex</div></div>
+        <div class="stat-item reveal reveal-d3"><div class="stat-number" data-count="204">0</div><div class="stat-label">K+ Hermes Agent stars</div><div class="stat-sub">36K forks · 797 watchers · one of the most popular AI agents</div></div>
+        <div class="stat-item reveal reveal-d4"><div class="stat-number" data-count="380">0</div><div class="stat-label">K+ OpenClaw stars</div><div class="stat-sub">80K forks · the largest open-source AI agent on GitHub</div></div>
+      </div>
+      <div class="market-breakdown reveal reveal-d3">
+        <div class="market-label">Monthly npm installs by agent</div>
+        <div class="market-bars">
+          <div class="market-bar-row"><span class="market-bar-name">Codex</span><div class="market-bar"><div class="market-bar-fill" style="--bar-pct:100%" data-bar="100"></div></div><span class="market-bar-val">46.8M</span></div>
+          <div class="market-bar-row"><span class="market-bar-name">Claude Code</span><div class="market-bar"><div class="market-bar-fill" style="--bar-pct:84%" data-bar="84"></div></div><span class="market-bar-val">43.9M</span></div>
+          <div class="market-bar-row"><span class="market-bar-name">OpenClaw</span><div class="market-bar"><div class="market-bar-fill" style="--bar-pct:31%" data-bar="31"></div></div><span class="market-bar-val">14.4M</span></div>
+          <div class="market-bar-row"><span class="market-bar-name">Gemini CLI</span><div class="market-bar"><div class="market-bar-fill" style="--bar-pct:6%" data-bar="6"></div></div><span class="market-bar-val">2.6M</span></div>
+        </div>
+        <div class="market-native">
+          <span class="market-native-badge">◆ Native platform</span>
+          <span class="market-native-name">Hermes Agent CLI</span>
+          <span class="market-native-val">9.2K installs/mo</span>
+          <span class="market-native-note">Signal Rush runs on Hermes Agent — the open-source AI agent with <strong>204K GitHub stars</strong>.</span>
+        </div>
+        <p class="market-footnote">Source: npm registry download statistics, June 2026. Scoped packages: @anthropic-ai/claude-code, @openai/codex, @google/gemini-cli. Unscoped: openclaw, hermes-agent. "Installs" counts each npm install event including updates. Totals are not unique users.</p>
+      </div>
+    </section>
+
+    <!-- TECH -->
+    <section class="section" id="tech">
+      <div class="reveal">
+        <div class="section-label">03 — Architecture</div>
+        <h2 class="section-title">Engine-first.<br><span class="accent">Deterministic.</span> Testable.</h2>
+        <p class="section-body">The engine has zero I/O dependencies. It steps pure state. One core, read by many surfaces. That's how you ship games that work everywhere without rewriting everything.</p>
+      </div>
+      <div class="tech-grid">
+        <div class="tech-card reveal reveal-d1" data-tilt>
+          <div class="tech-icon" role="img" aria-label="Gear icon representing the core game engine">⚙️</div>
+          <h3 class="tech-title">Pure Core Engine</h3>
+          <p class="tech-body">940 lines of deterministic game logic. No Math.random() in engine code — seeded RNG only. Reusable by browser, CLI, and future mobile renderers.</p>
+          <div class="tech-stat"><span class="tech-stat-num" data-count="940">0</span> lines</div>
+        </div>
+        <div class="tech-card reveal reveal-d2" data-tilt>
+          <div class="tech-icon" role="img" aria-label="Test tube icon representing automated testing">🧪</div>
+          <h3 class="tech-title">229+ Tests</h3>
+          <p class="tech-body">Mechanics, smoke, persistence, compact renderer, embedded widget, economy integration, replay verification. Fresh-clone proofed.</p>
+          <div class="tech-stat"><span class="tech-stat-num" data-count="229">0</span> tests passing</div>
+        </div>
+        <div class="tech-card reveal reveal-d3" data-tilt>
+          <div class="tech-icon" role="img" aria-label="Plug icon representing CLI embed integration">🔌</div>
+          <h3 class="tech-title">Embed-Ready</h3>
+          <p class="tech-body">A 6–10 row widget that lives in the bottom band of any agent CLI. Never steals keystrokes. ANSI scroll-region. Idempotent lifecycle.</p>
+          <div class="tech-stat"><span class="tech-stat-num" data-count="3">0</span> render surfaces</div>
+        </div>
+        <div class="tech-card reveal reveal-d4" data-tilt>
+          <div class="tech-icon" role="img" aria-label="Money bag icon representing the in-game economy system">💰</div>
+          <h3 class="tech-title">Economy Layer</h3>
+          <p class="tech-body">SQLite ledger, ad-funded rewards pool, VMCO.ai sub-key provisioning. Credit diffing in the event bridge — no double-counting, never blocks gameplay.</p>
+          <div class="tech-stat"><span class="tech-stat-num" data-count="3">0</span> economy endpoints</div>
+        </div>
+      </div>
+      <div class="terminal reveal">
+        <div class="terminal-header">
+          <span class="t-dot t-dot-r"></span><span class="t-dot t-dot-y"></span><span class="t-dot t-dot-g"></span>
+          <span class="t-label">terminal — ai-hunt</span>
+        </div>
+        <div class="terminal-body">
+          <pre><span class="t-prompt">$</span> node src/cli/index.js --mode=aiHunt
+<span class="t-comment"># Signal Rush — AI Hunt mode</span>
+<span class="t-prompt">›</span> Engine initialized. Seeded RNG active.
+<span class="t-prompt">›</span> Renderer: CLI (80×24)
+<span class="t-prompt">›</span> Tests: <span class="t-string">229 passing</span>
+<span class="t-prompt">›</span> Press <span class="t-keyword">WASD</span> to move, <span class="t-keyword">Space</span> to dash</span>
+<span class="t-prompt">›</span> <span class="t-cursor">█</span></pre>
+        </div>
+      </div>
+      <div class="arch-stats reveal reveal-d2">
+        <div class="arch-stat-item"><span class="arch-stat-num" data-count="0">0</span><div class="arch-stat-label">ms avg frame time</div></div>
+        <div class="arch-stat-item"><span class="arch-stat-num" data-count="46">0</span><div class="arch-stat-label">KB total bundle</div></div>
+        <div class="arch-stat-item"><span class="arch-stat-num" data-count="0">0</span><div class="arch-stat-label">external dependencies</div></div>
+        <div class="arch-stat-item"><span class="arch-stat-num" data-count="100">0</span><div class="arch-stat-label">% deterministic</div></div>
+      </div>
+    </section>
+
+    <!-- PLACEMENTS -->
+    <section class="section" id="advertise">
+      <div class="reveal">
+        <div class="section-label">04 — For Advertisers</div>
+        <h2 class="section-title">Premium placement.<br><span class="accent-pink">AI-native audience.</span></h2>
+        <p class="section-body">Reach the most engaged users in tech — Hermes Agent operators, CLI natives, and AI-first developers. Three placement types. Self-serve portal. Manual approval for brand safety. Your message lands where traditional ads can't reach.</p>
+      </div>
+      <div class="placements-grid">
+        <div class="place-card reveal reveal-d1" data-tilt>
+          <span class="place-icon" role="img" aria-label="Picture frame icon representing HUD ad placement">🖼️</span>
+          <h3 class="place-name">HUD Frame</h3>
+          <p class="place-desc">Passive brand label visible during gameplay. Rotates between campaigns. Non-intrusive.</p>
+          <div class="place-stat"><span class="place-stat-val">~100%</span> viewability</div>
+        </div>
+        <div class="place-card reveal reveal-d2" data-tilt>
+          <span class="place-icon" role="img" aria-label="Television icon representing interstitial ad placement">📺</span>
+          <h3 class="place-name">Interstitial</h3>
+          <p class="place-desc">Between-run sponsor card. Headline + body + CTA. Frequency-capped. Never mid-run.</p>
+          <div class="place-stat"><span class="place-stat-val">5s</span> avg dwell</div>
+        </div>
+        <div class="place-card reveal reveal-d3" data-tilt>
+          <span class="place-icon" role="img" aria-label="Artist palette icon representing custom creative uploads">🎨</span>
+          <h3 class="place-name">Custom Creative</h3>
+          <p class="place-desc">Upload ASCII art, brand logos, taglines. Approved before going live.</p>
+          <div class="place-stat"><span class="place-stat-val">3</span> creative formats</div>
+        </div>
+      </div>
+      <div class="audience-preview reveal reveal-d2">
+        <div class="audience-label">Your advertisement reaches players like:</div>
+        <div class="audience-tags">
+          <span class="audience-tag">Hermes Agent users</span>
+          <span class="audience-tag">OpenClaw operators</span>
+          <span class="audience-tag">Claude Code CLI</span>
+          <span class="audience-tag">AI researchers</span>
+          <span class="audience-tag">terminal power users</span>
+          <span class="audience-tag">developers</span>
+          <span class="audience-tag">CTOs</span>
+          <span class="audience-tag">startup founders</span>
+        </div>
+        <p class="audience-note">All players earn <strong>API credits</strong> redeemable through VMCO.ai — your brand funds their next AI call.</p>
+      </div>
+    </section>
+
+    <!-- CTA -->
+    <section class="cta-section">
+      <h2 class="cta-title reveal">Ready to <span class="accent">play</span>?</h2>
+      <p class="cta-sub reveal reveal-d1">Play in your terminal, browser, or Telegram. Earn API credits. No signup required.</p>
+      <div class="reveal reveal-d2">
+        <a href="https://synth.com.co/mini-app/index.html" class="cta-btn cta-primary" rel="noopener">⚡ Play Now</a>
+      </div>
+    </section>
+
+  </main>
+
+  <!-- FOOTER -->
+  <footer class="footer" role="contentinfo">
+    <div class="footer-brand">SIGNAL RUSH</div>
+    <div class="footer-links">
+      <a href="#modes">Modes</a>
+      <a href="#tech">Tech</a>
+      <a href="#advertise">Advertise</a>
+    </div>
+    <p class="footer-copy">© 2026 LongshotAI · USP × Temple Works</p>
+  </footer>
+
+  <script>
+  (() => {
+    'use strict';
+
+    // Parallax
+    let sy = 0, ty = 0, raf = null;
+    const grid = document.getElementById('bgGrid');
+    const orb1 = document.getElementById('orb1');
+    const orb2 = document.getElementById('orb2');
+    const orb3 = document.getElementById('orb3');
+    function tick() {
+      sy += (ty - sy) * 0.05;
+      if (grid) grid.style.transform = `perspective(600px) rotateX(55deg) translateY(${sy * 0.25}px)`;
+      if (orb1) orb1.style.transform = `translate(${sy * -0.12}px, ${sy * 0.06}px)`;
+      if (orb2) orb2.style.transform = `translate(${sy * 0.08}px, ${sy * -0.1}px)`;
+      if (orb3) orb3.style.transform = `translate(${sy * -0.06}px, ${sy * 0.05}px)`;
+      raf = null;
+    }
+    function req() { if (!raf) raf = requestAnimationFrame(tick); }
+    window.addEventListener('scroll', () => { ty = window.scrollY; req(); }, { passive: true });
+    req();
+
+    // Cursor glow
+    const glow = document.getElementById('glow');
+    if (glow) document.addEventListener('mousemove', e => { glow.style.left = e.clientX+'px'; glow.style.top = e.clientY+'px'; });
+
+    // Particles
+    const pc = document.getElementById('particles');
+    if (pc) {
+      // Static starfield (always visible)
+      const starCnt = Math.min(120, Math.floor(window.innerWidth / 12));
+      for (let i = 0; i < starCnt; i++) {
+        const s = document.createElement('div');
+        s.className = 'bg-particle';
+        const sz = 1 + Math.random() * 2;
+        const x = Math.random() * 100;
+        const y = Math.random() * 100;
+        const bright = 0.2 + Math.random() * 0.5;
+        const cols2 = ['#ffffff', '#00ff88', '#00e4ff'];
+        const c2 = cols2[Math.floor(Math.random()*cols2.length)];
+        s.style.cssText = `left:${x}%;top:${y}%;width:${sz}px;height:${sz}px;background:${c2};opacity:${bright};box-shadow:0 0 ${sz*2}px ${c2};`;
+        pc.appendChild(s);
+      }
+      // Animated rising particles
+      const cnt = Math.min(40, Math.floor(window.innerWidth / 40));
+      const cols = ['#00ff88','#00e4ff','#ff3355','#ffdd44','#ffffff'];
+      for (let i = 0; i < cnt; i++) {
+        const p = document.createElement('div');
+        p.className = 'bg-particle';
+        const sz = 2.5 + Math.random() * 5;
+        const x = Math.random() * 100;
+        const dur = 10 + Math.random() * 16;
+        const del = Math.random() * 14;
+        const c = cols[Math.floor(Math.random()*cols.length)];
+        const drift = (Math.random() - 0.5) * 100;
+        p.style.cssText = `left:${x}%;width:${sz}px;height:${sz}px;background:${c};box-shadow:0 0 ${sz*3}px ${c};opacity:0;animation:pUp ${dur}s ease-in-out ${del}s infinite;--d:${drift}px;`;
+        pc.appendChild(p);
+      }
+      const st = document.createElement('style');
+      st.textContent = `@keyframes pUp{0%{transform:translateY(100vh) translateX(0) scale(0);opacity:0}12%{opacity:0.9}50%{transform:translateY(35vh) translateX(var(--d)) scale(1)}88%{opacity:0.4}100%{transform:translateY(-10vh) translateX(calc(var(--d)*0.4)) scale(0.3);opacity:0}}`;
+      document.head.appendChild(st);
+    }
+
+    // Reveal
+    const ro = new IntersectionObserver((entries) => {
+      entries.forEach(e => { if (e.isIntersecting) { e.target.classList.add('visible'); ro.unobserve(e.target); } });
+    }, { threshold: 0.08, rootMargin: '0px 0px -60px 0px' });
+    document.querySelectorAll('.reveal').forEach(el => ro.observe(el));
+
+    // Counters
+    const co = new IntersectionObserver((entries) => {
+      entries.forEach(e => { if (e.isIntersecting) { counter(e.target); co.unobserve(e.target); } });
+    }, { threshold: 0.5 });
+    document.querySelectorAll('[data-count]').forEach(el => co.observe(el));
+    function counter(el) {
+      const t = el.getAttribute('data-count');
+      if (t === '$0') return;
+      const n = parseInt(t, 10); if (isNaN(n)) return;
+      const dur = 2000, start = performance.now();
+      (function step(now) {
+        const p = Math.min((now-start)/dur, 1);
+        el.textContent = Math.round(n * (1 - Math.pow(1-p, 4)));
+        if (p < 1) requestAnimationFrame(step); else el.textContent = n;
+      })(start);
+    }
+
+    // 3D Tilt
+    document.querySelectorAll('[data-tilt]').forEach(card => {
+      let r = null, max = 18;
+      card.addEventListener('mousemove', e => {
+        if (r) cancelAnimationFrame(r);
+        r = requestAnimationFrame(() => {
+          const rc = card.getBoundingClientRect();
+          const x = (e.clientX - rc.left)/rc.width - 0.5;
+          const y = (e.clientY - rc.top)/rc.height - 0.5;
+          card.style.transform = `perspective(800px) rotateX(${-y*max}deg) rotateY(${x*max}deg) scale3d(1.04,1.04,1.04)`;
+        });
+      });
+      card.addEventListener('mouseleave', () => {
+        if (r) cancelAnimationFrame(r);
+        card.style.transform = card.classList.contains('mode-card') ? '' : 'perspective(800px) rotateX(0) rotateY(0) scale3d(1,1,1)';
+      });
+    });
+
+    // Arch stats counters
+    const archObserver = new IntersectionObserver((entries) => {
+      entries.forEach(e => {
+        if (e.isIntersecting) {
+          const nums = e.target.querySelectorAll('.tech-stat-num, .arch-stat-num');
+          nums.forEach(el => {
+            const t = el.getAttribute('data-count');
+            if (!t || t === '0') return;
+            const n = parseInt(t, 10); if (isNaN(n)) return;
+            const dur = 2000, start = performance.now();
+            (function step(now) {
+              const p = Math.min((now-start)/dur, 1);
+              el.textContent = Math.round(n * (1 - Math.pow(1-p, 4)));
+              if (p < 1) requestAnimationFrame(step);
+              else el.textContent = n;
+            })(start);
+          });
+          archObserver.unobserve(e.target);
+        }
+      });
+    }, { threshold: 0.3 });
+    document.querySelectorAll('.tech-card, .arch-stats').forEach(el => archObserver.observe(el));
+
+    // Nav
+    const nav = document.querySelector('.nav');
+    window.addEventListener('scroll', () => nav.classList.toggle('scrolled', window.scrollY > 50), { passive: true });
+
+    // Smooth scroll
+    document.querySelectorAll('a[href^="#"]').forEach(l => {
+      l.addEventListener('click', e => { const t = document.querySelector(l.getAttribute('href')); if (t) { e.preventDefault(); t.scrollIntoView({behavior:'smooth',block:'start'}); } });
+    });
+
+    // Logo wave
+    const logo = document.getElementById('heroLogo');
+    if (logo) {
+      const text = logo.textContent; logo.innerHTML = '';
+      for (let i = 0; i < text.length; i++) {
+        const ch = text[i];
+        if (ch === ' ' || ch === '\n') logo.appendChild(document.createTextNode(ch));
+        else { const s = document.createElement('span'); s.className = 'ch'; s.textContent = ch; s.style.animationDelay = `${(i%16)*0.06}s`; logo.appendChild(s); }
+      }
+    }
+  })();
+  </script>
 </body>
 </html>

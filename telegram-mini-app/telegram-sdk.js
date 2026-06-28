@@ -28,10 +28,16 @@ function _loadSDKScript() {
       return;
     }
 
+    // If no network available (headless/local), fail fast after 2s
+    let settled = false;
+    const timer = setTimeout(() => {
+      if (!settled) { settled = true; reject(new Error('Telegram SDK load timeout')); }
+    }, 2000);
+
     const script = document.createElement('script');
     script.src = 'https://telegram.org/js/telegram-web-app.js';
-    script.onload = () => resolve();
-    script.onerror = () => reject(new Error('Failed to load Telegram SDK'));
+    script.onload = () => { if (!settled) { settled = true; clearTimeout(timer); resolve(); } };
+    script.onerror = () => { if (!settled) { settled = true; clearTimeout(timer); reject(new Error('Failed to load Telegram SDK')); } };
     document.head.appendChild(script);
   });
 }

@@ -89,6 +89,13 @@ module.exports = {
   checkLimit,
   reset,
   stats,
+  cleanup,
   DEFAULT_MAX,
   DEFAULT_WINDOW_MS,
 };
+
+// Periodic cleanup every 5 minutes to prevent unbounded memory growth.
+// Unref'd so it doesn't keep the Node.js event loop alive.
+setInterval(() => {
+  cleanup(Date.now(), DEFAULT_WINDOW_MS);
+}, 5 * 60 * 1000).unref?.();

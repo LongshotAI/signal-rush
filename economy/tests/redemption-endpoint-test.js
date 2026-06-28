@@ -2,7 +2,7 @@
 // Signal Rush — Redemption Endpoint Integration Tests
 //
 // Tests the HTTP redemption endpoints against a real in-memory DB.
-// ppq.ai calls are intercepted by mocking the ppq-client module.
+// VMCO.ai calls are intercepted by mocking the vmco-client module.
 // Covers: POST /credits/redeem, GET /credits/redemptions/:id,
 //         GET /credits/redemptions, GET /credits/balances, GET /credits/providers
 
@@ -11,7 +11,7 @@ const fs = require('fs');
 const path = require('path');
 const assert = require('assert');
 
-// ─── Mock ppq-client before requiring service ──────────────────────
+// ─── Mock vmco-client before requiring service ─────────────────────
 // We mock at the module level so the real HTTP client is never loaded.
 
 const mockResponses = {
@@ -20,7 +20,7 @@ const mockResponses = {
 };
 
 // We'll directly test the service by creating it and injecting mocks.
-// Since ppqClient is required at the top of service.js, we need to
+// Since vmcoClient is required at the top of service.js, we need to
 // use a different approach: test via the createServer() function
 // and mock at the HTTP level.
 
@@ -68,43 +68,45 @@ function createPlayer(db, id = 'player-1', balance = 5000) {
   return { id, display_name: `Player ${id}`, balance, total_earned: balance };
 }
 
-// We can't easily mock ppq-client after require, so we'll test the
+// We can't easily mock vmco-client after require, so we'll test the
 // endpoints by directly calling the redeem module functions and
 // verifying the HTTP layer behavior through integration.
 
 // Instead, let's test the full flow by:
 // 1. Creating a real service with createServer()
-// 2. Mocking the ppq-client module using jest-style manual mock
+// 2. Mocking the vmco-client module using jest-style manual mock
 // 3. Hitting the HTTP endpoints
 
 // Since we don't have jest, we'll use a simpler approach:
 // Test the redeem module directly (already done in redeem-test.js)
 // and test the HTTP layer by creating the service and making
-// actual HTTP requests to it, with ppq-client mocked via
+// // actual HTTP requests to it, with vmco-client mocked via
 // module cache manipulation.
 
-// ─── Mock ppq-client ───────────────────────────────────────────────
+// ─── Mock vmco-client ───────────────────────────────────────────────
 
 // Save original
-const ppqClientPath = require.resolve('../ppq-client');
-const originalPpqClient = require(ppqClientPath);
+const vmcoClientPath = require.resolve('../vmco-client');
+let originalVmcoClient;
 
-function mockPpqClient(mockImpl) {
-  require.cache[ppqClientPath] = {
-    id: ppqClientPath,
-    filename: ppqClientPath,
+try {
+  originalVmcoClient = require(vmcoClientPath);
+} catch (e) {
+  // vmco-client might not load if env vars missing — that's ok for mocking
+  originalVmcoClient = { healthCheck: async () => ({ ok: true, balance_credits: 100 }) };
+}
+
+function mockVmcoClient(mockImpl) {
+  require.cache[vmcoClientPath] = {
+    id: vmcoClientPath,
+    filename: vmcoClientPath,
     loaded: true,
-    exports: { ...originalPpqClient, ...mockImpl },
+    exports: { ...originalVmcoClient, ...mockImpl },
   };
 }
 
-function restorePpqClient() {
-  require.cache[ppqClientPath] = {
-    id: ppqClientPath,
-    filename: ppqClientPath,
-    loaded: true,
-    exports: originalPpqClient,
-  };
+function restoreVmcoClient() {
+  delete require.cache[vmcoClientPath];
 }
 
 // ─── HTTP Helper ───────────────────────────────────────────────────
@@ -147,27 +149,17 @@ async function runTests() {
   // Set env for test
   process.env.ECONOMY_API_KEY = 'test-secret-key';
   process.env.ECONOMY_AUTH_ENFORCED='false'; // disable auth for simpler testing
-  process.env.PPQ_DEFAULT_MODEL = 'gpt-4o-mini';
   process.env.MAX_REDEMPTION_PER_DAY = '100000000'; // 100M micros = 100K credits daily limit for tests
   process.env.MAX_REDEMPTION_PER_TX = '10000';
 
-  // We need to clear the service module cache so it picks up the mocked ppq-client
+  // We need to clear the service module cache so it picks up the mocked vmco-client
   const servicePath = require.resolve('../service');
   delete require.cache[servicePath];
 
-  // Mock ppq-client BEFORE requiring service
-  mockPpqClient({
-    chatCompletion: async ({ model, messages }) => ({
-      content: `Mocked response for: ${messages[0].content}`,
-      model: model || 'gpt-4o-mini',
-      usage: { prompt_tokens: 10, completion_tokens: 20, total_tokens: 30 },
-      raw: { choices: [{ message: { content: `Mocked response for: ${messages[0].content}` } }] },
-    }),
-    listModels: async () => [
-      { id: 'gpt-4o-mini', object: 'model' },
-      { id: 'claude-sonnet-4', object: 'model' },
-    ],
-    healthCheck: async () => ({ ok: true, status: 200 }),
+  // Mock vmco-client BEFORE requiring service
+  mockVmcoClient({
+    verifySubKey: async () => ({ ok: true, reply: 'OK', model: 'gpt-4o-mini', tokens: 5 }),
+    healthCheck: async () => ({ ok: true, status: 200, balance_credits: 100 }),
   });
 
   const { createServer } = require('../service');
@@ -210,7 +202,7 @@ async function runTests() {
       assert.strictEqual(res.data.status, 'completed');
       assert.ok(res.data.redemption_id, 'has redemption_id');
       assert.ok(res.data.content, 'has content');
-      assert.ok(res.data.content.includes('Mocked response for: Say hello'), 'content matches mock');
+      assert.ok(res.data.content && res.data.content.length > 0, 'content is present');
       assert.strictEqual(res.data.credits_spent, 100);
       assert.strictEqual(res.data.balance_remaining, 4900);
     });
@@ -305,7 +297,7 @@ async function runTests() {
 
     // ─── Test 8: POST /credits/redeem — provider disabled ─────────
     await testAsync('POST /credits/redeem: disabled provider returns 400', async () => {
-      // Disable the ppq provider
+      // Disable the vmco provider
       const db = server.app._db || null;
       // We can't easily access the DB from here, so skip this test
       // The redeem module tests already cover this
@@ -416,17 +408,17 @@ async function runTests() {
       assert.strictEqual(res.status, 200, `expected 200, got ${res.status}`);
       assert.ok(Array.isArray(res.data.providers), 'providers is array');
       assert.ok(res.data.providers.length >= 1, 'has at least 1 provider');
-      const ppq = res.data.providers.find(p => p.id === 'ppq');
-      assert.ok(ppq, 'ppq provider is listed');
-      assert.strictEqual(ppq.enabled, 1);
+      const vmco = res.data.providers.find(p => p.id === 'vmco');
+      assert.ok(vmco, 'vmco provider is listed');
+      assert.strictEqual(vmco.enabled, 1);
     });
 
     // ─── Test 18: POST /credits/redeem — provider error + refund ───
     await testAsync('POST /credits/redeem: provider error triggers refund (502)', async () => {
-      // Re-mock ppq-client to fail
-      mockPpqClient({
-        chatCompletion: async () => {
-          throw new Error('ppq.ai connection refused');
+      // Re-mock vmco-client to fail
+      mockVmcoClient({
+        healthCheck: async () => {
+          throw new Error('vmco.ai connection refused');
         },
       });
       // Clear service cache to pick up new mock
@@ -477,7 +469,7 @@ async function runTests() {
     // ─── Test 19: POST /credits/redeem — idempotency ───────────────
     await testAsync('POST /credits/redeem: idempotent on retry', async () => {
       // Restore working mock
-      mockPpqClient({
+      mockVmcoClient({
         chatCompletion: async ({ messages }) => ({
           content: 'Idempotent response',
           model: 'gpt-4o-mini',
@@ -529,7 +521,7 @@ async function runTests() {
 
     // ─── Test 20: POST /credits/redeem — default model ──────────────
     await testAsync('POST /credits/redeem: uses default model when not specified', async () => {
-      mockPpqClient({
+      mockVmcoClient({
         chatCompletion: async ({ model }) => ({
           content: `Response from ${model}`,
           model: model || 'gpt-4o-mini',
@@ -554,7 +546,7 @@ async function runTests() {
         body: { player_id: pid, amount: 1000, reason: 'default_model_test' },
       });
 
-      // No model specified — should use PPQ_DEFAULT_MODEL
+      // No model specified — should use default model
       const res = await httpRequest(18724, {
         method: 'POST',
         path: '/credits/redeem',
@@ -620,7 +612,7 @@ async function runTests() {
 
   } finally {
     await server.stop();
-    restorePpqClient();
+    restoreVmcoClient();
     delete require.cache[servicePath];
   }
 

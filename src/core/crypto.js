@@ -58,12 +58,14 @@ function sign(data) {
 
 // Verify HMAC signature
 function verify(data, signature) {
+  if (typeof signature !== 'string' || signature.length !== 64) {
+    return false; // Invalid signature length — reject without throwing
+  }
+  const sigBuf = Buffer.from(signature, 'hex');
+  if (sigBuf.length !== 32) return false; // Hex decode failed
   const expected = sign(data);
   // Constant-time comparison
-  return crypto.timingSafeEqual(
-    Buffer.from(signature, 'hex'),
-    Buffer.from(expected, 'hex')
-  );
+  return crypto.timingSafeEqual(sigBuf, Buffer.from(expected, 'hex'));
 }
 
 // Create a run receipt that can be independently verified

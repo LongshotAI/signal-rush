@@ -23,6 +23,9 @@ CREATE TABLE IF NOT EXISTS players (
     id TEXT PRIMARY KEY,
     display_name TEXT NOT NULL,
     telegram_id TEXT UNIQUE,
+    session_token TEXT,
+    session_created_at TEXT,
+    last_login_at TEXT,
     created_at TEXT DEFAULT (datetime('now')),
     total_earned INTEGER DEFAULT 0 CHECK(total_earned >= 0),
     total_spent INTEGER DEFAULT 0 CHECK(total_spent >= 0),
@@ -95,6 +98,7 @@ CREATE INDEX IF NOT EXISTS idx_game_events_type ON game_events(event_type, creat
 CREATE INDEX IF NOT EXISTS idx_ad_impressions_campaign ON ad_impressions(campaign_id, created_at);
 CREATE INDEX IF NOT EXISTS idx_sessions_player ON sessions(player_id, started_at);
 CREATE INDEX IF NOT EXISTS idx_players_telegram_id ON players(telegram_id);
+CREATE INDEX IF NOT EXISTS idx_players_session_token ON players(session_token);
 
 -- ─── Advertiser Portal Tables ─────────────────────────────────────
 
@@ -268,7 +272,7 @@ VALUES (1, 0, 0);
 
 -- Player reward earnings — each row is one player's accumulated reward share
 -- earned_micros: what the player has earned from skill-based gameplay
--- claimed_micros: what the player has successfully claimed (paid out via ppq.ai)
+-- claimed_micros: what the player has successfully claimed (paid out via vmco.ai)
 -- last_earned_at: when they last earned (for anti-fraud)
 CREATE TABLE IF NOT EXISTS player_rewards (
     player_id       TEXT NOT NULL REFERENCES players(id),
@@ -284,15 +288,17 @@ CREATE TABLE IF NOT EXISTS reward_claims (
     id              TEXT PRIMARY KEY,
     player_id       TEXT NOT NULL REFERENCES players(id),
     amount_micros   INTEGER NOT NULL CHECK(amount_micros > 0),
-    ppq_account     TEXT NOT NULL,  -- player's ppq.ai account email/username
+    ppq_account     TEXT NOT NULL,  -- provider account reference (e.g. vmco:subkey_id)
     status          TEXT NOT NULL DEFAULT 'pending' CHECK(status IN ('pending', 'completed', 'failed')),
-    ppq_tx_id       TEXT,           -- ppq.ai transaction reference
+    ppq_tx_id       TEXT,           -- provider transaction reference
+    idempotency_key TEXT,           -- prevents duplicate claim submissions
     claimed_at      TEXT DEFAULT (datetime('now')),
     completed_at    TEXT
 );
 
 CREATE INDEX IF NOT EXISTS idx_reward_claims_player ON reward_claims(player_id);
 CREATE INDEX IF NOT EXISTS idx_reward_claims_status ON reward_claims(status);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_reward_claims_idempotency ON reward_claims(idempotency_key, player_id) WHERE idempotency_key IS NOT NULL;
 CREATE INDEX IF NOT EXISTS idx_player_rewards_earned ON player_rewards(earned_micros DESC);
 
 -- ─── Persisted Rate Limit Cooldowns ────────────────────────────────
@@ -325,6 +331,6 @@ CREATE TABLE IF NOT EXISTS player_daily_awards (
     PRIMARY KEY (player_id, date)
 );
 
--- ─── Seed: ppq.ai provider ──────────────────────────────────────────
+-- ─── Seed: vmco.ai provider ──────────────────────────────────────────
 INSERT OR IGNORE INTO providers (id, display_name, enabled, credit_rate, min_redemption, max_redemption)
-VALUES ('ppq', 'ppq.ai', 1, 1000, 100, 100000);
+VALUES ('vmco', 'VMCO.ai', 1, 1000, 100, 100000);
