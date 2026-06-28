@@ -24,8 +24,8 @@ function getSignalRushProjectPath() {
     if (require('fs').existsSync(relCandidate)) {
         return path.resolve(relCandidate);
     }
-    // 4. Fallback to development path (may not have node_modules)
-    return '/tmp/signal-rush-fresh-verify-2';
+    // 4. Fallback to standard install location
+    return path.join(pluginDir, '..', '..', 'signal-rush');
 }
 
 // Add signal-rush-project to require path

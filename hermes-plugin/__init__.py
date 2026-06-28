@@ -42,9 +42,6 @@ HOOK_PRE_LLM = "pre_llm_call"
 HOOK_POST_LLM = "post_llm_call"
 HOOK_API_ERROR = "api_request_error"
 HOOK_PRE_GATEWAY = "pre_gateway_dispatch"
-HOOK_PRE_API_REQUEST = "pre_api_request"
-HOOK_POST_API_REQUEST = "post_api_request"
-
 # Global widget manager
 _widget_manager: Optional["SignalRushWidgetManager"] = None
 _manager_lock = threading.Lock()
@@ -123,10 +120,6 @@ class SignalRushWidgetManager:
                 if node_modules.exists():
                     env["NODE_PATH"] = str(node_modules)
 
-                tty = _get_tty()
-                tty.write("[SIGNAL RUSH DEBUG] Starting widget subprocess...\n")
-                tty.flush()
-
                 self.widget_process = subprocess.Popen(
                     ["node", str(bridge_path)],
                     stdin=subprocess.PIPE,
@@ -154,22 +147,15 @@ class SignalRushWidgetManager:
 
                 # Wait for ready signal
                 if not self._ready_event.wait(timeout=5):
-                    tty.write("[SIGNAL RUSH DEBUG] Widget did not signal ready in time\n")
-                    tty.flush()
                     logger.warning("Widget did not signal ready in time")
                     self.stop()
                     return False
 
-                tty.write("[SIGNAL RUSH DEBUG] Widget started and ready\n")
-                tty.flush()
                 logger.info("Signal Rush widget started")
                 return True
 
             except Exception as e:
                 logger.error(f"Failed to start widget: {e}")
-                tty = _get_tty()
-                tty.write(f"[SIGNAL RUSH DEBUG] Failed to start widget: {e}\n")
-                tty.flush()
                 self._running = False
                 return False
 
@@ -202,8 +188,6 @@ class SignalRushWidgetManager:
             return
 
         tty = _get_tty()
-        tty.write("[SIGNAL RUSH DEBUG] _read_stdout thread started\n")
-        tty.flush()
         
         try:
             frame_count = 0
@@ -214,51 +198,30 @@ class SignalRushWidgetManager:
                 try:
                     tty.write(chunk)
                     tty.flush()
-                    # Log first 100 chars of each frame for debugging
-                    if frame_count <= 3:
-                        preview = repr(chunk[:200])
-                        tty.write(f"[SIGNAL RUSH DEBUG] Frame {frame_count}: {preview}\n")
-                        tty.flush()
                 except (OSError, IOError) as e:
-                    tty.write(f"[SIGNAL RUSH DEBUG] stdout write failed: {e}\n")
-                    tty.flush()
                     logger.warning(f"Widget stdout write failed: {e}")
                     break
         finally:
-            tty.write(f"[SIGNAL RUSH DEBUG] _read_stdout thread ended (frames: {frame_count})\n")
-            tty.flush()
+            pass
 
     def _send_command(self, action: str, **kwargs) -> bool:
         """Send a command to the widget process."""
         if not self._running or not self.widget_process or self.widget_process.poll() is not None:
-            tty = _get_tty()
-            tty.write(f"[SIGNAL RUSH DEBUG] _send_command '{action}': widget process not running\n")
-            tty.flush()
             logger.warning("Widget process not running")
             return False
 
         if not self.widget_process.stdin:
-            tty = _get_tty()
-            tty.write(f"[SIGNAL RUSH DEBUG] _send_command '{action}': widget stdin not available\n")
-            tty.flush()
             logger.warning("Widget stdin not available")
             return False
 
         try:
             cmd = {"action": action, **kwargs}
             cmd_str = json.dumps(cmd) + "\n"
-            tty = _get_tty()
-            tty.write(f"[SIGNAL RUSH DEBUG] Sending command: {cmd_str.strip()}\n")
-            tty.flush()
-
             self.widget_process.stdin.write(cmd_str)
             self.widget_process.stdin.flush()
             return True
         except Exception as e:
             logger.error(f"Failed to send command {action}: {e}")
-            tty = _get_tty()
-            tty.write(f"[SIGNAL RUSH DEBUG] Failed to send command {action}: {e}\n")
-            tty.flush()
             return False
 
     def show(self) -> bool:
@@ -343,20 +306,11 @@ def on_session_start(**kwargs) -> None:
     """Initialize and show the widget when Hermes session starts."""
     logger.info("Signal Rush: session started, starting widget")
     try:
-        # Debug: write directly to tty
-        tty = _get_tty()
-        tty.write("\n[SIGNAL RUSH DEBUG] on_session_start fired\n")
-        tty.flush()
-        
         manager = get_widget_manager()
         if manager.start():
             manager.show()
-            tty.write("[SIGNAL RUSH DEBUG] widget shown (idle)\n")
-            tty.flush()
             logger.info("Signal Rush: widget shown (idle)")
         else:
-            tty.write("[SIGNAL RUSH DEBUG] failed to start widget\n")
-            tty.flush()
             logger.error("Signal Rush: failed to start widget")
     except Exception as e:
         logger.error(f"Signal Rush: error in on_session_start: {e}")
@@ -443,16 +397,10 @@ def on_session_finalize(**kwargs) -> None:
     global _widget_manager
     logger.info("Signal Rush: session finalizing, stopping widget")
     try:
-        tty = _get_tty()
-        tty.write("\n[SIGNAL RUSH DEBUG] on_session_finalize fired\n")
-        tty.flush()
-        
         with _manager_lock:
             if _widget_manager:
                 _widget_manager.stop()
                 _widget_manager = None
-                tty.write("[SIGNAL RUSH DEBUG] widget stopped\n")
-                tty.flush()
     except Exception as e:
         logger.error(f"Signal Rush: error in on_session_finalize: {e}")
 
@@ -464,26 +412,13 @@ def pre_llm_call(**kwargs) -> None:
     Hide the widget so it doesn't interfere with the agent's output.
     """
     try:
-        tty = _get_tty()
-        tty.write("\n[SIGNAL RUSH DEBUG] pre_llm_call fired\n")
-        # DEBUG: Inspect kwargs for model/usage info
-        tty.write(f"[SIGNAL RUSH DEBUG] kwargs keys: {list(kwargs.keys())}\n")
-        for k, v in kwargs.items():
-            tty.write(f"[SIGNAL RUSH DEBUG] kwargs[{k}] = {v}\n")
-        tty.flush()
-        
         # Lazy-start widget for continued sessions where on_session_start didn't fire
         ensure_widget_started()
         
         manager = get_widget_manager()
         if manager.is_running():
             manager.hide()
-            tty.write("[SIGNAL RUSH DEBUG] widget hidden (pre-LLM)\n")
-            tty.flush()
             logger.debug("Signal Rush: widget hidden (pre-LLM)")
-        else:
-            tty.write("[SIGNAL RUSH DEBUG] pre_llm_call: widget not running\n")
-            tty.flush()
     except Exception as e:
         logger.warning(f"Signal Rush: error in pre_llm_call: {e}")
 
@@ -494,26 +429,8 @@ def post_llm_call(ctx: Any, response: str = "", **kwargs) -> None:
     Agent finished responding - if it's idle or rate-limited, show the widget.
     """
     try:
-        tty = _get_tty()
-        tty.write("\n[SIGNAL RUSH DEBUG] post_llm_call fired\n")
-        # DEBUG: Inspect ctx for usage data
-        tty.write(f"[SIGNAL RUSH DEBUG] ctx type: {type(ctx)}\n")
-        tty.write(f"[SIGNAL RUSH DEBUG] ctx dir: {[x for x in dir(ctx) if not x.startswith('_')]}\n")
-        if hasattr(ctx, '__dict__'):
-            tty.write(f"[SIGNAL RUSH DEBUG] ctx.__dict__: {ctx.__dict__}\n")
-        # Check common usage attributes
-        for attr in ['usage', 'token_usage', 'tokens', 'prompt_tokens', 'completion_tokens', 'total_tokens', 'model', 'provider']:
-            if hasattr(ctx, attr):
-                tty.write(f"[SIGNAL RUSH DEBUG] ctx.{attr} = {getattr(ctx, attr)}\n")
-        tty.write(f"[SIGNAL RUSH DEBUG] kwargs keys: {list(kwargs.keys())}\n")
-        for k, v in kwargs.items():
-            tty.write(f"[SIGNAL RUSH DEBUG] kwargs[{k}] = {v}\n")
-        tty.flush()
-        
-        manager = get_widget_manager(ctx)
+        manager = get_widget_manager()
         if not manager.is_running():
-            tty.write("[SIGNAL RUSH DEBUG] post_llm_call: widget not running\n")
-            tty.flush()
             return
 
         # Check if response indicates rate limit
@@ -522,16 +439,10 @@ def post_llm_call(ctx: Any, response: str = "", **kwargs) -> None:
         if is_rate_limited:
             # Rate limited - expand to PLAY mode with PACKET HOP
             manager.focus(True)
-            tty.write("[SIGNAL RUSH DEBUG] rate limited, widget expanded to PLAY\n")
-            tty.flush()
             logger.info("Signal Rush: rate limited, widget expanded to PLAY")
         else:
             # Normal completion - show idle widget
-            tty.write("[SIGNAL RUSH DEBUG] Calling manager.show()\n")
-            tty.flush()
             manager.show()
-            tty.write("[SIGNAL RUSH DEBUG] manager.show() returned\n")
-            tty.flush()
             logger.debug("Signal Rush: widget shown (idle after response)")
     except Exception as e:
         logger.warning(f"Signal Rush: error in post_llm_call: {e}")
@@ -597,42 +508,6 @@ def _is_rate_limit_error(error: Optional[Exception]) -> bool:
 
 
 # =============================================================================
-# Debug Hooks for Token Usage Verification (Phase 0)
-# =============================================================================
-
-def on_pre_api_request(**kwargs) -> None:
-    """Debug hook: inspect pre_api_request payload."""
-    try:
-        tty = _get_tty()
-        tty.write("\n[SIGNAL RUSH DEBUG] pre_api_request fired\n")
-        for k, v in kwargs.items():
-            tty.write(f"[SIGNAL RUSH DEBUG]   {k}: {v}\n")
-        tty.flush()
-    except Exception as e:
-        logger.warning(f"Signal Rush: error in on_pre_api_request: {e}")
-
-
-def on_post_api_request(**kwargs) -> None:
-    """Debug hook: inspect post_api_request payload WITH usage data."""
-    try:
-        tty = _get_tty()
-        tty.write("\n[SIGNAL RUSH DEBUG] post_api_request fired\n")
-        for k, v in kwargs.items():
-            if k == 'usage' and isinstance(v, dict):
-                tty.write(f"[SIGNAL RUSH DEBUG]   {k}: {v}\n")
-                # Highlight token fields
-                for tok_key in ['prompt_tokens', 'completion_tokens', 'total_tokens', 
-                                'cache_read_tokens', 'cache_write_tokens', 'reasoning_tokens']:
-                    if tok_key in v:
-                        tty.write(f"[SIGNAL RUSH DEBUG]     >>> {tok_key}: {v[tok_key]} <<<\n")
-            else:
-                tty.write(f"[SIGNAL RUSH DEBUG]   {k}: {v}\n")
-        tty.flush()
-    except Exception as e:
-        logger.warning(f"Signal Rush: error in on_post_api_request: {e}")
-
-
-# =============================================================================
 # Plugin Registration
 # =============================================================================
 
@@ -643,11 +518,6 @@ def register(ctx: Any) -> None:
     This is called by the plugin system when the plugin is loaded.
     The PluginContext provides register_hook() for hooking into lifecycle events.
     """
-    # Debug: write directly to tty
-    tty = _get_tty()
-    tty.write("\n[SIGNAL RUSH DEBUG] register() called\n")
-    tty.flush()
-
     # Allow config override for signal_rush_path
     global _signal_rush_path
     try:
@@ -663,17 +533,10 @@ def register(ctx: Any) -> None:
 
     # Register all our hooks
     ctx.register_hook(HOOK_SESSION_START, on_session_start)
-    tty.write("[SIGNAL RUSH DEBUG] on_session_start registered\n")
-    tty.flush()
     ctx.register_hook(HOOK_SESSION_FINALIZE, on_session_finalize)
     ctx.register_hook(HOOK_PRE_LLM, pre_llm_call)
     ctx.register_hook(HOOK_POST_LLM, post_llm_call)
     ctx.register_hook(HOOK_API_ERROR, api_request_error)
     ctx.register_hook(HOOK_PRE_GATEWAY, pre_gateway_dispatch)
-    # NEW: Token usage debug hooks
-    ctx.register_hook(HOOK_PRE_API_REQUEST, on_pre_api_request)
-    ctx.register_hook(HOOK_POST_API_REQUEST, on_post_api_request)
 
-    tty.write("[SIGNAL RUSH DEBUG] all hooks registered\n")
-    tty.flush()
     logger.info("Signal Rush: all hooks registered")
