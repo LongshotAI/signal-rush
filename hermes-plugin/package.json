@@ -1,0 +1,15 @@
+{
+  "name": "signal-rush",
+  "version": "1.0.0",
+  "description": "",
+  "main": "widget_bridge.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "dependencies": {
+    "signal-rush-project": "file:../../../../../tmp/signal-rush-fresh-verify-3/signal-rush-project-0.1.0.tgz"
+  }
+}

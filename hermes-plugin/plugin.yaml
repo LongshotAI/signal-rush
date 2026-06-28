@@ -1,0 +1,21 @@
+name: signal-rush
+version: "0.1.0"
+description: "Signal Rush embedded widget for Hermes Agent - shows PACKET HOP mini-game during agent downtime (thinking, rate-limited, post-prompt). Auto-hides during active streaming."
+author: Signal Rush / Hermes Integration
+kind: standalone
+hooks:
+  - on_session_start
+  - on_session_finalize
+  - pre_llm_call
+  - post_llm_call
+  - api_request_error
+  - pre_gateway_dispatch
+requires_env: []
+provides_tools: []
+provides_hooks:
+  - on_session_start
+  - on_session_finalize
+  - pre_llm_call
+  - post_llm_call
+  - api_request_error
+  - pre_gateway_dispatch
