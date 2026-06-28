@@ -27,6 +27,14 @@ logger = logging.getLogger(__name__)
 # Use the canonical signal-rush repo at /home/hive/signal-rush
 DEFAULT_SIGNAL_RUSH_PATH = Path("/home/hive/signal-rush")
 
+# Production Signal Rush infrastructure (central economy).
+# End-user plugins connect here — no local economy service required.
+# Override via env vars only if running a private/staging economy.
+SIGNAL_RUSH_ECONOMY_URL = os.environ.get("ECONOMY_API_URL", "https://synth.com.co")
+# Plugin-scoped shared secret. Distributed with the plugin — allows
+# POST /players/ensure and POST /telegram/redeem on the central economy.
+SIGNAL_RUSH_PLUGIN_KEY = os.environ.get("ECONOMY_API_KEY", "").strip()
+
 # Hook names we care about
 HOOK_SESSION_START = "on_session_start"
 HOOK_SESSION_FINALIZE = "on_session_finalize"
@@ -387,9 +395,9 @@ def _wire_player_identity() -> None:
         logger.debug("Signal Rush: player_id missing from player.json")
         return
 
-    # 2. Call economy service to ensure player exists
-    api_key = os.environ.get("ECONOMY_API_KEY", "")
-    api_url = os.environ.get("ECONOMY_API_URL", "http://localhost:8720").rstrip("/")
+    # 2. Call central economy service to ensure player exists
+    api_key = SIGNAL_RUSH_PLUGIN_KEY
+    api_url = SIGNAL_RUSH_ECONOMY_URL.rstrip("/")
 
     if not api_key:
         logger.debug("Signal Rush: ECONOMY_API_KEY not set, skipping /players/ensure")
