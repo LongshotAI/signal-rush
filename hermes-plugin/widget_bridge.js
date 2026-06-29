@@ -19,7 +19,7 @@ function getSignalRushProjectPath() {
     if (require('fs').existsSync(localCandidate)) {
         return path.resolve(localCandidate);
     }
-    // 3. Try relative to plugin dir (legacy: /home/hive/.hermes/signal-rush)
+    // 3. Try relative to plugin dir
     const relCandidate = path.join(pluginDir, '..', '..', 'signal-rush');
     if (require('fs').existsSync(relCandidate)) {
         return path.resolve(relCandidate);

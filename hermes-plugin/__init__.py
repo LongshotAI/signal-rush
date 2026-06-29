@@ -23,9 +23,9 @@ from typing import Any, Dict, Optional
 
 logger = logging.getLogger(__name__)
 
-# Path to the Signal Rush source (can be overridden via config)
-# Use the canonical signal-rush repo at /home/hive/signal-rush
-DEFAULT_SIGNAL_RUSH_PATH = Path("/home/hive/signal-rush")
+# Path to the Signal Rush source (can be overridden via config).
+# Cross-platform: uses Path.home() for both Linux and Windows.
+DEFAULT_SIGNAL_RUSH_PATH = Path.home() / "signal-rush"
 
 # Production Signal Rush infrastructure (central economy).
 # End-user plugins connect here — no local economy service required.
@@ -54,20 +54,24 @@ _tty: Optional[Any] = None
 
 
 def _get_tty():
-    """Open /dev/tty for writing widget frames to the terminal.
+    """Open the controlling terminal for writing widget frames.
 
     Hermes captures sys.stdout, so writing widget ANSI frames to
     sys.stdout would buffer them and they'd never reach the screen.
-    /dev/tty is the controlling terminal when Hermes runs in a TTY.
-    Falls back to sys.stdout when /dev/tty is unavailable (e.g. CI).
+    On Linux/macOS we use /dev/tty; on Windows we fall back to sys.stdout
+    (which works because Windows terminals don't buffer the same way).
+    Falls back to sys.stdout when /dev/tty is unavailable (e.g. CI, Windows).
     """
     global _tty
     if _tty is None:
-        try:
-            _tty = open("/dev/tty", "w", buffering=1)
-            logger.debug("Signal Rush: opened /dev/tty for widget output")
-        except (OSError, IOError):
-            logger.debug("Signal Rush: /dev/tty unavailable, falling back to sys.stdout")
+        if sys.platform != "win32":
+            try:
+                _tty = open("/dev/tty", "w", buffering=1)
+                logger.debug("Signal Rush: opened /dev/tty for widget output")
+            except (OSError, IOError):
+                logger.debug("Signal Rush: /dev/tty unavailable, falling back to sys.stdout")
+                _tty = sys.stdout
+        else:
             _tty = sys.stdout
     return _tty
 
