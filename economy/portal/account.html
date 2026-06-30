@@ -78,7 +78,7 @@
                   <button type="submit" class="btn btn-primary" id="depositBtn">Deposit</button>
                 </div>
               </div>
-              <p class="form-hint">1,000,000 micros = $1.00. In production, this would integrate with Stripe.</p>
+              <p class="form-hint">1,000,000 micros = $1.00. Deposits open a Stripe Checkout session; credits post after the payment webhook completes.</p>
             </form>
           </div>
 
@@ -136,6 +136,12 @@
           depositBtn.innerHTML = '<span class="spinner"></span>';
           try {
             const result = await API.depositCredits(amount);
+            if (result.stripe_url || result.checkout_url) {
+              const url = result.stripe_url || result.checkout_url;
+              depositAlert.innerHTML = '<div class="alert alert-success">Stripe checkout created. Redirecting…</div>';
+              window.location.href = url;
+              return;
+            }
             depositAlert.innerHTML = `<div class="alert alert-success">Deposited ${API.formatCurrency(amount)}. New balance: ${API.formatCurrency(result.balance_after)}</div>`;
             document.getElementById('depositAmount').value = '';
             // Update balance display
