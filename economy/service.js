@@ -393,6 +393,49 @@ function createServer({ port = DEFAULT_PORT, host = DEFAULT_HOST, dbPath = ledge
   // ─── Internal: Skill-Based Reward (called on game-over) ─────────
   // Converts final session stats into ad-funded reward pool earnings.
   // Called by the CLI event bridge when a run ends.
+  // Shared reward-award implementation used by both the server-only internal
+  // endpoint and the Telegram session-scoped player endpoint.
+  function awardPlayerReward({ db, reply, playerId, score, combo, level, tickCount, difficultyTier, autoCreateDisplayName = null }) {
+    let validatedPlayerId;
+    try {
+      validatedPlayerId = validate.validateUuid(playerId, 'player_id');
+    } catch (err) {
+      reply.code(400);
+      return { error: err.message };
+    }
+
+    if (!ledger.playerExists(db, validatedPlayerId)) {
+      if (!autoCreateDisplayName) {
+        reply.code(404);
+        return { error: 'player not found' };
+      }
+      db.prepare('INSERT INTO players (id, display_name) VALUES (?, ?)').run(validatedPlayerId, autoCreateDisplayName);
+    }
+
+    try {
+      const result = ledger.earnPlayerReward(db, validatedPlayerId, {
+        score: Math.max(0, Number(score) || 0),
+        combo: Math.max(0, Number(combo) || 0),
+        level: Math.max(1, Number(level) || 1),
+        tickCount: Math.max(0, Number(tickCount) || 0),
+        difficultyTier: Math.max(0, Number(difficultyTier) || 0),
+      });
+
+      const rewards = ledger.getPlayerRewards(db, validatedPlayerId);
+
+      return {
+        ok: true,
+        amount_earned_micros: result.amount || 0,
+        reason: result.reason || null,
+        total_earned_micros: rewards ? rewards.earned_micros : 0,
+        available_micros: rewards ? rewards.available_micros : 0,
+      };
+    } catch (err) {
+      reply.code(500);
+      return { error: `reward calculation failed: ${err.message}` };
+    }
+  }
+
   // Protected by shared-secret auth (under /internal/* prefix).
 
   app.post('/internal/earn-reward', async (req, reply) => {
@@ -410,41 +453,64 @@ function createServer({ port = DEFAULT_PORT, host = DEFAULT_HOST, dbPath = ledge
       return { error: 'player_id is required' };
     }
 
+    return awardPlayerReward({
+      db,
+      reply,
+      playerId: player_id,
+      score,
+      combo,
+      level,
+      tickCount: tick_count,
+      difficultyTier: difficulty_tier,
+      autoCreateDisplayName: 'CLI Player',
+    });
+  });
+
+  // Player-scoped reward earning for Telegram Mini App clients.
+  // Unlike /internal/earn-reward, this accepts the player's session token,
+  // not the server-wide ECONOMY_API_KEY. This keeps browser clients out of
+  // shared-secret auth while preventing forged rewards for other players.
+  app.post('/players/:id/earn-reward', async (req, reply) => {
+    const playerId = req.params?.id;
+    const sessionToken = req.body?.session_token;
+    if (!sessionToken) {
+      reply.code(401);
+      return { error: 'session token required' };
+    }
+
     let validatedPlayerId;
     try {
-      validatedPlayerId = validate.validateUuid(player_id, 'player_id');
+      validatedPlayerId = validate.validateUuid(playerId, 'player_id');
     } catch (err) {
       reply.code(400);
       return { error: err.message };
     }
 
-    // Auto-create player if they don't exist (CLI generates UUID locally)
-    if (!ledger.playerExists(db, validatedPlayerId)) {
-      db.prepare('INSERT INTO players (id, display_name) VALUES (?, ?)').run(validatedPlayerId, 'CLI Player');
+    const player = db.prepare('SELECT session_token FROM players WHERE id = ?').get(validatedPlayerId);
+    if (!player || player.session_token !== sessionToken) {
+      reply.code(403);
+      return { error: 'session token mismatch — reward denied' };
     }
 
-    try {
-      const result = ledger.earnPlayerReward(db, validatedPlayerId, {
-        score: Math.max(0, Number(score) || 0),
-        combo: Math.max(0, Number(combo) || 0),
-        level: Math.max(1, Number(level) || 1),
-        tickCount: Math.max(0, Number(tick_count) || 0),
-        difficultyTier: Math.max(0, Number(difficulty_tier) || 0),
-      });
+    const {
+      score = 0,
+      combo = 0,
+      level = 1,
+      tick_count = 0,
+      difficulty_tier = 0,
+    } = req.body || {};
 
-      const rewards = ledger.getPlayerRewards(db, validatedPlayerId);
-
-      return {
-        ok: true,
-        amount_earned_micros: result.amount || 0,
-        reason: result.reason || null,
-        total_earned_micros: rewards ? rewards.earned_micros : 0,
-        available_micros: rewards ? rewards.available_micros : 0,
-      };
-    } catch (err) {
-      reply.code(500);
-      return { error: `reward calculation failed: ${err.message}` };
-    }
+    return awardPlayerReward({
+      db,
+      reply,
+      playerId: validatedPlayerId,
+      score,
+      combo,
+      level,
+      tickCount: tick_count,
+      difficultyTier: difficulty_tier,
+      autoCreateDisplayName: null,
+    });
   });
 
   // ─── Run Receipt Verification (server-side authority) ────────────

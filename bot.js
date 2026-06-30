@@ -49,16 +49,26 @@ function playKeyboard() {
 }
 
 // Set global MenuButton so the Mini App is accessible from any chat via bot profile / chat bar
-async function setMenuButton() {
+async function configureBotUi() {
+  if (!MINI_APP_URL) {
+    console.warn('[Signal Rush Bot] MINI_APP_URL not set — skipping MenuButton setup');
+    return;
+  }
   try {
     await bot.api.setChatMenuButton({
       type: 'web_app',
       text: '🎮 Play Signal Rush',
       web_app: { url: MINI_APP_URL },
     });
-    console.log('[Signal Rush Bot] MenuButton set — users can play from bot profile');
+    await bot.api.setMyCommands([
+      { command: 'play', description: 'Launch Signal Rush' },
+      { command: 'status', description: 'Check earnings and VMCO key' },
+      { command: 'redeem', description: 'Convert earnings to credits' },
+      { command: 'help', description: 'How to play' },
+    ]);
+    console.log('[Signal Rush Bot] MenuButton and commands configured');
   } catch (err) {
-    console.error('[Signal Rush Bot] Failed to set MenuButton:', err.message);
+    console.error('[Signal Rush Bot] Failed to configure bot UI:', err.message);
   }
 }
 
@@ -129,7 +139,8 @@ bot.command('stats', async (ctx) => {
       }
       throw new Error(`Economy API returned ${res.status}`);
     }
-    const player = await res.json();
+    const body = await res.json();
+    const player = body.player || body;
     const lines = [
       `📊 **Signal Rush Stats**`,
       '',
@@ -174,7 +185,8 @@ bot.command('status', async (ctx) => {
       }
       throw new Error(`Economy API returned ${res.status}`);
     }
-    const player = await res.json();
+    const body = await res.json();
+    const player = body.player || body;
     const lines = [
       `📊 **Signal Rush Status**`,
       '',
@@ -212,26 +224,18 @@ bot.command('status', async (ctx) => {
       // rewards endpoint optional — don't fail the whole command
     }
 
-    // Fetch VMCO sub-key status — so users know if they already have
-    // a portable API key provisioned
-    try {
-      const skRes = await fetch(`${ECONOMY_API_URL}/vmco/sub-key/${player.id}`, {
-        signal: AbortSignal.timeout(5000),
-      });
-      if (skRes.ok) {
-        const sk = await skRes.json();
-        lines.push('');
-        lines.push('🔑 **API Key (VMCO)**');
-        if (sk.has_sub_key) {
-          lines.push(`  Budget: ${sk.budget_credits} credits`);
-          lines.push(`  ID: \`${sk.sub_key_id?.slice(0, 8) || ''}...\``);
-          lines.push(`  Created: ${sk.created_at?.split('T')[0] || 'n/a'}`);
-        } else {
-          lines.push('  None yet — /redeem to provision one');
-        }
+    // VMCO sub-key status is included by the bot-safe Telegram player endpoint.
+    // Do not call /vmco/sub-key here: that route is player-session protected.
+    if (player.vmco) {
+      lines.push('');
+      lines.push('🔑 **API Key (VMCO)**');
+      if (player.vmco.has_sub_key) {
+        lines.push(`  Budget: ${player.vmco.budget_credits} credits`);
+        lines.push(`  ID: \`${player.vmco.sub_key_id?.slice(0, 8) || ''}...\``);
+        lines.push(`  Created: ${player.vmco.created_at?.split('T')[0] || 'n/a'}`);
+      } else {
+        lines.push('  None yet — /redeem to provision one');
       }
-    } catch (e) {
-      // sub-key endpoint optional
     }
 
     await ctx.reply(lines.join('\n'), { parse_mode: 'Markdown' });
@@ -303,7 +307,8 @@ bot.command('redeem', async (ctx) => {
       );
     }
     if (!pRes.ok) throw new Error(`player fetch ${pRes.status}`);
-    player = await pRes.json();
+    const playerBody = await pRes.json();
+    player = playerBody.player || playerBody;
 
     const rRes = await fetch(`${ECONOMY_API_URL}/players/${player.id}/rewards`, {
       signal: AbortSignal.timeout(5000),
@@ -454,13 +459,11 @@ if (!MINI_APP_URL) {
   console.warn('[Signal Rush Bot] MINI_APP_URL not set');
 }
 
-// Set global MenuButton so users can play from any chat
-setMenuButton();
-
 bot.start({
   drop_pending_updates: true,
-  onStart: (botInfo) => {
+  onStart: async (botInfo) => {
     console.log(`[Signal Rush Bot] @${botInfo.username} is running`);
+    await configureBotUi();
   },
 }).catch((err) => {
   console.error('[Signal Rush Bot] Failed to start:', err.message);

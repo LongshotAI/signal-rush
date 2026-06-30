@@ -1789,30 +1789,33 @@ function drawGameOver(state) {
     }
   }
 
-  const fontSize = Math.max(14, Math.floor(CANVAS_W / 40));
+  // Results are placed below the sponsor block. Previously these lines
+  // overlapped the sponsor body/CTA on Telegram mobile screens.
+  const resultsBaseY = activeSponsor ? CANVAS_H / 2 + CANVAS_H * 0.18 : CANVAS_H / 2 + CANVAS_H * 0.04;
+  const fontSize = Math.max(13, Math.floor(CANVAS_W / 44));
   ctx.font = `${fontSize}px monospace`;
   ctx.fillStyle = C.hudText;
-  ctx.fillText(`Score: ${state.score}`, CANVAS_W / 2, CANVAS_H / 2 + CANVAS_H * 0.02);
-  ctx.fillText(`Best:  ${state.bestScore}`, CANVAS_W / 2, CANVAS_H / 2 + CANVAS_H * 0.08);
+  ctx.fillText(`Score: ${state.score}`, CANVAS_W / 2, resultsBaseY);
+  ctx.fillText(`Best:  ${state.bestScore}`, CANVAS_W / 2, resultsBaseY + fontSize * 1.35);
 
-  ctx.font = '11px monospace';
+  ctx.font = '10px monospace';
   ctx.fillStyle = 'rgba(255,255,255,0.5)';
-  ctx.fillText('Tap Play Again to retry', CANVAS_W / 2, CANVAS_H / 2 + CANVAS_H * 0.16);
+  ctx.fillText('Tap Play Again to retry', CANVAS_W / 2, resultsBaseY + fontSize * 2.75);
 
   // Receipt result
   if (lastReceiptResult) {
-    ctx.font = '10px monospace';
+    ctx.font = '9px monospace';
     if (lastReceiptResult.ok) {
       ctx.fillStyle = '#00ff88';
-      ctx.fillText(`+${lastReceiptResult.sponsorMicros || 0} µ claimable rewards`, CANVAS_W / 2, CANVAS_H / 2 + CANVAS_H * 0.22);
+      ctx.fillText(`+${lastReceiptResult.sponsorMicros || 0} µ claimable rewards`, CANVAS_W / 2, resultsBaseY + fontSize * 4.0);
       // Sponsor rewards (from 20% pool)
       if (lastReceiptResult?.ok && lastReceiptResult.sponsorMicros > 0) {
         ctx.fillStyle = '#44bbff';
-        ctx.fillText(`🎯 +${lastReceiptResult.sponsorMicros} µ from sponsors`, CANVAS_W / 2, CANVAS_H / 2 + CANVAS_H * 0.28);
+        ctx.fillText(`🎯 +${lastReceiptResult.sponsorMicros} µ from sponsors`, CANVAS_W / 2, resultsBaseY + fontSize * 5.1);
       }
     } else {
       ctx.fillStyle = 'rgba(255,255,255,0.3)';
-      ctx.fillText('Receipt pending', CANVAS_W / 2, CANVAS_H / 2 + CANVAS_H * 0.22);
+      ctx.fillText('Receipt pending', CANVAS_W / 2, resultsBaseY + fontSize * 4.0);
     }
   }
 }

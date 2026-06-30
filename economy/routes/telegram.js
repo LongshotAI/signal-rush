@@ -149,7 +149,9 @@ function register(app, { db }) {
     }
 
     const player = db.prepare(
-      'SELECT id, display_name, created_at, total_earned, total_spent, balance FROM players WHERE telegram_id = ?'
+      `SELECT id, display_name, created_at, total_earned, total_spent, balance,
+              vmco_sub_key_id, vmco_sub_key_budget_credits, vmco_sub_key_created_at
+         FROM players WHERE telegram_id = ?`
     ).get(telegram_id);
 
     if (!player) {
@@ -166,6 +168,12 @@ function register(app, { db }) {
         total_earned: player.total_earned,
         total_spent: player.total_spent,
         created_at: player.created_at,
+        vmco: {
+          has_sub_key: Boolean(player.vmco_sub_key_id),
+          sub_key_id: player.vmco_sub_key_id || null,
+          budget_credits: player.vmco_sub_key_budget_credits || 0,
+          created_at: player.vmco_sub_key_created_at || null,
+        },
       },
     };
   });

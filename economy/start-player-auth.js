@@ -1,6 +1,8 @@
 // start-player-auth.js
-// Launches economy service with auth DISABLED for player endpoints.
-process.env["ECONOMY_AUTH_ENFORCED"] = "false";
+// Launches the public economy service.
+// Player-facing routes use Telegram session tokens; internal routes stay
+// protected by ECONOMY_API_KEY unless explicitly disabled for local tests.
+require('dotenv').config();
 const { createServer } = require("./service.js");
 const path = require("path");
 const os = require("os");

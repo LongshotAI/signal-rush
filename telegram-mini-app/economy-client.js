@@ -184,15 +184,14 @@ export class EconomyClient {
 
   /**
    * Submit session stats for ad-funded reward earning.
-   * POST /internal/earn-reward
-   * This replaces the old credit-ingest flow — the only redeemable
-   * value comes from the 20% ad revenue pool.
+   * POST /players/:id/earn-reward
+   * Uses the Telegram session token, not the server ECONOMY_API_KEY.
    */
   async submitEarnReward({ playerId, score, combo, level, tickCount, difficultyTier }) {
-    return this._fetch('/internal/earn-reward', {
+    return this._fetch(`/players/${encodeURIComponent(playerId)}/earn-reward`, {
       method: 'POST',
       body: {
-        player_id: playerId,
+        session_token: this.sessionToken,
         score,
         combo,
         level,
