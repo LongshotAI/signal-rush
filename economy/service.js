@@ -112,24 +112,37 @@ function createServer({ port = DEFAULT_PORT, host = DEFAULT_HOST, dbPath = ledge
     }
   });
 
+  // ─── Cache Control for Mini-App ───────────────────────────────────
+  // Set no-cache headers via onRequest for JS/CSS/assets to prevent Telegram WebView caching
+  app.addHook('onRequest', async (req, reply) => {
+    const url = req.url || '';
+    if (url.startsWith('/mini-app') || url.startsWith('/dist/')) {
+      reply.header('Cache-Control', 'no-cache, no-store, must-revalidate');
+      reply.header('Pragma', 'no-cache');
+      reply.header('Expires', '0');
+    }
+  });
+
   // ─── Security Headers (CSP) ──────────────────────────────────────
   app.addHook('onSend', async (req, reply, payload) => {
-    // Only apply to HTML responses
     const contentType = reply.getHeader('content-type') || '';
     if (contentType.includes('text/html')) {
+      // Telegram Mini App is loaded inside an iframe — allow telegram.org as frame ancestor
+      const isMiniApp = req.url && req.url.startsWith('/mini-app');
       reply.header('Content-Security-Policy',
         "default-src 'self'; " +
         "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; " +
         "font-src 'self' https://fonts.gstatic.com; " +
-        "script-src 'self' 'unsafe-inline'; " +
+        "script-src 'self' 'unsafe-inline' https://telegram.org; " +
         "img-src 'self' data: https:; " +
-        "connect-src 'self'; " +
-        "frame-ancestors 'none'; " +
+        "connect-src 'self' https://telegram.org; " +
+        "frame-ancestors 'self' https://telegram.org; " +
         "base-uri 'self'; " +
         "form-action 'self'"
       );
       reply.header('X-Content-Type-Options', 'nosniff');
-      reply.header('X-Frame-Options', 'DENY');
+      // Allow iframe for mini-app, deny for everything else
+      reply.header('X-Frame-Options', isMiniApp ? 'ALLOW-FROM https://telegram.org' : 'DENY');
       reply.header('Referrer-Policy', 'strict-origin-when-cross-origin');
     }
     return payload;
@@ -942,6 +955,14 @@ function createServer({ port = DEFAULT_PORT, host = DEFAULT_HOST, dbPath = ledge
     const campaign_id = body.campaign_id || body.campaignId;
     const player_id = body.player_id || body.playerId;
     const placement_type = body.placement_type || body.placement || 'hud_frame';
+    let validatedPlacementType;
+    try {
+      validatedPlacementType = validate.validatePlacementType(placement_type);
+    } catch (err) {
+      reply.code(400);
+      return { error: err.message };
+    }
+
     let validatedPlayerId = null;
     if (player_id) {
       try {
@@ -958,7 +979,6 @@ function createServer({ port = DEFAULT_PORT, host = DEFAULT_HOST, dbPath = ledge
         reply.code(429);
         return { error: 'rate_limited', retry_after_ms: IMPRESSION_COOLDOWN_MS };
       }
-      ledger.setCooldown(db, 'impression:' + validatedPlayerId);
     }
     // Session auto-creation: if player has no active session, start one.
     // This replaces the old /internal/ingest session lifecycle.
@@ -1008,7 +1028,7 @@ function createServer({ port = DEFAULT_PORT, host = DEFAULT_HOST, dbPath = ledge
         impressionId = ledger.logImpression(db, {
           campaignId: campaign_id,
           playerId: validatedPlayerId,
-          placementType: validate.validatePlacementType(placement_type),
+          placementType: validatedPlacementType,
           costMicros: validate.validateNonNegativeInt(cost_micros, 'cost_micros'),
         });
       } catch (err) {
@@ -1022,7 +1042,7 @@ function createServer({ port = DEFAULT_PORT, host = DEFAULT_HOST, dbPath = ledge
         impressionId = ledger.logImpression(db, {
           campaignId: null,
           playerId: validatedPlayerId,
-          placementType: validate.validatePlacementType(placement_type),
+          placementType: validatedPlacementType,
           costMicros: validate.validateNonNegativeInt(cost_micros, 'cost_micros'),
         });
       } catch (err) {
@@ -1036,13 +1056,17 @@ function createServer({ port = DEFAULT_PORT, host = DEFAULT_HOST, dbPath = ledge
         impressionId = ledger.logImpression(db, {
           campaignId: campaign_id || null,
           playerId: validatedPlayerId,
-          placementType: validate.validatePlacementType(placement_type),
+          placementType: validatedPlacementType,
           costMicros: 0,
         });
       } catch (err) {
         reply.code(400);
         return { error: err.message };
       }
+    }
+
+    if (validatedPlayerId) {
+      ledger.setCooldown(db, 'impression:' + validatedPlayerId);
     }
 
     return { ok: true, impression_id: impressionId };
@@ -1291,7 +1315,9 @@ function createServer({ port = DEFAULT_PORT, host = DEFAULT_HOST, dbPath = ledge
   // and admin auth to /portal/admin/*
 
   const portalProtectedPrefixes = ['/portal/account', '/portal/campaigns', '/portal/credits'];
-  const adminPrefixes = ['/portal/admin'];
+  // Protect admin API routes, but not /portal/admin.html itself — the HTML shell
+  // must be able to load in a browser before its JS sends ADMIN_API_KEY.
+  const adminPrefixes = ['/portal/admin/'];
 
   app.addHook('onRequest', async (req, reply) => {
     const path = req.url.split('?')[0];
@@ -2279,7 +2305,11 @@ function createServer({ port = DEFAULT_PORT, host = DEFAULT_HOST, dbPath = ledge
   const portalDir = path.join(__dirname, 'portal');
 
   app.get('/portal', async (req, reply) => {
-    reply.redirect('/portal/dashboard.html');
+    reply.redirect('/portal/login.html');
+  });
+
+  app.get('/portal/', async (req, reply) => {
+    reply.redirect('/portal/login.html');
   });
 
   app.get('/portal/player', async (req, reply) => {
@@ -2349,6 +2379,10 @@ function createServer({ port = DEFAULT_PORT, host = DEFAULT_HOST, dbPath = ledge
       '.wasm': 'application/wasm',
     };
     reply.header('Content-Type', contentTypes[ext] || 'application/octet-stream');
+    // Disable caching for mini-app files (Telegram WebView caching is aggressive)
+    reply.header('Cache-Control', 'no-cache, no-store, must-revalidate');
+    reply.header('Pragma', 'no-cache');
+    reply.header('Expires', '0');
     return fs.createReadStream(filePath);
   });
 

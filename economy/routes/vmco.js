@@ -11,6 +11,7 @@
 // The sub-key is a portable Bearer token the player can paste into their
 // own agent/harness. All usage bills the master Signal Rush account.
 
+const crypto = require('crypto');
 const vmcoClient = require('../vmco-client');
 const ledger = require('../ledger');
 
@@ -56,13 +57,22 @@ function decPlayerRewards(db, playerId, micros) {
   ).run(micros, playerId);
 }
 
+function incRewardsPoolClaimed(db, micros) {
+  db.prepare(
+    `UPDATE rewards_pool
+        SET total_claimed_micros = total_claimed_micros + ?, updated_at = datetime('now')
+      WHERE id = 1`
+  ).run(micros);
+}
+
 function recordVmcoClaim(db, { playerId, subKeyId, amountMicros, idempotencyKey }) {
-  // Record the claim in reward_claims so the audit trail is consistent
+  // Record the claim in reward_claims so the audit trail is consistent.
+  // Include an explicit UUID; TEXT PRIMARY KEY does not auto-generate one.
   db.prepare(`
     INSERT INTO reward_claims
-      (player_id, amount_micros, status, ppq_account, idempotency_key, claimed_at, completed_at)
-    VALUES (?, ?, 'completed', ?, ?, datetime('now'), datetime('now'))
-  `).run(playerId, amountMicros, `vmco:${subKeyId}`, idempotencyKey || null);
+      (id, player_id, amount_micros, status, ppq_account, idempotency_key, claimed_at, completed_at)
+    VALUES (?, ?, ?, 'completed', ?, ?, datetime('now'), datetime('now'))
+  `).run(crypto.randomUUID(), playerId, amountMicros, `vmco:${subKeyId}`, idempotencyKey || null);
 }
 
 function getPlayer(db, playerId) {
@@ -232,6 +242,9 @@ function register(app, { db }) {
 
       // Decrement player's available rewards (ledger-style)
       decPlayerRewards(db, playerId, amountMicros);
+
+      // Keep aggregate pool accounting consistent with /rewards/claim.
+      incRewardsPoolClaimed(db, amountMicros);
 
       // Record in reward_claims for audit
       recordVmcoClaim(db, {

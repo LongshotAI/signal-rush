@@ -211,12 +211,30 @@
       color: var(--green); letter-spacing: 3px;
       text-shadow: 0 0 24px var(--green-glow);
     }
-    .nav-links { display: flex; gap: 36px; list-style: none; }
+    .nav-links { display: flex; gap: 36px; list-style: none; align-items: center; }
     .nav-links a {
       font-size: 10px; letter-spacing: 2.5px; text-transform: uppercase;
       color: var(--muted); padding-bottom: 2px; transition: color 0.2s, text-shadow 0.2s;
     }
     .nav-links a:hover { color: var(--green); text-shadow: 0 0 10px var(--green-glow); }
+    .nav-login {
+      font-size: 10px; letter-spacing: 2px; text-transform: uppercase;
+      color: var(--green); border: 1px solid rgba(0,255,136,0.3);
+      padding: 6px 14px; border-radius: 4px; transition: all 0.2s;
+      white-space: nowrap;
+    }
+    .nav-login:hover {
+      background: rgba(0,255,136,0.1); border-color: var(--green);
+      text-shadow: 0 0 10px var(--green-glow); color: var(--green) !important;
+    }
+    .nav-login[data-role="advertiser"] {
+      border-color: rgba(0,200,255,0.3);
+      color: #00c8ff;
+    }
+    .nav-login[data-role="advertiser"]:hover {
+      background: rgba(0,200,255,0.1); border-color: #00c8ff;
+      text-shadow: 0 0 10px rgba(0,200,255,0.3); color: #00c8ff !important;
+    }
     @media (max-width: 768px) { .nav-links { display: none; } }
 
     /* Section */
@@ -778,6 +796,8 @@
       <li><a href="#modes">Modes</a></li>
       <li><a href="#tech">Tech</a></li>
       <li><a href="#advertise">Advertise</a></li>
+      <li><a href="/portal/player.html" class="nav-login">Player Login</a></li>
+      <li><a href="/portal/login.html" class="nav-login" data-role="advertiser">Advertiser Login</a></li>
     </ul>
   </nav>
 
@@ -1004,6 +1024,8 @@
       <a href="#modes">Modes</a>
       <a href="#tech">Tech</a>
       <a href="#advertise">Advertise</a>
+      <a href="/portal/player.html">Player Login</a>
+      <a href="/portal/login.html">Advertiser Login</a>
     </div>
     <p class="footer-copy">© 2026 LongshotAI · USP × Temple Works</p>
   </footer>

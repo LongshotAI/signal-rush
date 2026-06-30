@@ -54,7 +54,17 @@ export async function initTelegramMiniApp() {
   try {
     await _loadSDKScript();
   } catch (_) {
-    // SDK failed to load — local dev mode
+    // SDK failed to load — check if native Telegram object already exists
+    // (some Telegram versions inject the object without the JS SDK)
+    if (window.Telegram && (window.Telegram.WebApp || window.Telegram.webApp)) {
+      console.warn('[telegram-sdk] SDK not loaded but native WebApp object found');
+      return {
+        initData: window.Telegram.initData || '',
+        initDataUnsafe: window.Telegram.initDataUnsafe || null,
+        isTelegramMode: true,
+      };
+    }
+    // Local dev mode
     console.warn('[telegram-sdk] SDK not available — running in local dev mode');
     return {
       initData: '',
@@ -65,11 +75,15 @@ export async function initTelegramMiniApp() {
 
   _tg = window.Telegram.WebApp;
 
-  // Signal ready to Telegram
-  _tg.ready();
+  // Signal ready to Telegram (dismiss loading spinner)
+  if (typeof _tg.ready === 'function') {
+    _tg.ready();
+  }
 
   // Expand to full screen
-  _tg.expand();
+  if (typeof _tg.expand === 'function') {
+    _tg.expand();
+  }
 
   // Listen for theme changes
   _themeHandler = (evt) => {

@@ -239,7 +239,7 @@ export class RedemptionUI {
         const isNew = result.is_new;
         const credits = result.budget_credits || Math.floor(amountMicros / MICROS_PER_CREDIT);
         this._showClaimResult(
-          `✅ ${isNew ? 'New key created!' : 'Key topped up!'} +${credits) credits added.${result.idempotent ? ' Check the key below.' : ''}`,
+          `✅ ${isNew ? 'New key created!' : 'Key topped up!'} +${credits} credits added.${result.idempotent ? ' Check the key below.' : ''}`,
           '#00ff88'
         );
         // Refresh rewards (decremented) and show the key

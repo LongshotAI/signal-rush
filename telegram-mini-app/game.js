@@ -140,6 +140,7 @@ let sessionManager = null;
 let redemptionUI = null;
 let playerId = null;
 let creditBalance = 0;
+let _initData = null;
 let sponsorBalance = 0;
 let lastReceiptResult = null;
 let economyOnline = false;
@@ -217,13 +218,56 @@ export async function init(containerSelector = '#game-container') {
     throw new Error(`Container "${containerSelector}" not found`);
   }
 
-  const tgInfo = await initTelegramMiniApp();
+  // Init economy client before any async Telegram auth callback can use it.
+  economyClient = new EconomyClient({ baseUrl: ECONOMY_BASE_URL });
 
-  // Expand to fill the Telegram WebView (only if not already expanded by telegram-sdk.js)
-  // telegram-sdk.js already calls expand() — calling it again causes relayout race on Android
-  // if (window.Telegram?.WebApp) {
-  //   window.Telegram.WebApp.expand();
-  // }
+  async function applyTelegramAuth(tgInfo) {
+    _initData = tgInfo?.initData || null;
+
+    // Only create a local/dev player after we know Telegram did not provide initData.
+    // Do not create a temporary random ID while Telegram auth is still pending.
+    if (!_initData) {
+      if (!playerId) {
+        playerId = crypto.randomUUID();
+        economyOnline = false;
+        console.log('[SignalRush] Local mode (no Telegram auth), player:', playerId);
+      }
+      return;
+    }
+
+    const authResult = await economyClient.auth(_initData);
+    if (authResult.ok && authResult.player) {
+      playerId = authResult.player.id;
+      creditBalance = authResult.player.balance || 0;
+      economyOnline = true;
+      console.log('[SignalRush] Economy online, player:', playerId);
+
+      // If auth completes after the engine was created, attach economy features now.
+      if (engine && sessionManager && !sessionManager.active) {
+        sessionManager.startSession(currentMode, engine.state.seed || Date.now());
+      }
+      if (!redemptionUI && playerId) {
+        redemptionUI = new RedemptionUI();
+        redemptionUI.init(economyClient, playerId, creditBalance, _initData);
+      }
+    } else if (authResult.offline) {
+      console.log('[SignalRush] Economy offline');
+    }
+  }
+
+  // Fire Telegram init immediately but DON'T await it — we want the DOM
+  // to render while the SDK/auth/campaigns load in the background.
+  // In Telegram WebView, ready() is called synchronously (no network needed).
+  const tgPromise = initTelegramMiniApp()
+    .then(tgInfo => {
+      applyTelegramAuth(tgInfo).catch(err => console.warn('[SignalRush] Telegram auth failed:', err.message));
+      return tgInfo;
+    })
+    .catch(err => {
+      console.warn('[SignalRush] Telegram init failed:', err.message);
+      applyTelegramAuth({ initData: null }).catch(() => {});
+      return { initData: null };
+    });
 
   // Calculate cell size — fill available width, clamp height
   const vw = window.innerWidth || 390;
@@ -263,45 +307,24 @@ export async function init(containerSelector = '#game-container') {
   // Init starfield
   initStarfield();
 
-  // Init economy client
-  economyClient = new EconomyClient({ baseUrl: ECONOMY_BASE_URL });
-
-  // Store initData for auto-recovery on 401/403 (expired session token)
-  const _initData = tgInfo.initData || null;
-
-  // If we have Telegram initData, authenticate
-  if (tgInfo.initData) {
-    const authResult = await economyClient.auth(tgInfo.initData);
-    if (authResult.ok && authResult.player) {
-      playerId = authResult.player.id;
-      creditBalance = authResult.player.balance || 0;
-      economyOnline = true;
-      console.log('[SignalRush] Economy online, player:', playerId);
-    } else if (authResult.offline) {
-      console.log('[SignalRush] Economy offline');
-    }
-  }
+  // Telegram auth continues in the background via applyTelegramAuth().
+  // Until it resolves, playerId stays null so we do not create a fake player
+  // and accidentally wire rewards/campaigns to the wrong identity.
 
   // SECURITY: Do NOT use initDataUnsafe for player ID generation.
   // initDataUnsafe is client-controlled and NOT cryptographically verified.
   // Only trust player IDs from server-validated initData (auth endpoint).
   // Falling back to initDataUnsafe would allow session hijacking.
 
-  // Fallback: generate local player ID for non-Telegram contexts (CLI, dev)
-  if (!playerId) {
-    playerId = crypto.randomUUID();
-    economyOnline = false; // No economy without auth
-    console.log('[SignalRush] Local mode (no auth), player:', playerId);
-  }
+  // Local/dev player fallback is created only after Telegram init resolves with no initData.
+  // See applyTelegramAuth() above.
 
-  // Fetch active campaigns with consistent rotation per player
+  // Fetch active campaigns — ONLY update sponsor data here.
+  // Do NOT touch DOM elements (gameWrapper, canvasEl) in this callback
+  // because DOM creation happens synchronously AFTER this await chain.
   economyClient.fetchActiveCampaigns().then(result => {
     if (result.ok && result.campaigns && result.campaigns.length > 0) {
-      // Store all campaigns for rotation
       allCampaigns = result.campaigns;
-      // Deterministic starting point: pick campaign based on playerId hash
-      // This ensures same player sees same starting campaign (consistency)
-      // while different players see different campaigns (fair distribution)
       const campaignCount = allCampaigns.length;
       let hash = 0;
       const seed = playerId || 'default';
@@ -311,33 +334,13 @@ export async function init(containerSelector = '#game-container') {
       campaignRotationIndex = Math.abs(hash) % campaignCount;
       activeSponsor = allCampaigns[campaignRotationIndex];
       console.log('[SignalRush] Active sponsor:', activeSponsor.brand_name, '(' + (campaignRotationIndex + 1) + '/' + campaignCount + ')');
-      console.log('[SignalRush] DEBUG before _updateSponsorBanners, typeof:', typeof _updateSponsorBanners);
-      // Update HTML ad banners now that sponsor is loaded
       _updateSponsorBanners();
-      console.log('[SignalRush] DEBUG after _updateSponsorBanners');
-      // Set up periodic campaign rotation (every 60s) and refresh (every 5 min)
       _startCampaignRotation();
-      // Re-size canvas after banners settle into DOM layout
-      console.log(`[SignalRush] DEBUG: vw=${vw}, check=${vw < 600}`);
-      if (vw < 600) {
-        const rect = gameWrapper.getBoundingClientRect();
-        const targetW = Math.max(300, Math.floor(rect.width) - 4);
-        const targetH = Math.max(200, Math.floor(rect.height) - 4);
-        console.log(`[SignalRush] Post-campaign resize: wrapper=${targetW}x${targetH}, canvas=${canvasEl.width}x${canvasEl.height}`);
-        canvasEl.width = targetW * dpr;
-        canvasEl.height = targetH * dpr;
-        CELL_SIZE = Math.max(8, Math.min(22, Math.floor(targetW / CANVAS_COLS)));
-        CANVAS_W = CANVAS_COLS * CELL_SIZE;
-        CANVAS_H = CANVAS_ROWS * CELL_SIZE;
-        if (CANVAS_W < targetW) CANVAS_W = targetW;
-        if (CANVAS_H < targetH) CANVAS_H = targetH;
-      }
       // Fetch logo as JSON (canvas-renderable)
       if (activeSponsor.id) {
         economyClient.getCampaignLogo(activeSponsor.id).then(logoResult => {
           if (logoResult.ok && logoResult.content) {
             if (logoResult.content.ascii) {
-              // ASCII art logo — store for canvas rendering
               sponsorLogoImage = logoResult.content;
             } else if (logoResult.content.text) {
               sponsorLogoImage = logoResult.content;
@@ -443,30 +446,26 @@ export async function init(containerSelector = '#game-container') {
   gameWrapper.appendChild(hudEl);
 
   container.appendChild(gameWrapper);
-
   // On mobile: resize canvas to fill wrapper exactly after DOM layout
   if (vw < 600) {
-    // Force layout before measuring (prevents zero-height on first paint)
-    gameWrapper.offsetHeight; // triggers reflow
-    const rect = gameWrapper.getBoundingClientRect();
-    const targetW = Math.floor(rect.width);
-    const targetH = Math.floor(rect.height);
-    // Set canvas backing store to match wrapper's CSS size exactly
-    // This avoids aspect-ratio distortion from stretching a fixed-size canvas
-    canvasEl.width = targetW * dpr;
-    canvasEl.height = targetH * dpr;
-    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-    // CSS display size matches wrapper (no stretching)
-    canvasEl.style.width = targetW + 'px';
-    canvasEl.style.height = targetH + 'px';
-    // Recompute CELL_SIZE to fit the actual pixel width with the engine's 56-col grid
-    CELL_SIZE = Math.max(6, Math.floor(targetW / CANVAS_COLS));
-    CANVAS_W = CANVAS_COLS * CELL_SIZE;
-    CANVAS_H = CANVAS_ROWS * CELL_SIZE;
-    // If canvas grid doesn't fill the wrapper, expand to fit
-    if (CANVAS_W < targetW) CANVAS_W = targetW;
-    if (CANVAS_H < targetH) CANVAS_H = targetH;
-    console.log(`[SignalRush] Mobile canvas: ${canvasEl.width}x${canvasEl.height} (${targetW}x${targetH} CSS), grid ${CANVAS_COLS}x${CANVAS_ROWS}, cell ${CELL_SIZE}px`);
+    // Use rAF to ensure layout has settled before measuring
+    // (prevents zero-height rect on first paint in some WebViews)
+    requestAnimationFrame(() => {
+      const rect = gameWrapper.getBoundingClientRect();
+      const targetW = Math.max(300, Math.floor(rect.width));
+      const targetH = Math.max(200, Math.floor(rect.height));
+      canvasEl.width = targetW * dpr;
+      canvasEl.height = targetH * dpr;
+      ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+      canvasEl.style.width = targetW + 'px';
+      canvasEl.style.height = targetH + 'px';
+      CELL_SIZE = Math.max(6, Math.floor(targetW / CANVAS_COLS));
+      CANVAS_W = CANVAS_COLS * CELL_SIZE;
+      CANVAS_H = CANVAS_ROWS * CELL_SIZE;
+      if (CANVAS_W < targetW) CANVAS_W = targetW;
+      if (CANVAS_H < targetH) CANVAS_H = targetH;
+      console.log(`[SignalRush] Mobile canvas: ${canvasEl.width}x${canvasEl.height} (${targetW}x${targetH} CSS), grid ${CANVAS_COLS}x${CANVAS_ROWS}, cell ${CELL_SIZE}px`);
+    });
   }
 
   // ── Sponsor Ad Banner (HTML, below canvas — hidden on Mobile during gameplay) ──

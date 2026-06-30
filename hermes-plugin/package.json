@@ -1,15 +1,16 @@
 {
-  "name": "signal-rush",
+  "name": "signal-rush-hermes-plugin",
   "version": "1.0.0",
-  "description": "",
+  "description": "Signal Rush widget plugin for Hermes Agent",
   "main": "widget_bridge.js",
   "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "test": "node --check widget_bridge.js"
   },
-  "keywords": [],
-  "author": "",
-  "license": "ISC",
-  "dependencies": {
-    "signal-rush-project": "file:../../../../../tmp/signal-rush-fresh-verify-3/signal-rush-project-0.1.0.tgz"
-  }
+  "keywords": [
+    "hermes",
+    "signal-rush",
+    "terminal-game"
+  ],
+  "author": "LongshotAI",
+  "license": "ISC"
 }

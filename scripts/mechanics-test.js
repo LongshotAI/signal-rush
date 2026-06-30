@@ -591,6 +591,24 @@ function testMenuHasPresentedByCallout() {
   setActiveCampaigns([]);
 }
 
+function testMenuDoesNotRenderObjectObjectForLogoCreatives() {
+  const { setActiveCampaigns, apiCampaignToSponsor } = require('../src/content/sponsors');
+  setActiveCampaigns([apiCampaignToSponsor({
+    id: 'object-logo-sponsor',
+    name: 'Object Logo Test',
+    brand_name: 'MykNash',
+    placement_type: 'hud_frame',
+    creatives: [
+      { type: 'logo', content: { text: 'MYK\\nNASH' } },
+      { type: 'label', content: { text: '[ MYKNASH ]' } },
+    ],
+  })]);
+  const out = renderMenuFrame(0, { colors: false });
+  assert(!out.includes('[object Object]'), 'menu should never render raw object values');
+  assert(out.includes('MYK') || out.includes('NASH'), 'menu should render object.text logo content');
+  setActiveCampaigns([]);
+}
+
 function testMenuHasDoubleLineTitleFrame() {
   const out = renderMenuFrame(0, { colors: false });
   // The top branding block uses double-line borders (╔ ═ ║ ╚) for a strong
@@ -1185,6 +1203,7 @@ const tests = [
   testMenuBrandingIncludesUSPTempleWorks,
   testMenuHasSignalRushTitle,
   testMenuHasPresentedByCallout,
+  testMenuDoesNotRenderObjectObjectForLogoCreatives,
   testMenuHasDoubleLineTitleFrame,
   testMenuMiniArenaPreviewAiHunt,
   testMenuMiniArenaPreviewFrogger,

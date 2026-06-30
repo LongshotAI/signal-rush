@@ -151,11 +151,12 @@ async function run() {
       assert(r.status === 401, `expected 401, got ${r.status}`);
     });
 
-    await test('/ads/impression rejects without auth', async () => {
+    await test('/ads/impression remains public for game clients', async () => {
       const r = await request('POST', '/ads/impression', {
-        player_id: playerId, placement_type: 'hud_frame',
+        placement_type: 'hud_frame',
       });
-      assert(r.status === 401, `expected 401, got ${r.status}`);
+      assert(r.status === 200, `expected 200, got ${r.status}`);
+      assert(r.body.ok === true, 'expected ok=true');
     });
 
     // ─── 2. INPUT VALIDATION TESTS ──────────────────────────────────

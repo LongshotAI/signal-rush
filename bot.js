@@ -22,6 +22,8 @@
  */
 
 import { Bot, InlineKeyboard } from 'grammy';
+import { config as loadDotenv } from 'dotenv';
+loadDotenv();
 
 // ── Config ────────────────────────────────────────────────────────────────────
 

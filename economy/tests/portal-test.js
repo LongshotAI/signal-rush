@@ -564,9 +564,14 @@ async function run() {
     assert(res.body.total === 0, `expected total 0, got ${res.body.total}`);
   });
 
-  // ─── 10. Admin Endpoints (without admin key — should work in unenforced mode) ──
+  // ─── 10. Admin Endpoints ────────────────────────────────────────
 
-  await test('admin: list all campaigns without admin key (unenforced)', async () => {
+  await test('admin: rejects list without admin key even when general auth is unenforced', async () => {
+    const res = await request('GET', '/portal/admin/campaigns');
+    assert(res.status === 401, `expected 401, got ${res.status}`);
+  });
+
+  await test('admin: list all campaigns with admin key', async () => {
     const res = await request('GET', '/portal/admin/campaigns', null, ADMIN_HEADER);
     assert(res.status === 200, `expected 200, got ${res.status}`);
     assert(Array.isArray(res.body.campaigns), 'campaigns should be array');
@@ -574,7 +579,7 @@ async function run() {
 
   await test('admin: approve campaign', async () => {
     // statusCampaignId is in pending_review status
-    const res = await request('POST', `/portal/admin/campaigns/${statusCampaignId}/approve`);
+    const res = await request('POST', `/portal/admin/campaigns/${statusCampaignId}/approve`, null, ADMIN_HEADER);
     assert(res.status === 200, `expected 200, got ${res.status}`);
     assert(res.body.campaign.status === 'active', 'status should be active');
   });

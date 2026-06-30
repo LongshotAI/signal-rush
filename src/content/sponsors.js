@@ -228,6 +228,30 @@ function generateLogoFromChar(ch) {
   return logos[ch] || logos['S'];
 }
 
+function normalizeLogoLines(value, fallbackLines) {
+  let lines;
+  if (value && typeof value === 'object' && !Array.isArray(value) && Array.isArray(value.lines)) {
+    lines = value.lines;
+  } else if (Array.isArray(value)) {
+    lines = value;
+  } else if (typeof value === 'string') {
+    lines = [value];
+  } else if (value && typeof value === 'object' && typeof value.text === 'string') {
+    lines = value.text.split(/\r?\n/);
+  } else {
+    lines = fallbackLines;
+  }
+  return (lines || fallbackLines)
+    .map((line) => (typeof line === 'string' ? line : ''))
+    .filter((line) => line.trim().length > 0);
+}
+
+function normalizeText(value, fallback) {
+  if (typeof value === 'string') return value;
+  if (value && typeof value === 'object' && typeof value.text === 'string') return value.text;
+  return fallback;
+}
+
 /**
  * Convert an API campaign object to the internal sponsor format.
  * The economy service stores campaigns with different field names than
@@ -244,41 +268,25 @@ function apiCampaignToSponsor(apiCampaign) {
   const interstitialCreative = creatives.find(c => c.type === 'interstitial');
 
   // Use uploaded logo art if available, otherwise generate from first letter.
-  // logoCreative.content can be:
-  //   - { lines: string[] } (from economy service creative upload)
-  //   - string[] (array of ASCII art lines, legacy)
-  //   - string (single-line logo, wrap in array)
-  let logoFull;
-  if (logoCreative) {
-    const lc = logoCreative.content;
-    if (lc && typeof lc === 'object' && !Array.isArray(lc) && Array.isArray(lc.lines)) {
-      logoFull = lc.lines; // economy service format: { lines: [...] }
-    } else if (Array.isArray(lc)) {
-      logoFull = lc; // legacy: direct array
-    } else {
-      logoFull = [String(lc)]; // fallback: wrap in array
-    }
-  } else {
-    logoFull = generateLogoFromChar(firstChar);
-  }
+  const fallbackLogo = generateLogoFromChar(firstChar);
+  const logoFull = logoCreative
+    ? normalizeLogoLines(logoCreative.content, fallbackLogo)
+    : fallbackLogo;
 
-  // Use uploaded compact logo if available
+  // Use uploaded compact label if available.
   const logoCompact = labelCreative
-    ? (typeof labelCreative.content === 'string' ? labelCreative.content : labelCreative.content?.text || `[ ${brand} ]`)
+    ? normalizeText(labelCreative.content, `[ ${brand} ]`)
     : `[ ${brand} ]`;
 
   // Use uploaded interstitial content if available
-  const interstitial = interstitialCreative
-    ? {
-        headline: interstitialCreative.content.headline || 'This run was powered by',
-        body: interstitialCreative.content.body || `${brand} — advertising in Signal Rush.`,
-        cta: interstitialCreative.content.cta || `Campaign: ${apiCampaign.name || 'Live'}`,
-      }
-    : {
-        headline: 'This run was powered by',
-        body: `${brand} — advertising in Signal Rush.`,
-        cta: `Campaign: ${apiCampaign.name || 'Live'}`,
-      };
+  const interstitialContent = interstitialCreative && interstitialCreative.content && typeof interstitialCreative.content === 'object'
+    ? interstitialCreative.content
+    : {};
+  const interstitial = {
+    headline: normalizeText(interstitialContent.headline, 'This run was powered by'),
+    body: normalizeText(interstitialContent.body, `${brand} — advertising in Signal Rush.`),
+    cta: normalizeText(interstitialContent.cta, `Campaign: ${apiCampaign.name || 'Live'}`),
+  };
 
   return {
     id: apiCampaign.id || 'live-campaign',

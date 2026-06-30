@@ -11,6 +11,16 @@ const eventBridge = require('../core/eventBridge');
 const { getCampaign, fetchActiveCampaigns, apiCampaignToSponsor, setActiveCampaigns } = require('../content/sponsors');
 
 const args = process.argv.slice(2);
+
+function printHelp() {
+  console.log(`Signal Rush CLI\n\nUsage:\n  signal-rush [--mode=aiHunt|frogger] [--demo] [--no-color]\n\nOptions:\n  --mode=aiHunt    Start directly in AI Hunt mode\n  --mode=frogger   Start directly in Packet Hop / Frogger mode\n  --demo           Run non-interactive demo mode\n  --no-color       Disable ANSI colors\n  --help, -h       Show this help text\n\nControls:\n  Menu: ↑/↓, W/S, K/J to select; Enter to launch; Q to quit\n  Game: WASD/arrow keys to move; Space to dash; P pause; R restart; M menu\n`);
+}
+
+if (args.includes('--help') || args.includes('-h')) {
+  printHelp();
+  process.exit(0);
+}
+
 const isDemo = args.includes('--demo');
 const useColor = !args.includes('--no-color');
 

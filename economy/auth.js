@@ -189,10 +189,9 @@ function validateAdvertiserAuth(db, authHeader) {
  * @returns {{ ok: boolean, error?: string }}
  */
 function validateAdminAuth(authHeader) {
-  if (!isAuthEnforced()) {
-    return { ok: true };
-  }
-
+  // Admin routes are never covered by the development auth bypass.
+  // ECONOMY_AUTH_ENFORCED=false may be useful for local advertiser/player flow tests,
+  // but exposing /portal/admin/* without ADMIN_API_KEY is a production launch blocker.
   const adminKey = process.env.ADMIN_API_KEY || null;
 
   // Always perform a constant-time comparison to avoid timing side-channels.
