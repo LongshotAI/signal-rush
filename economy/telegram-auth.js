@@ -10,8 +10,9 @@
 //   2. Extract the hash field (this is the signature)
 //   3. Sort all remaining fields lexicographically by key
 //   4. Build data_check_string: "key=value\nkey=value\n..." (newline-separated)
-//   5. Compute HMAC-SHA256(data_check_string, SHA256(bot_token))
-//   6. Compare hex-encoded hash with the provided hash (constant-time)
+//   5. Compute secret_key = HMAC-SHA256(bot_token, "WebAppData")
+//   6. Compute HMAC-SHA256(data_check_string, secret_key)
+//   7. Compare hex-encoded hash with the provided hash (constant-time)
 //
 // This module is standalone — no dependencies on the rest of the economy service.
 
@@ -45,14 +46,14 @@ function buildDataCheckString(fields) {
 }
 
 /**
- * Compute HMAC-SHA256 of the data_check_string using the bot token.
- * The secret key is SHA256(bot_token) as per Telegram's spec.
+ * Compute HMAC-SHA256 of the data_check_string using Telegram WebAppData.
+ * Telegram Mini Apps derive the secret key as HMAC_SHA256(bot_token, "WebAppData").
  * @param {string} dataCheckString
  * @param {string} botToken
  * @returns {string} Hex-encoded HMAC-SHA256 digest
  */
 function computeSignature(dataCheckString, botToken) {
-  const secretKey = crypto.createHash('sha256').update(botToken).digest();
+  const secretKey = crypto.createHmac('sha256', 'WebAppData').update(botToken).digest();
   return crypto.createHmac('sha256', secretKey).update(dataCheckString).digest('hex');
 }
 

@@ -103,6 +103,7 @@ async function run() {
       ECONOMY_AUTH_ENFORCED: 'false',
       ADMIN_API_KEY: 'test-admin-key-12345',
       ECONOMY_API_KEY: 'test-api-key-12345',
+      ALLOW_MANUAL_DEPOSITS: 'true',
     },
     stdio: ['ignore', 'pipe', 'pipe'],
   });

@@ -37,7 +37,7 @@ function makeInitData(overrides = {}) {
 
   const keys = Object.keys(fields).sort();
   const dataCheckString = keys.map(k => `${k}=${fields[k]}`).join('\n');
-  const secretKey = crypto.createHash('sha256').update(TEST_BOT_TOKEN).digest();
+  const secretKey = crypto.createHmac('sha256', 'WebAppData').update(TEST_BOT_TOKEN).digest();
   const hash = crypto.createHmac('sha256', secretKey).update(dataCheckString).digest('hex');
 
   const params = new URLSearchParams({ ...fields, hash });

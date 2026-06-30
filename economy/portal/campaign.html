@@ -406,7 +406,7 @@
             } else if (type === 'logo') {
               content = { lines: rawContent.split('\n').map(l => l.trimEnd()) };
             } else if (type === 'interstitial') {
-              content = { headline: rawContent.slice(0, 64), body: rawContent };
+              content = { message: rawContent };
             } else {
               alert('Unknown creative type.');
               return;

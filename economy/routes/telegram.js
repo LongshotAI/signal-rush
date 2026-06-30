@@ -487,33 +487,42 @@ function register(app, { db }) {
         isNew = true;
       }
 
-      // Persist to DB
+      // Persist accounting atomically after the VMCO API call succeeds.
       const now = new Date().toISOString();
-      if (isNew) {
-        db.prepare(
-          `UPDATE players SET vmco_sub_key = ?, vmco_sub_key_id = ?,
-                  vmco_sub_key_created_at = ?, vmco_sub_key_budget_credits = ?
-            WHERE id = ?`
-        ).run(subKeyValue, subKeyId, now, newBudget, player.id);
-      } else {
-        db.prepare(
-          'UPDATE players SET vmco_sub_key_budget_credits = ? WHERE id = ?'
-        ).run(newBudget, player.id);
-      }
+      const claimId = randomUUID();
+      const claimKey = req.body?.request_id ? `req:${req.body.request_id}` : `bot:${randomUUID()}`;
+      const tx = db.transaction(() => {
+        if (isNew) {
+          db.prepare(
+            `UPDATE players SET vmco_sub_key = ?, vmco_sub_key_id = ?,
+                    vmco_sub_key_created_at = ?, vmco_sub_key_budget_credits = ?
+              WHERE id = ?`
+          ).run(subKeyValue, subKeyId, now, newBudget, player.id);
+        } else {
+          db.prepare(
+            'UPDATE players SET vmco_sub_key_budget_credits = ? WHERE id = ?'
+          ).run(newBudget, player.id);
+        }
 
-      // Decrement player_rewards.claimed_micros (track spent)
-      db.prepare(
-        `UPDATE player_rewards
-            SET claimed_micros = claimed_micros + ?, updated_at = datetime('now')
-          WHERE player_id = ?`
-      ).run(amt, player.id);
+        db.prepare(
+          `UPDATE player_rewards
+              SET claimed_micros = claimed_micros + ?, updated_at = datetime('now')
+            WHERE player_id = ?`
+        ).run(amt, player.id);
 
-      // Audit record
-      db.prepare(
-        `INSERT INTO reward_claims
-          (player_id, amount_micros, status, ppq_account, idempotency_key, claimed_at, completed_at)
-          VALUES (?, ?, 'completed', ?, ?, datetime('now'), datetime('now'))`
-      ).run(player.id, amt, `vmco:${subKeyId}`, req.body?.request_id ? `req:${req.body.request_id}` : `bot:${randomUUID()}`);
+        db.prepare(
+          `UPDATE rewards_pool
+              SET total_claimed_micros = total_claimed_micros + ?, updated_at = datetime('now')
+            WHERE id = 1`
+        ).run(amt);
+
+        db.prepare(
+          `INSERT INTO reward_claims
+            (id, player_id, amount_micros, status, ppq_account, idempotency_key, claimed_at, completed_at)
+            VALUES (?, ?, ?, 'completed', ?, ?, datetime('now'), datetime('now'))`
+        ).run(claimId, player.id, amt, `vmco:${subKeyId}`, claimKey);
+      });
+      tx();
 
       return {
         ok: true,

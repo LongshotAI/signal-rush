@@ -284,7 +284,7 @@ function apiCampaignToSponsor(apiCampaign) {
     : {};
   const interstitial = {
     headline: normalizeText(interstitialContent.headline, 'This run was powered by'),
-    body: normalizeText(interstitialContent.body, `${brand} — advertising in Signal Rush.`),
+    body: normalizeText(interstitialContent.body || interstitialContent.message, `${brand} — advertising in Signal Rush.`),
     cta: normalizeText(interstitialContent.cta, `Campaign: ${apiCampaign.name || 'Live'}`),
   };
 

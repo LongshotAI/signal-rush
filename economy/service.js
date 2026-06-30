@@ -1567,6 +1567,16 @@ function createServer({ port = DEFAULT_PORT, host = DEFAULT_HOST, dbPath = ledge
         if (dateRange.end !== null) allowedUpdates.end_date = dateRange.end;
       } catch (err) { reply.code(400); return { error: err.message }; }
     }
+    if (req.body?.status !== undefined) {
+      try {
+        const campaign = ledger.getCampaign(db, campaignId);
+        if (!campaign || campaign.advertiser_id !== advertiserId) {
+          reply.code(404);
+          return { error: 'campaign not found' };
+        }
+        allowedUpdates.status = validate.validateStatusTransition(campaign.status, req.body.status);
+      } catch (err) { reply.code(400); return { error: err.message }; }
+    }
 
     try {
       const campaign = ledger.updateCampaign(db, campaignId, advertiserId, allowedUpdates);
@@ -2015,7 +2025,14 @@ function createServer({ port = DEFAULT_PORT, host = DEFAULT_HOST, dbPath = ledge
       }
     }
 
-    // Direct deposit (manual / for testing)
+    // Direct/manual deposits are disabled by default in production.
+    // They are useful for isolated tests/staging, but public advertiser portals
+    // must not mint ad credits without a verified payment event.
+    if (process.env.ALLOW_MANUAL_DEPOSITS !== 'true') {
+      reply.code(503);
+      return { error: 'card checkout is not configured yet — manual deposits are disabled' };
+    }
+
     try {
       const result = ledger.depositAdvertiserFunds(db, {
         advertiserId,

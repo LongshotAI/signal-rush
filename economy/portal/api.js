@@ -35,6 +35,18 @@ const API = (() => {
     localStorage.setItem('sr_account', JSON.stringify(account));
   }
 
+  function getAdminToken() {
+    return localStorage.getItem('sr_admin_key');
+  }
+
+  function setAdminToken(key) {
+    localStorage.setItem('sr_admin_key', key);
+  }
+
+  function clearAdminToken() {
+    localStorage.removeItem('sr_admin_key');
+  }
+
   function isLoggedIn() {
     return !!getToken();
   }
@@ -74,6 +86,23 @@ const API = (() => {
       throw new Error(data?.error || `Request failed (${res.status})`);
     }
 
+    return data;
+  }
+
+  async function adminRequest(method, path, body = null) {
+    const headers = { 'Content-Type': 'application/json' };
+    const token = getAdminToken();
+    if (token) {
+      headers['Authorization'] = `Bearer ${token}`;
+    }
+    const opts = { method, headers };
+    if (body) opts.body = JSON.stringify(body);
+    const res = await fetch(`${BASE}${path}`, opts);
+    let data;
+    try { data = await res.json(); } catch { data = null; }
+    if (!res.ok) {
+      throw new Error(data?.error || `Request failed (${res.status})`);
+    }
     return data;
   }
 
@@ -168,15 +197,15 @@ const API = (() => {
 
   async function adminListCampaigns(status = null) {
     const qs = status ? `?status=${status}` : '';
-    return request('GET', `/portal/admin/campaigns${qs}`);
+    return adminRequest('GET', `/portal/admin/campaigns${qs}`);
   }
 
   async function adminApproveCampaign(id) {
-    return request('POST', `/portal/admin/campaigns/${id}/approve`);
+    return adminRequest('POST', `/portal/admin/campaigns/${id}/approve`);
   }
 
   async function adminRejectCampaign(id) {
-    return request('POST', `/portal/admin/campaigns/${id}/reject`);
+    return adminRequest('POST', `/portal/admin/campaigns/${id}/reject`);
   }
 
   // ── Formatting Helpers ───────────────────────────────────────
@@ -234,7 +263,7 @@ const API = (() => {
 
   return {
     // Auth
-    getToken, setToken, clearToken, getAccount, setAccount, isLoggedIn,
+    getToken, setToken, clearToken, getAccount, setAccount, getAdminToken, setAdminToken, clearAdminToken, isLoggedIn,
     signup, login, logout, getAccountInfo,
     // Campaigns
     listCampaigns, getCampaign, createCampaign, updateCampaign, deleteCampaign,

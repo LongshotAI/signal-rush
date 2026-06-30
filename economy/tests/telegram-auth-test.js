@@ -43,8 +43,8 @@ function makeValidInitData(overrides = {}) {
   const keys = Object.keys(fields).sort();
   const dataCheckString = keys.map(k => `${k}=${fields[k]}`).join('\n');
 
-  // Compute signature
-  const secretKey = crypto.createHash('sha256').update(BOT_TOKEN).digest();
+  // Compute signature per Telegram WebAppData spec
+  const secretKey = crypto.createHmac('sha256', 'WebAppData').update(BOT_TOKEN).digest();
   const hash = crypto.createHmac('sha256', secretKey).update(dataCheckString).digest('hex');
 
   // Build full query string
@@ -112,8 +112,8 @@ test('computeSignature: produces expected HMAC-SHA256 hex string', () => {
   const token = 'my_bot_token';
   const result = computeSignature(data, token);
 
-  // Manually compute expected
-  const secretKey = crypto.createHash('sha256').update(token).digest();
+  // Manually compute expected per Telegram WebAppData spec
+  const secretKey = crypto.createHmac('sha256', 'WebAppData').update(token).digest();
   const expected = crypto.createHmac('sha256', secretKey).update(data).digest('hex');
 
   assert.equal(result, expected);
@@ -201,7 +201,7 @@ test('validateInitData: rejects tampered user data', () => {
   };
   const keys = Object.keys(fields).sort();
   const dataCheckString = keys.map(k => `${k}=${fields[k]}`).join('\n');
-  const secretKey = crypto.createHash('sha256').update(BOT_TOKEN).digest();
+  const secretKey = crypto.createHmac('sha256', 'WebAppData').update(BOT_TOKEN).digest();
   const hash = crypto.createHmac('sha256', secretKey).update(dataCheckString).digest('hex');
 
   // Use tampered user but original hash
@@ -257,7 +257,7 @@ test('validateInitData: accepts valid initData with minimal user fields', () => 
   };
   const keys = Object.keys(fields).sort();
   const dataCheckString = keys.map(k => `${k}=${fields[k]}`).join('\n');
-  const secretKey = crypto.createHash('sha256').update(BOT_TOKEN).digest();
+  const secretKey = crypto.createHmac('sha256', 'WebAppData').update(BOT_TOKEN).digest();
   const hash = crypto.createHmac('sha256', secretKey).update(dataCheckString).digest('hex');
   const params = new URLSearchParams({ ...fields, hash });
 
@@ -282,7 +282,7 @@ test('validateInitData: accepts valid initData with photo_url', () => {
   };
   const keys = Object.keys(fields).sort();
   const dataCheckString = keys.map(k => `${k}=${fields[k]}`).join('\n');
-  const secretKey = crypto.createHash('sha256').update(BOT_TOKEN).digest();
+  const secretKey = crypto.createHmac('sha256', 'WebAppData').update(BOT_TOKEN).digest();
   const hash = crypto.createHmac('sha256', secretKey).update(dataCheckString).digest('hex');
   const params = new URLSearchParams({ ...fields, hash });
 
@@ -299,7 +299,7 @@ test('validateInitData: rejects initData with invalid user JSON', () => {
   };
   const keys = Object.keys(fields).sort();
   const dataCheckString = keys.map(k => `${k}=${fields[k]}`).join('\n');
-  const secretKey = crypto.createHash('sha256').update(BOT_TOKEN).digest();
+  const secretKey = crypto.createHmac('sha256', 'WebAppData').update(BOT_TOKEN).digest();
   const hash = crypto.createHmac('sha256', secretKey).update(dataCheckString).digest('hex');
   const params = new URLSearchParams({ ...fields, hash });
 
@@ -317,7 +317,7 @@ test('validateInitData: rejects initData with missing user id', () => {
   };
   const keys = Object.keys(fields).sort();
   const dataCheckString = keys.map(k => `${k}=${fields[k]}`).join('\n');
-  const secretKey = crypto.createHash('sha256').update(BOT_TOKEN).digest();
+  const secretKey = crypto.createHmac('sha256', 'WebAppData').update(BOT_TOKEN).digest();
   const hash = crypto.createHmac('sha256', secretKey).update(dataCheckString).digest('hex');
   const params = new URLSearchParams({ ...fields, hash });
 

@@ -333,4 +333,4 @@ CREATE TABLE IF NOT EXISTS player_daily_awards (
 
 -- ─── Seed: vmco.ai provider ──────────────────────────────────────────
 INSERT OR IGNORE INTO providers (id, display_name, enabled, credit_rate, min_redemption, max_redemption)
-VALUES ('vmco', 'VMCO.ai', 1, 1000, 100, 100000);
+VALUES ('vmco', 'VMCO.ai', 1, 10000, 10000, 1000000);

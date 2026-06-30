@@ -393,7 +393,7 @@ function updateCampaign(db, campaignId, advertiserId, updates) {
   const existing = db.prepare('SELECT * FROM campaigns WHERE id = ? AND advertiser_id = ?').get(campaignId, advertiserId);
   if (!existing) throw new Error('campaign not found or access denied');
 
-  const allowedFields = ['name', 'brand_name', 'daily_budget_micros', 'total_budget_micros', 'start_date', 'end_date'];
+  const allowedFields = ['name', 'brand_name', 'daily_budget_micros', 'total_budget_micros', 'start_date', 'end_date', 'status'];
   const setClauses = [];
   const values = [];
 

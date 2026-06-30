@@ -14,6 +14,7 @@
 const crypto = require('crypto');
 const vmcoClient = require('../vmco-client');
 const ledger = require('../ledger');
+const auth = require('../auth');
 
 // VMCO pricing: 100 credits = $1.00 → 1 credit = $0.01
 // Signal Rush micros: 1,000,000 micros = $1.00 → 1 micro = $0.000001
@@ -99,6 +100,15 @@ function register(app, { db }) {
         reply.code(403);
         return { error: 'session token mismatch — claim denied' };
       }
+    }
+    return null;
+  }
+
+  function verifyAdminAuth(req, reply) {
+    const result = auth.validateAdminAuth(req.headers.authorization);
+    if (!result.ok) {
+      reply.code(401);
+      return { error: 'unauthorized' };
     }
     return null;
   }
@@ -337,6 +347,9 @@ function register(app, { db }) {
   // Admin: master account balance + name.
 
   app.get('/vmco/account', async (req, reply) => {
+    const authErr = verifyAdminAuth(req, reply);
+    if (authErr) return authErr;
+
     try {
       const acct = await vmcoClient.getAccount();
       return {
@@ -356,6 +369,9 @@ function register(app, { db }) {
   // Liveness + auth check.
 
   app.get('/vmco/health', async (req, reply) => {
+    const authErr = verifyAdminAuth(req, reply);
+    if (authErr) return authErr;
+
     const result = await vmcoClient.healthCheck();
     reply.code(result.ok ? 200 : 503);
     return result;
