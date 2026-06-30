@@ -89,7 +89,7 @@ function register(app, { db }) {
 
     // Try to find an existing player linked to this Telegram ID
     let player = db.prepare(
-      'SELECT id, display_name, created_at, total_earned, total_spent, balance FROM players WHERE telegram_id = ?'
+      'SELECT id, display_name, username, created_at, total_earned, total_spent, balance FROM players WHERE telegram_id = ?'
     ).get(telegramId);
 
     if (!player) {
@@ -104,7 +104,7 @@ function register(app, { db }) {
       ).run(playerId, displayName, telegramId);
 
       player = db.prepare(
-        'SELECT id, display_name, created_at, total_earned, total_spent, balance FROM players WHERE id = ?'
+        'SELECT id, display_name, username, created_at, total_earned, total_spent, balance FROM players WHERE id = ?'
       ).get(playerId);
     }
 
@@ -121,6 +121,7 @@ function register(app, { db }) {
       player: {
         id: player.id,
         display_name: player.display_name,
+        username: player.username || null,
         balance: player.balance,
         total_earned: player.total_earned,
         total_spent: player.total_spent,
@@ -149,7 +150,7 @@ function register(app, { db }) {
     }
 
     const player = db.prepare(
-      `SELECT id, display_name, created_at, total_earned, total_spent, balance,
+      `SELECT id, display_name, username, created_at, total_earned, total_spent, balance,
               vmco_sub_key_id, vmco_sub_key_budget_credits, vmco_sub_key_created_at
          FROM players WHERE telegram_id = ?`
     ).get(telegram_id);
@@ -164,6 +165,7 @@ function register(app, { db }) {
       player: {
         id: player.id,
         display_name: player.display_name,
+        username: player.username || null,
         balance: player.balance,
         total_earned: player.total_earned,
         total_spent: player.total_spent,
@@ -249,7 +251,7 @@ function register(app, { db }) {
     ).run(telegramId, sessionToken, now, now, player_id);
 
     const player = db.prepare(
-      'SELECT id, display_name, created_at, total_earned, total_spent, balance FROM players WHERE id = ?'
+      'SELECT id, display_name, username, created_at, total_earned, total_spent, balance FROM players WHERE id = ?'
     ).get(player_id);
 
     reply.code(200);
@@ -259,6 +261,7 @@ function register(app, { db }) {
       player: {
         id: player.id,
         display_name: player.display_name,
+        username: player.username || null,
         balance: player.balance,
         total_earned: player.total_earned,
         total_spent: player.total_spent,
@@ -306,7 +309,7 @@ function register(app, { db }) {
     }
 
     const existing = db.prepare(
-      'SELECT id, display_name, created_at, total_earned, total_spent, balance FROM players WHERE id = ?'
+      'SELECT id, display_name, username, created_at, total_earned, total_spent, balance FROM players WHERE id = ?'
     ).get(player_id);
 
     if (existing) {

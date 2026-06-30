@@ -22,10 +22,15 @@ CREATE TABLE IF NOT EXISTS schema_migrations (
 CREATE TABLE IF NOT EXISTS players (
     id TEXT PRIMARY KEY,
     display_name TEXT NOT NULL,
+    username TEXT UNIQUE,
     telegram_id TEXT UNIQUE,
     session_token TEXT,
     session_created_at TEXT,
     last_login_at TEXT,
+    vmco_sub_key TEXT,
+    vmco_sub_key_id TEXT,
+    vmco_sub_key_created_at TEXT,
+    vmco_sub_key_budget_credits INTEGER,
     created_at TEXT DEFAULT (datetime('now')),
     total_earned INTEGER DEFAULT 0 CHECK(total_earned >= 0),
     total_spent INTEGER DEFAULT 0 CHECK(total_spent >= 0),
@@ -98,6 +103,7 @@ CREATE INDEX IF NOT EXISTS idx_game_events_type ON game_events(event_type, creat
 CREATE INDEX IF NOT EXISTS idx_ad_impressions_campaign ON ad_impressions(campaign_id, created_at);
 CREATE INDEX IF NOT EXISTS idx_sessions_player ON sessions(player_id, started_at);
 CREATE INDEX IF NOT EXISTS idx_players_telegram_id ON players(telegram_id);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_players_username ON players(username) WHERE username IS NOT NULL;
 CREATE INDEX IF NOT EXISTS idx_players_session_token ON players(session_token);
 
 -- ─── Advertiser Portal Tables ─────────────────────────────────────

@@ -29,7 +29,7 @@ function buildPayload(advertiserId, amountMicros) {
     data: {
       object: {
         metadata: { advertiser_id: advertiserId, amount_micros: String(amountMicros) },
-        customer_details: { email: advertiserId.substring(0, 8) + '@test.local' },
+        customer_details: { email: advertiserId.replace(/[^a-zA-Z0-9._-]/g, '_') + '@test.local' },
       },
     },
     created: Math.floor(Date.now() / 1000),
@@ -78,14 +78,13 @@ function assert(condition, msg) {
   await server.start();
 
   const stripe = Stripe(STRIPE_KEY);
-  const timestamp = Math.floor(Date.now() / 1000);
 
   console.log('\nMulti-Secret Webhook Tests');
 
   // TEST 1: Payload signed with SECRET_A must be accepted (first in list)
   {
     const payload = buildPayload('test-adv-a', 5000);
-    const sig = stripe.webhooks.generateTestHeaderString({ payload, secret: SECRET_A, timestamp });
+    const sig = stripe.webhooks.generateTestHeaderString({ payload, secret: SECRET_A, timestamp: Math.floor(Date.now() / 1000) });
     const res = await postWebhook(8735, payload, sig);
     assert(res.status === 200, 'Secret A (first) accepted - status ' + res.status);
     const body = JSON.parse(res.body);
@@ -95,7 +94,7 @@ function assert(condition, msg) {
   // TEST 2: Payload signed with SECRET_B must be accepted (second in list)
   {
     const payload = buildPayload('test-adv-b', 7500);
-    const sig = stripe.webhooks.generateTestHeaderString({ payload, secret: SECRET_B, timestamp });
+    const sig = stripe.webhooks.generateTestHeaderString({ payload, secret: SECRET_B, timestamp: Math.floor(Date.now() / 1000) });
     const res = await postWebhook(8735, payload, sig);
     assert(res.status === 200, 'Secret B (second) accepted - status ' + res.status);
     const body = JSON.parse(res.body);
@@ -105,7 +104,7 @@ function assert(condition, msg) {
   // TEST 3: Payload signed with NEITHER secret must be rejected (400)
   {
     const payload = buildPayload('test-adv-c', 9999);
-    const sig = stripe.webhooks.generateTestHeaderString({ payload, secret: makeSecret('TotallyWrong'), timestamp });
+    const sig = stripe.webhooks.generateTestHeaderString({ payload, secret: makeSecret('TotallyWrong'), timestamp: Math.floor(Date.now() / 1000) });
     const res = await postWebhook(8735, payload, sig);
     assert(res.status === 400, 'Unknown secret rejected - status ' + res.status);
     const body = JSON.parse(res.body);

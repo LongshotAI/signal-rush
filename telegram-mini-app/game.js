@@ -454,17 +454,20 @@ export async function init(containerSelector = '#game-container') {
       const rect = gameWrapper.getBoundingClientRect();
       const targetW = Math.max(300, Math.floor(rect.width));
       const targetH = Math.max(200, Math.floor(rect.height));
-      canvasEl.width = targetW * dpr;
-      canvasEl.height = targetH * dpr;
-      ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-      canvasEl.style.width = targetW + 'px';
-      canvasEl.style.height = targetH + 'px';
-      CELL_SIZE = Math.max(6, Math.floor(targetW / CANVAS_COLS));
+      // Fit the fixed 56x28 game grid inside the Telegram viewport.
+      // Do NOT stretch CANVAS_H to targetH; that creates dead non-grid space
+      // where only the top of the field is actually playable.
+      CELL_SIZE = Math.max(6, Math.floor(Math.min(targetW / CANVAS_COLS, targetH / CANVAS_ROWS)));
       CANVAS_W = CANVAS_COLS * CELL_SIZE;
       CANVAS_H = CANVAS_ROWS * CELL_SIZE;
-      if (CANVAS_W < targetW) CANVAS_W = targetW;
-      if (CANVAS_H < targetH) CANVAS_H = targetH;
-      console.log(`[SignalRush] Mobile canvas: ${canvasEl.width}x${canvasEl.height} (${targetW}x${targetH} CSS), grid ${CANVAS_COLS}x${CANVAS_ROWS}, cell ${CELL_SIZE}px`);
+      canvasEl.width = CANVAS_W * dpr;
+      canvasEl.height = CANVAS_H * dpr;
+      ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+      // Stretch the complete internal grid to fill the Telegram viewport.
+      // This preserves game coordinates while avoiding a tiny phone canvas.
+      canvasEl.style.width = targetW + 'px';
+      canvasEl.style.height = targetH + 'px';
+      console.log(`[SignalRush] Mobile canvas: ${canvasEl.width}x${canvasEl.height} (${CANVAS_W}x${CANVAS_H} CSS), viewport ${targetW}x${targetH}, grid ${CANVAS_COLS}x${CANVAS_ROWS}, cell ${CELL_SIZE}px`);
     });
   }
 
@@ -513,18 +516,18 @@ export async function init(containerSelector = '#game-container') {
     const newVw = window.innerWidth;
     if (newVw < 600) {
       const rect = gameWrapper.getBoundingClientRect();
-      const targetW = Math.floor(rect.width);
-      const targetH = Math.floor(rect.height);
-      canvasEl.width = targetW * dpr;
-      canvasEl.height = targetH * dpr;
-      ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-      canvasEl.style.width = targetW + 'px';
-      canvasEl.style.height = targetH + 'px';
-      CELL_SIZE = Math.max(6, Math.floor(targetW / CANVAS_COLS));
+      const targetW = Math.max(300, Math.floor(rect.width));
+      const targetH = Math.max(200, Math.floor(rect.height));
+      CELL_SIZE = Math.max(6, Math.floor(Math.min(targetW / CANVAS_COLS, targetH / CANVAS_ROWS)));
       CANVAS_W = CANVAS_COLS * CELL_SIZE;
       CANVAS_H = CANVAS_ROWS * CELL_SIZE;
-      if (CANVAS_W < targetW) CANVAS_W = targetW;
-      if (CANVAS_H < targetH) CANVAS_H = targetH;
+      canvasEl.width = CANVAS_W * dpr;
+      canvasEl.height = CANVAS_H * dpr;
+      ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+      // Stretch the complete internal grid to fill the Telegram viewport.
+      // This preserves game coordinates while avoiding a tiny phone canvas.
+      canvasEl.style.width = targetW + 'px';
+      canvasEl.style.height = targetH + 'px';
     }
   });
 

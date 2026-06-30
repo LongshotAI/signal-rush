@@ -43,8 +43,14 @@ if (!BOT_TOKEN) {
 const bot = new Bot(BOT_TOKEN);
 
 // Inline keyboard with "Play Signal Rush" Mini App button (private chats only — Telegram blocks web_app inline buttons in groups)
-function playKeyboard() {
+function playKeyboard(ctx = null) {
   if (!MINI_APP_URL) return new InlineKeyboard();
+  const chatType = ctx?.chat?.type || 'private';
+  // Telegram web_app buttons are reliable in private bot chats only.
+  // In groups, use a normal URL button to bring the player into the bot DM.
+  if (chatType !== 'private') {
+    return new InlineKeyboard().url('🎮 Play Signal Rush in DM', 'https://t.me/signal_rush_bot?start=play');
+  }
   return new InlineKeyboard().webApp('🎮 Play Signal Rush', MINI_APP_URL);
 }
 
@@ -99,16 +105,15 @@ bot.command('start', async (ctx) => {
   const text = [
     `⚡ Welcome to Signal Rush, ${name}!`,
     '',
-    'Three modes. One reflex test.',
+    'Two modes. One reflex test.',
     '',
-    '🟢 AI Hunt  — Dodge AI, chase pickups',
+    '🟢 AI Hunt — Dodge AI, chase pickups',
     '🟡 Packet Hop — Cross the grid alive',
-    '🔵 Packet Hop — Route packets at speed',
     '',
     'Tap the button below to play 👇',
   ].join('\n');
 
-  await safeReply(ctx, text, { reply_markup: playKeyboard() });
+  await safeReply(ctx, text, { reply_markup: playKeyboard(ctx) });
 });
 
 bot.command('play', async (ctx) => {
@@ -116,7 +121,7 @@ bot.command('play', async (ctx) => {
     return ctx.reply('⚡ Mini App is not configured yet. Check back soon!');
   }
   await safeReply(ctx, '⚡ Tap to launch Signal Rush:', {
-    reply_markup: playKeyboard(),
+    reply_markup: playKeyboard(ctx),
   });
 });
 

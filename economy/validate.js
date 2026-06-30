@@ -52,6 +52,27 @@ function validateDisplayName(value, maxLength = 64) {
 }
 
 /**
+ * Validate a player username. Usernames are public, unique, and permanent.
+ * Lowercase canonical form avoids case-squat duplicates.
+ */
+function validatePlayerUsername(value) {
+  if (typeof value !== 'string') {
+    throw new Error('username must be a string');
+  }
+  const trimmed = value.trim().toLowerCase();
+  if (trimmed.length < 3 || trimmed.length > 24) {
+    throw new Error('username must be 3-24 characters');
+  }
+  if (!/^[a-z][a-z0-9_]*$/.test(trimmed)) {
+    throw new Error('username must start with a letter and use only letters, numbers, and underscores');
+  }
+  if (['admin', 'api', 'bot', 'signalrush', 'signal_rush', 'vmco', 'support', 'null', 'undefined'].includes(trimmed)) {
+    throw new Error('username is reserved');
+  }
+  return trimmed;
+}
+
+/**
  * Validate a positive integer amount.
  * @param {number} value
  * @param {string} field Name for error messages
@@ -526,6 +547,7 @@ function validateVmcoAccount(value) {
 module.exports = {
   validateUuid,
   validateDisplayName,
+  validatePlayerUsername,
   validateAmount,
   validateNonNegativeInt,
   validateReason,

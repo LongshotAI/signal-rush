@@ -43,7 +43,7 @@ function createPlayer(db, displayName) {
 function getPlayer(db, playerId) {
   if (!playerId) return null;
   return db.prepare(
-    'SELECT id, display_name, created_at, total_earned, total_spent, balance FROM players WHERE id = ?'
+    'SELECT id, display_name, username, created_at, total_earned, total_spent, balance FROM players WHERE id = ?'
   ).get(playerId);
 }
 

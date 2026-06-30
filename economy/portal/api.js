@@ -190,7 +190,9 @@ const API = (() => {
   // ── Credits Endpoints ────────────────────────────────────────
 
   async function depositCredits(amountMicros) {
-    return request('POST', '/portal/credits/deposit', { amount_micros: amountMicros });
+    // Public portal deposits must go through Stripe checkout. Manual credit
+    // minting is disabled by default on the backend for production safety.
+    return request('POST', '/portal/credits/deposit', { amount_micros: amountMicros, use_stripe: true });
   }
 
   // ── Admin Endpoints ──────────────────────────────────────────

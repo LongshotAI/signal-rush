@@ -287,6 +287,52 @@ function createServer({ port = DEFAULT_PORT, host = DEFAULT_HOST, dbPath = ledge
     return player;
   });
 
+  // One-time username claim. Usernames are unique and permanent for MVP
+  // launch so player profiles have a stable public handle tied to one ID.
+  app.post('/players/:id/username', async (req, reply) => {
+    let playerId, username;
+    try {
+      playerId = validate.validateUuid(req.params.id, 'player_id');
+      username = validate.validatePlayerUsername(req.body?.username);
+    } catch (err) {
+      reply.code(400);
+      return { error: err.message };
+    }
+
+    const sessionToken = req.body?.session_token;
+    if (!sessionToken) {
+      reply.code(401);
+      return { error: 'session token required' };
+    }
+
+    const player = db.prepare('SELECT id, username, session_token FROM players WHERE id = ?').get(playerId);
+    if (!player) {
+      reply.code(404);
+      return { error: 'player not found' };
+    }
+    if (player.session_token !== sessionToken) {
+      reply.code(403);
+      return { error: 'session token mismatch — username denied' };
+    }
+    if (player.username) {
+      reply.code(409);
+      return { error: 'username already set for this player', username: player.username };
+    }
+
+    try {
+      db.prepare('UPDATE players SET username = ?, display_name = ? WHERE id = ? AND username IS NULL')
+        .run(username, '@' + username, playerId);
+    } catch (err) {
+      if (String(err.message || '').includes('UNIQUE')) {
+        reply.code(409);
+        return { error: 'username already taken' };
+      }
+      throw err;
+    }
+
+    return { ok: true, player_id: playerId, username, display_name: '@' + username };
+  });
+
   app.get('/players/:id/transactions', async (req, reply) => {
     let playerId;
     try {
@@ -2158,9 +2204,6 @@ function createServer({ port = DEFAULT_PORT, host = DEFAULT_HOST, dbPath = ledge
         }
       }
       if (!event) {
-        // TEMP DEBUG: log diagnostic info
-        console.error('WEBHOOK_DEBUG: rawBody len:', req.rawBody?.length, 'sig:', sig.substring(0, 20), 'secrets count:', secrets.length, 'secrets:', JSON.stringify(secrets.map(s => s.substring(0,12) + '...')));
-        console.error('WEBHOOK_DEBUG: first error:', errors[0]);
         reply.code(400);
         return { error: 'webhook signature verification failed for all secrets', details: errors };
       }
