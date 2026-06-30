@@ -85,29 +85,29 @@ describe('EconomyClient', () => {
     assert.equal(result.ok, false);
   });
 
-  it('spendCredits returns ok:false when service unavailable', async () => {
+  it('submitEarnReward returns ok:false when service unavailable', async () => {
     const { EconomyClient } = await import('../economy-client.js');
     const c = new EconomyClient({ baseUrl: 'http://invalid-host' });
-    const result = await c.spendCredits({
-      playerId: 'p1', amount: 10, reason: 'test',
+    const result = await c.submitEarnReward({
+      playerId: '00000000-0000-4000-8000-000000000001', score: 100, combo: 1, level: 1, tickCount: 50, difficultyTier: 0,
     });
     assert.equal(result.ok, false);
   });
 
-  it('awardCredits returns ok:false when service unavailable', async () => {
+  it('claimRewards returns ok:false when service unavailable', async () => {
     const { EconomyClient } = await import('../economy-client.js');
     const c = new EconomyClient({ baseUrl: 'http://invalid-host' });
-    const result = await c.awardCredits({
-      playerId: 'p1', amount: 10, reason: 'test',
+    const result = await c.claimRewards({
+      playerId: '00000000-0000-4000-8000-000000000001', vmcoSubKeyId: 'vmco-test', amountMicros: 10000,
     });
     assert.equal(result.ok, false);
   });
 
-  it('submitCredits returns ok:false when service unavailable', async () => {
+  it('vmcoClaim returns ok:false when service unavailable', async () => {
     const { EconomyClient } = await import('../economy-client.js');
     const c = new EconomyClient({ baseUrl: 'http://invalid-host' });
-    const result = await c.submitCredits({
-      playerId: 'p1', sessionId: 's1', creditsDelta: 10,
+    const result = await c.vmcoClaim({
+      playerId: '00000000-0000-4000-8000-000000000001', amountMicros: 10000,
     });
     assert.equal(result.ok, false);
   });

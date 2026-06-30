@@ -44,6 +44,18 @@ let viewport = {
 };
 let nextTickAt = 0;
 
+// When CLI output is piped into tools like `head`, ffmpeg wrappers, or recorders,
+// the downstream pipe can close before Signal Rush finishes rendering. Treat EPIPE
+// as a clean shutdown so launch/video capture pipelines do not show stack traces.
+process.stdout.on('error', (err) => {
+  if (err && err.code === 'EPIPE') {
+    shuttingDown = true;
+    if (timer) clearInterval(timer);
+    process.exit(0);
+  }
+  throw err;
+});
+
 // Economy bridge state — only active when not in demo mode
 let economyPlayerId = null;
 let economySessionId = null;
