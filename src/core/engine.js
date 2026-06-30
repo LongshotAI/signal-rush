@@ -316,39 +316,10 @@ function stepFrogger(state, input) {
       return state;
     }
     if (state.paused) return state;
-    const move = input.move || null;
-    if (move) {
-      const prevX = state.player.x;
-      const prevY = state.player.y;
-      // Pac-Man wrap on horizontal edges
-      const rawX = state.player.x + move.x;
-      const newX = rawX < 0 ? GAME_CONFIG.width - 1 : rawX >= GAME_CONFIG.width ? 0 : clamp(rawX, 1, GAME_CONFIG.width - 2);
-      const newY = clamp(state.player.y + move.y, 1, GAME_CONFIG.height - 2);
-      // Check if the new position would be lethal
-      const lane = state.lanes.find((l) => l.y === newY);
-      let isLethal = false;
-      if (lane) {
-        if (lane.type === 'river') {
-          // Lethal if no log at the new position
-          const log = lane.vehicles.find((v) => v.x === newX);
-          if (!log) isLethal = true;
-        } else if (lane.type === 'road') {
-          // Lethal if a car is at the new position
-          const car = lane.vehicles.find((v) => v.x === newX);
-          if (car) isLethal = true;
-        }
-        // home, median, and unknown lane types are safe
-      }
-      if (isLethal) {
-        // Reject the move — player stays put
-        state.message = 'Blocked. Find another route.';
-      } else {
-        state.player.x = newX;
-        state.player.y = newY;
-        state.lastMove = move;
-        state.inputPulse = 2;
-        events.push({ type: 'player_hop', to: { x: state.player.x, y: state.player.y } });
-      }
+    // Block all movement during GET READY — the player must wait for GO!
+    // This prevents repositioning before the round starts and ensures a fair start.
+    if (input.move) {
+      state.message = 'Wait for GO!';
     }
     if (state.inputPulse > 0) state.inputPulse -= 1;
     state.getReadyTicks -= 1;

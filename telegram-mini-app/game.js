@@ -471,7 +471,9 @@ export async function init(containerSelector = '#game-container') {
     });
   }
 
-  // ── Sponsor Ad Banner (HTML, below canvas — hidden on Mobile during gameplay) ──
+  // ── Sponsor Ad Banner (HTML, below canvas) ──
+  // On mobile, the ad is rendered as part of the game-over overlay only (not during gameplay)
+  // to avoid overlapping the D-pad touch controls. Desktop shows the persistent banner.
   if (activeSponsor && vw >= 600) {
     const primaryColor = activeSponsor.creatives?.find(c => c.type === 'logo')?.content?.colors?.primary || '#ffdd44';
     const brandColors = { cyan: '#00ffff', yellow: '#ffdd44', green: '#00ff88', white: '#ffffff', red: '#ff5555', magenta: '#ff44ff' };
@@ -911,7 +913,12 @@ async function _submitReceipt() {
         level: receipt.level,
         tickCount: receipt.tickCount || receipt.inputs?.length || 0,
         difficultyTier: receipt.difficultyTier || 0,
-      }).catch(() => {});
+      }).then(r => {
+        if (!r.ok) console.error('[SignalRush] earn-reward failed:', r.error);
+        else console.log('[SignalRush] earn-reward credited:', r.amount_earned_micros, 'µ');
+      }).catch(err => {
+        console.error('[SignalRush] earn-reward network error:', err.message);
+      });
 
       sponsorBalance = sponsorMicros;
       lastReceiptResult = { ok: true, creditsEarned: 0, score: receipt.score, sponsorMicros };
@@ -1056,15 +1063,19 @@ function _startCampaignRotation() {
 }
 
 // ── HTML Sponsor Banners (created async when campaigns load) ──────────
+// On mobile, sponsor ads are shown only on the game-over screen (not during gameplay)
+// to avoid overlapping the D-pad touch controls.
 function _updateSponsorBanners() {
   if (!activeSponsor) return;
+  const vw = window.innerWidth;
+  if (vw < 600) return; // Skip persistent banner on mobile — game-over overlay handles it
   const primaryColor = activeSponsor.creatives?.find(c => c.type === 'logo')?.content?.colors?.primary || '#ffdd44';
   const brandColors = { cyan: '#00ffff', yellow: '#ffdd44', green: '#00ff88', white: '#ffffff', red: '#ff5555', magenta: '#ff44ff' };
   const accent = brandColors[primaryColor] || primaryColor;
   const interstitial = activeSponsor.creatives?.find(c => c.type === 'interstitial');
   const label = activeSponsor.creatives?.find(c => c.type === 'label');
 
-  // Main ad banner (below canvas during gameplay)
+  // Main ad banner (below canvas during gameplay — desktop only)
   let sponsorAd = document.getElementById('sponsor-ad-banner');
   if (!sponsorAd) {
     sponsorAd = document.createElement('div');

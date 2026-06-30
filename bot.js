@@ -67,6 +67,7 @@ async function configureBotUi() {
       web_app: { url: MINI_APP_URL },
     });
     await bot.api.setMyCommands([
+      { command: 'start', description: 'Welcome & play button' },
       { command: 'play', description: 'Launch Signal Rush' },
       { command: 'status', description: 'Check earnings and VMCO key' },
       { command: 'redeem', description: 'Convert earnings to credits' },

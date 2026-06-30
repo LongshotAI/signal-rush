@@ -323,6 +323,7 @@ function testFroggerEngineInitializesCorrectly() {
 
 function testFroggerHopOnMedianIsSafe() {
   const engine = createEngine({ mode: 'frogger' });
+  skipFroggerGetReady(engine);
   const startY = engine.state.player.y;
   engine.step({ move: { x: 0, y: -1 } });
   assert.equal(engine.state.player.y, startY - 1, 'hop should move one row up');
@@ -947,8 +948,8 @@ function testFroggerGetReadyBlocksMoveIntoWaterWithoutLog() {
 }
 
 function testFroggerGetReadyAllowsMoveOntoLog() {
-  // During GET READY the player SHOULD be allowed to move onto a river
-  // tile that has a log — it's safe.
+  // Movement during GET READY is now blocked — player must wait for GO!
+  // This test verifies that movement is correctly blocked.
   const engine = createEngine({ mode: 'frogger' });
   // Find the river lane directly below the median (row 10)
   const riverLane = engine.state.lanes.find((l) => l.type === 'river' && l.y === 9);
@@ -956,28 +957,25 @@ function testFroggerGetReadyAllowsMoveOntoLog() {
   const logX = riverLane.vehicles[0].x;
   engine.state.player.x = logX;
   engine.state.player.y = 10; // median
-  // Move down onto the log — should succeed
+  const startY = engine.state.player.y;
+  // Try to move onto the log — should be blocked during GET READY
   engine.step({ move: { x: 0, y: -1 } });
-  assert.equal(engine.state.player.y, 9, 'player should move onto a log during GET READY');
+  assert.equal(engine.state.player.y, startY, 'player should NOT move during GET READY');
+  assert.equal(engine.state.lives, 3, 'lives should not decrease');
 }
 
 function testFroggerGetReadyAllowsFreeMoveOnMedian() {
-  // During GET READY the player should be able to move freely on safe
-  // lanes (median, home, spawn zone).
+  // Movement during GET READY is now blocked — player must wait for GO!
+  // This test verifies that even safe moves are blocked during countdown.
   const engine = createEngine({ mode: 'frogger' });
   engine.state.player.x = 28;
   engine.state.player.y = 21; // median (safe)
-  // Move left and right freely on the median
+  const startX = engine.state.player.x;
+  // Try to move left/right — should be blocked during GET READY
   engine.step({ move: { x: -1, y: 0 } });
-  assert.equal(engine.state.player.x, 27, 'should move left on median');
+  assert.equal(engine.state.player.x, startX, 'should NOT move left during GET READY');
   engine.step({ move: { x: 1, y: 0 } });
-  assert.equal(engine.state.player.x, 28, 'should move right on median');
-  // Move down to spawn zone (row 22, no lane = safe)
-  engine.step({ move: { x: 0, y: 1 } });
-  assert.equal(engine.state.player.y, 22, 'should move down to spawn zone');
-  // Move back up to median
-  engine.step({ move: { x: 0, y: -1 } });
-  assert.equal(engine.state.player.y, 21, 'should move back up to median');
+  assert.equal(engine.state.player.x, startX, 'should NOT move right during GET READY');
 }
 
 function testFroggerGetReadyCountdownEndsAfterConfigTicks() {

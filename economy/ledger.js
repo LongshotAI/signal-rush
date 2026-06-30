@@ -594,9 +594,17 @@ function allocateToRewardsPool(db, amountMicros) {
 // Per-session cap: 5000 micros (5 credits at 1000 micros/credit)
 // Per-day cap: 25000 micros (25 credits)
 function calculateSkillEarnings({ score = 0, combo = 0, level = 1, tickCount = 0, difficultyTier = 0 }) {
-  const base = Math.max(0, tickCount) * 2;
+  // Reward formula tuned for meaningful player payouts:
+  //   - Each tick survived = 5 micros (base survival reward)
+  //   - Score multiplier: score/50, capped at 6.0 (rewards skill heavily)
+  //   - Combo multiplier: up to 2.0x for long combos
+  //   - Level multiplier: +20% per level for progression
+  //   - Difficulty tier: +10% per tier
+  //   - Per-session cap: 5000 micros (5 credits)
+  //   - Per-day cap: 25000 micros (25 credits)
+  const base = Math.max(0, tickCount) * 5;
   const comboMult = Math.min(2.0, 1.0 + Math.max(0, combo) * 0.05);
-  const scoreMult = Math.min(3.0, Math.max(0, score) / 100);
+  const scoreMult = Math.min(6.0, Math.max(0, score) / 50);
   const levelMult = 1.0 + Math.max(0, level - 1) * 0.2;
   const tierBonus = 1.0 + Math.max(0, difficultyTier) * 0.1;
   const raw = Math.floor(base * comboMult * scoreMult * levelMult * tierBonus);
@@ -644,6 +652,11 @@ function earnPlayerReward(db, playerId, { score = 0, combo = 0, level = 1, tickC
     db.prepare(
       "INSERT INTO player_rewards (player_id, earned_micros, claimed_micros, last_earned_at, updated_at) VALUES (?, ?, 0, datetime('now'), datetime('now')) ON CONFLICT(player_id) DO UPDATE SET earned_micros = earned_micros + ?, last_earned_at = datetime('now'), updated_at = datetime('now')"
     ).run(playerId, finalAmount, finalAmount);
+
+    // Keep players.balance and players.total_earned in sync with player_rewards
+    db.prepare(
+      'UPDATE players SET balance = (SELECT earned_micros - claimed_micros FROM player_rewards WHERE player_id = ?), total_earned = (SELECT earned_micros FROM player_rewards WHERE player_id = ?) WHERE id = ?'
+    ).run(playerId, playerId, playerId);
 
     return { amount: finalAmount };
   });
