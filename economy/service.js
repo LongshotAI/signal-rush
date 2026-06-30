@@ -27,6 +27,15 @@ const DEFAULT_HOST = '127.0.0.1'; // localhost only — no external exposure
 function createServer({ port = DEFAULT_PORT, host = DEFAULT_HOST, dbPath = ledger.DEFAULT_DB_PATH } = {}) {
   const app = Fastify({ logger: false }); // quiet logging for MVP
   const db = ledger.openDb(dbPath);
+  db.prepare(
+    `CREATE TABLE IF NOT EXISTS stripe_webhook_events (
+      event_id TEXT PRIMARY KEY,
+      session_id TEXT UNIQUE,
+      advertiser_id TEXT,
+      amount_micros INTEGER NOT NULL DEFAULT 0,
+      processed_at TEXT DEFAULT (datetime('now'))
+    )`
+  ).run();
 
   // ─── Raw Body Capture (for Stripe webhook signature verification) ──
   // Stripe's constructEvent() needs the EXACT bytes that were signed.
@@ -1124,6 +1133,7 @@ function createServer({ port = DEFAULT_PORT, host = DEFAULT_HOST, dbPath = ledge
         ledger.chargeCampaign(db, {
           campaignId: campaign_id,
           amountMicros: cost_micros,
+          placementType: validatedPlacementType,
         });
       } catch (err) {
         const msg = err.message || '';
@@ -1275,10 +1285,16 @@ function createServer({ port = DEFAULT_PORT, host = DEFAULT_HOST, dbPath = ledge
       }
     }
 
-    // Minimum claim: 1000 micros (1 credit worth)
-    if (amountMicros < 1000) {
+    // Minimum claim: 10,000 micros = 1 whole VMCO credit. Keep this aligned
+    // with /vmco/claim and /telegram/redeem so fractional claims cannot
+    // reduce a player's available rewards without becoming redeemable.
+    if (amountMicros < 10000) {
       reply.code(400);
-      return { error: 'minimum claim is 1000 micros' };
+      return { error: 'minimum claim is 10000 micros' };
+    }
+    if (amountMicros % 10000 !== 0) {
+      reply.code(400);
+      return { error: 'claim amount must be a multiple of 10000 micros' };
     }
 
     // Rate limit: max 1 claim per 60 seconds per player_id
@@ -1335,9 +1351,13 @@ function createServer({ port = DEFAULT_PORT, host = DEFAULT_HOST, dbPath = ledge
       return { error: err.message };
     }
 
-    if (amountMicros < 1000) {
+    if (amountMicros < 10000) {
       reply.code(400);
-      return { error: 'minimum transfer is 1000 micros' };
+      return { error: 'minimum transfer is 10000 micros' };
+    }
+    if (amountMicros % 10000 !== 0) {
+      reply.code(400);
+      return { error: 'transfer amount must be a multiple of 10000 micros' };
     }
 
     // Rate limit: same as claim endpoint
@@ -2213,16 +2233,25 @@ function createServer({ port = DEFAULT_PORT, host = DEFAULT_HOST, dbPath = ledge
         const advertiserId = session.metadata?.advertiser_id;
         const amountMicros = parseInt(session.metadata?.amount_micros || '0', 10);
         if (advertiserId && amountMicros > 0) {
+          const sessionId = session.id || null;
+          const inserted = db.prepare(
+            'INSERT OR IGNORE INTO stripe_webhook_events (event_id, session_id, advertiser_id, amount_micros) VALUES (?, ?, ?, ?)'
+          ).run(event.id || `checkout:${sessionId || randomUUID()}`, sessionId, advertiserId, amountMicros);
+          if (inserted.changes === 0) {
+            return { ok: true, idempotent: true };
+          }
+
           // Auto-create advertiser on first deposit if not yet exists
           const existing = db.prepare('SELECT 1 FROM advertiser_accounts WHERE id = ?').get(advertiserId);
           if (!existing) {
             const email = session.customer_details?.email || `${advertiserId}@stripe-temp.local`;
             const companyName = session.metadata?.advertiser_name || advertiserId.substring(0, 8);
             const crypto = require('crypto');
-            const apiHash = crypto.createHash('sha256').update(advertiserId + '_stripe_' + Date.now()).digest('hex');
+            const apiKey = 'stripe_' + advertiserId;
+            const apiHash = crypto.createHash('sha256').update(apiKey).digest('hex');
             db.prepare(
               'INSERT INTO advertiser_accounts (id, email, password_hash, company_name, api_key, api_key_hash, status) VALUES (?, ?, ?, ?, ?, ?, ?)'
-            ).run(advertiserId, email, 'stripe_oauth:' + advertiserId, companyName, 'stripe_' + advertiserId, apiHash, 'active');
+            ).run(advertiserId, email, 'stripe_oauth:' + advertiserId, companyName, apiKey, apiHash, 'active');
           }
           ledger.depositAdvertiserFunds(db, {
             advertiserId,
@@ -2245,16 +2274,33 @@ function createServer({ port = DEFAULT_PORT, host = DEFAULT_HOST, dbPath = ledge
 
   app.get('/api/game/campaigns', async (req, reply) => {
     const today = new Date().toISOString().split('T')[0];
+    const impressionCost = resolveImpressionCost('campaign');
     const campaigns = db.prepare(
-      'SELECT id, advertiser_id, name, brand_name, status, placement_type, daily_budget_micros, total_budget_micros, spent_micros, start_date, end_date, created_at FROM campaigns WHERE status = ? AND (end_date IS NULL OR end_date >= ?) AND (total_budget_micros = 0 OR spent_micros < total_budget_micros) ORDER BY created_at DESC LIMIT 100'
-    ).all('active', today);
-    // Attach approved creatives to each campaign
+      `SELECT c.id, c.advertiser_id, c.name, c.brand_name, c.status, c.placement_type,
+              c.daily_budget_micros, c.daily_spent_micros, c.daily_spent_date,
+              c.total_budget_micros, c.spent_micros, c.start_date, c.end_date, c.created_at
+       FROM campaigns c
+       JOIN advertiser_accounts a ON a.id = c.advertiser_id
+       WHERE c.status = ?
+         AND (c.start_date IS NULL OR c.start_date <= ?)
+         AND (c.end_date IS NULL OR c.end_date >= ?)
+         AND (c.total_budget_micros = 0 OR c.spent_micros + ? <= c.total_budget_micros)
+         AND (c.daily_budget_micros = 0 OR c.daily_spent_date IS NULL OR c.daily_spent_date != ? OR c.daily_spent_micros + ? <= c.daily_budget_micros)
+         AND a.status = 'active'
+         AND a.balance_micros >= ?
+         AND EXISTS (SELECT 1 FROM creatives cr WHERE cr.campaign_id = c.id AND cr.status = 'approved')
+       ORDER BY c.created_at DESC
+       LIMIT 100`
+    ).all('active', today, today, impressionCost, today, impressionCost, impressionCost);
+    // Attach approved creatives to each campaign and keep only renderable campaigns.
+    const renderable = [];
     for (const campaign of campaigns) {
       campaign.creatives = ledger.listCreativesForCampaign(db, campaign.id)
         .filter(c => c.status === 'approved')
         .map(c => ({ type: c.type, content: JSON.parse(c.content_json) }));
+      if (campaign.creatives.length > 0) renderable.push(campaign);
     }
-    return { ok: true, campaigns };
+    return { ok: true, campaigns: renderable };
   });
 
   // ─── Logo/Creative Image Serving ─────────────────────────────────

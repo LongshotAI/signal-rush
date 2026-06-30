@@ -496,7 +496,7 @@ function getCampaignStats(db, campaignId) {
 
 // ─── Campaign Billing ──────────────────────────────────────────────
 
-function chargeCampaign(db, { campaignId, amountMicros }) {
+function chargeCampaign(db, { campaignId, amountMicros, placementType = null }) {
   if (amountMicros <= 0) throw new Error('charge amount must be positive');
 
   const tx = db.transaction(() => {
@@ -507,6 +507,9 @@ function chargeCampaign(db, { campaignId, amountMicros }) {
 
     if (!campaign) throw new Error('campaign not found');
     if (campaign.status !== 'active') throw new Error('campaign is not active');
+    if (placementType && campaign.placement_type && campaign.placement_type !== placementType) {
+      throw new Error('campaign placement mismatch');
+    }
     if (campaign.advertiser_balance < amountMicros) throw new Error('insufficient advertiser balance');
 
     // Check campaign date range (if configured)
@@ -619,10 +622,7 @@ function earnPlayerReward(db, playerId, { score = 0, combo = 0, level = 1, tickC
   const tx = db.transaction(() => {
     // Check daily cap (per player)
     const today = new Date().toISOString().split('T')[0];
-    const dailyRow = db.prepare(
-      "SELECT COALESCE(SUM(amount_micros), 0) as total FROM reward_claims WHERE player_id = ? AND date(claimed_at) = ? AND status IN ('completed', 'pending')"
-    ).get(playerId, today);
-    const dailyTotal = dailyRow ? dailyRow.total : 0;
+    const dailyTotal = getPlayerDailyAwardTotal(db, playerId, today);
     const DAILY_EARN_CAP = 25000;
     const remainingDaily = Math.max(0, DAILY_EARN_CAP - dailyTotal);
 
@@ -653,10 +653,10 @@ function earnPlayerReward(db, playerId, { score = 0, combo = 0, level = 1, tickC
       "INSERT INTO player_rewards (player_id, earned_micros, claimed_micros, last_earned_at, updated_at) VALUES (?, ?, 0, datetime('now'), datetime('now')) ON CONFLICT(player_id) DO UPDATE SET earned_micros = earned_micros + ?, last_earned_at = datetime('now'), updated_at = datetime('now')"
     ).run(playerId, finalAmount, finalAmount);
 
+    addPlayerDailyAward(db, playerId, today, finalAmount);
+
     // Keep players.balance and players.total_earned in sync with player_rewards
-    db.prepare(
-      'UPDATE players SET balance = (SELECT earned_micros - claimed_micros FROM player_rewards WHERE player_id = ?), total_earned = (SELECT earned_micros FROM player_rewards WHERE player_id = ?) WHERE id = ?'
-    ).run(playerId, playerId, playerId);
+    syncPlayerRewardBalance(db, playerId);
 
     return { amount: finalAmount };
   });
@@ -679,6 +679,13 @@ function getPlayerRewards(db, playerId) {
 
 function getRewardsPoolStats(db) {
   return db.prepare('SELECT * FROM rewards_pool WHERE id = 1').get() || { total_deposited_micros: 0, total_claimed_micros: 0 };
+}
+
+function syncPlayerRewardBalance(db, playerId) {
+  if (!playerId) return;
+  db.prepare(
+    "UPDATE players SET balance = COALESCE((SELECT earned_micros - claimed_micros FROM player_rewards WHERE player_id = ?), 0), total_earned = COALESCE((SELECT earned_micros FROM player_rewards WHERE player_id = ?), 0) WHERE id = ?"
+  ).run(playerId, playerId, playerId);
 }
 
 // ─── Leaderboard ─────────────────────────────────────────────────
@@ -756,6 +763,7 @@ function claimReward(db, { playerId, ppqAccount, amountMicros, idempotencyKey })
     db.prepare(
       "UPDATE player_rewards SET claimed_micros = claimed_micros + ?, updated_at = datetime('now') WHERE player_id = ?"
     ).run(amountMicros, playerId);
+    syncPlayerRewardBalance(db, playerId);
 
     // Deduct from pool
     db.prepare(
@@ -793,6 +801,7 @@ function failRewardClaim(db, claimId) {
     db.prepare(
       'UPDATE player_rewards SET claimed_micros = claimed_micros - ? WHERE player_id = ?'
     ).run(claim.amount_micros, claim.player_id);
+    syncPlayerRewardBalance(db, claim.player_id);
     db.prepare(
       'UPDATE rewards_pool SET total_claimed_micros = total_claimed_micros - ? WHERE id = 1'
     ).run(claim.amount_micros);
@@ -886,6 +895,7 @@ module.exports = {
   earnPlayerReward,
   getPlayerRewards,
   getRewardsPoolStats,
+  syncPlayerRewardBalance,
   getLeaderboard,
   getPoolHealth,
   claimReward,

@@ -11,8 +11,8 @@ const SCREENSHOTS = '/tmp/sr-portal-screenshots';
 // Ensure output dir
 fs.mkdirSync(SCREENSHOTS, { recursive: true });
 
-// API key from seed
-const API_KEY = '010f5a34b9406a342931b21328e18c09148f061a6c2acec28c208e8fc5081215';
+// API key from seed; require env in real use so no API-key-looking value is committed.
+const API_KEY = process.env.SIGNAL_RUSH_SCREENSHOT_API_KEY || 'TEST_SCREENSHOT_API_KEY_ONLY';
 const CAMPAIGN_ID = '2477d7d7-1862-4ce7-bd47-59a71344b1dd';
 
 async function pageText(url) {

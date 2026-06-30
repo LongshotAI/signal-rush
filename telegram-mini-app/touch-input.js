@@ -66,6 +66,14 @@ export function getDPadState() {
   return { x, y };
 }
 
+function _directionToMove(dir) {
+  if (dir === 'up') return { x: 0, y: -1 };
+  if (dir === 'down') return { x: 0, y: 1 };
+  if (dir === 'left') return { x: -1, y: 0 };
+  if (dir === 'right') return { x: 1, y: 0 };
+  return null;
+}
+
 /**
  * Tear down all touch input listeners and remove the D-pad from the DOM.
  */
@@ -159,6 +167,8 @@ function _buildDPad() {
     _addListener(btn, 'touchstart', (e) => {
       e.preventDefault();
       _dPadState[item.dir] = true;
+      const move = _directionToMove(item.dir);
+      if (_onMove && move) _onMove(move);
       Object.assign(btn.style, { ...btnStyle, ...activeStyle });
       if (item.top) btn.style.top = item.top;
       if (item.bottom) btn.style.bottom = item.bottom;
@@ -193,6 +203,8 @@ function _buildDPad() {
     // Mouse fallback (for testing on desktop)
     _addListener(btn, 'mousedown', () => {
       _dPadState[item.dir] = true;
+      const move = _directionToMove(item.dir);
+      if (_onMove && move) _onMove(move);
       Object.assign(btn.style, { ...btnStyle, ...activeStyle });
       if (item.top) btn.style.top = item.top;
       if (item.bottom) btn.style.bottom = item.bottom;

@@ -3,8 +3,8 @@ const Stripe = require('stripe');
 const fs = require('fs');
 
 (async () => {
-  process.env.STRIPE_SECRET_KEY = process.argv[2] || 'sk_liv...8pWV';
-  process.env.STRIPE_WEBHOOK_SECRET = 'whsec_Etmc9VnPVsi37UjVRP8WCnjaIlGP6uPh';
+  process.env.STRIPE_SECRET_KEY = process.argv[2] || 'sk_test_FAKE_INJECT_TEST_ONLY_DO_NOT_USE';
+  process.env.STRIPE_WEBHOOK_SECRET = 'whsec_FAKE_INJECT_TEST_ONLY_DO_NOT_USE';
   process.env.ECONOMY_AUTH_ENFORCED = 'false';
 
   const server = createServer({ port: 8793, host: '127.0.0.1', dbPath: ':memory:' });
@@ -24,7 +24,7 @@ const fs = require('fs');
   });
   const sig = stripe.webhooks.generateTestHeaderString({
     payload,
-    secret: 'whsec_Etmc9VnPVsi37UjVRP8WCnjaIlGP6uPh',
+    secret: process.env.STRIPE_WEBHOOK_SECRET,
     timestamp: ts,
   });
 

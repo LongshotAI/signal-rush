@@ -195,6 +195,7 @@ function resetStateFrogger(state) {
   state.timeLeft = fresh.timeLeft;
   state.maxTime = fresh.maxTime;
   state.onLog = null;
+  state.onLogOffset = 0;
   state.lastFroggerCause = null;
   state.bestProgressY = fresh.bestProgressY;
   state.lanes = fresh.lanes.map((l) => ({
@@ -208,12 +209,21 @@ function respawnFrog(state) {
   state.player.x = cfg.spawnX;
   state.player.y = cfg.spawnRow;
   state.onLog = null;
+  state.onLogOffset = 0;
   state.bestProgressY = cfg.spawnRow;
   state.timeLeft = cfg.timePerLevel;
 }
 
 function laneAt(state, y) {
   return state.lanes.find((l) => l.y === y);
+}
+
+function logOffsetAt(log, playerX) {
+  const LOG_WIDTH_CELLS = 2;
+  for (let offset = 0; offset < LOG_WIDTH_CELLS; offset += 1) {
+    if (log.x + offset === playerX) return offset;
+  }
+  return null;
 }
 
 // Sync onLog with the player's current position.
@@ -224,19 +234,22 @@ function laneAt(state, y) {
 function syncOnLog(state) {
   const lane = state.lanes.find((l) => l.y === state.player.y);
   if (lane && lane.type === 'river') {
-    const log = lane.vehicles.find((v) => v.x === state.player.x);
+    const log = lane.vehicles.find((v) => logOffsetAt(v, state.player.x) !== null);
     if (log) {
       state.onLog = log;
+      state.onLogOffset = logOffsetAt(log, state.player.x) || 0;
       return;
     }
   }
   state.onLog = null;
+  state.onLogOffset = 0;
 }
 
 function loseFroggerLife(state, cause) {
   state.lives -= 1;
   state.lastFroggerCause = cause;
   state.onLog = null;
+  state.onLogOffset = 0;
   if (state.lives <= 0) {
     state.gameOver = true;
     state.deathState = {
@@ -353,6 +366,7 @@ function stepFrogger(state, input) {
       state.homeSlots = [false, false, false, false, false];
       state.player = { x: GAME_CONFIG.modes.frogger.spawnX, y: GAME_CONFIG.modes.frogger.spawnRow };
       state.onLog = null;
+      state.onLogOffset = 0;
       state.gameOver = false;
       state.deathState = null;
       state.getReadyTicks = GAME_CONFIG.modes.frogger.getReadyTicks;
@@ -439,9 +453,10 @@ function stepFrogger(state, input) {
     const log = state.onLog;
     const lane = state.lanes.find((l) => l.y === state.player.y);
     if (lane && lane.type === 'river') {
-      state.player.x = clamp(log.x, 1, GAME_CONFIG.width - 2);
+      state.player.x = clamp(log.x + (state.onLogOffset || 0), 1, GAME_CONFIG.width - 2);
     } else {
       state.onLog = null;
+      state.onLogOffset = 0;
     }
   }
   if (state.player.x < 1 || state.player.x > GAME_CONFIG.width - 2) {
@@ -462,9 +477,10 @@ function stepFrogger(state, input) {
         if (state.gameOver) return state;
       }
     } else if (lane.type === 'river') {
-      const log = lane.vehicles.find((v) => v.x === state.player.x);
+      const log = lane.vehicles.find((v) => logOffsetAt(v, state.player.x) !== null);
       if (log) {
         state.onLog = log;
+        state.onLogOffset = logOffsetAt(log, state.player.x) || 0;
       } else {
         loseFroggerLife(state, 'water');
         if (state.gameOver) return state;
@@ -474,6 +490,7 @@ function stepFrogger(state, input) {
     } else {
       // median or unknown: clear onLog
       state.onLog = null;
+      state.onLogOffset = 0;
     }
   }
 

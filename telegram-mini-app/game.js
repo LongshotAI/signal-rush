@@ -23,6 +23,16 @@ function sanitizeHtml(str) {
     .replace(/"/g, '&quot;')
     .replace(/'/g, '&#39;');
 }
+
+function sanitizeCanvasText(str, maxLen = 48) {
+  if (str == null) return '';
+  return String(str)
+    .replace(/[<>]/g, '')
+    .replace(/[\r\n\t]+/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .slice(0, maxLen);
+}
 import {
   initTelegramMiniApp,
   hapticFeedback,
@@ -76,7 +86,13 @@ let CELL_SIZE   = 18;     // pixels per grid cell (overridden on mobile)
 let CANVAS_W    = 1008;
 let CANVAS_H    = 504;
 
-const TICK_MS = 120; // Engine tick rate (ms per engine step)
+const TICK_MS_BY_MODE = {
+  aiHunt: 120,
+  packetHop: 150,
+};
+function getCurrentTickMs() {
+  return TICK_MS_BY_MODE[currentMode] || TICK_MS_BY_MODE.aiHunt;
+}
 
 // Two modes: both use the aiHunt engine underneath (packetHop mode TBD in engine)
 const GAME_MODES = ['aiHunt', 'packetHop'];
@@ -463,11 +479,13 @@ export async function init(containerSelector = '#game-container') {
       canvasEl.width = CANVAS_W * dpr;
       canvasEl.height = CANVAS_H * dpr;
       ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-      // Stretch the complete internal grid to fill the Telegram viewport.
-      // This preserves game coordinates while avoiding a tiny phone canvas.
-      canvasEl.style.width = targetW + 'px';
-      canvasEl.style.height = targetH + 'px';
-      console.log(`[SignalRush] Mobile canvas: ${canvasEl.width}x${canvasEl.height} (${CANVAS_W}x${CANVAS_H} CSS), viewport ${targetW}x${targetH}, grid ${CANVAS_COLS}x${CANVAS_ROWS}, cell ${CELL_SIZE}px`);
+      const cssScale = Math.min(targetW / CANVAS_W, targetH / CANVAS_H);
+      const cssW = Math.floor(CANVAS_W * cssScale);
+      const cssH = Math.floor(CANVAS_H * cssScale);
+      canvasEl.style.width = cssW + 'px';
+      canvasEl.style.height = cssH + 'px';
+      canvasEl.style.margin = '0 auto';
+      console.log(`[SignalRush] Mobile canvas: ${canvasEl.width}x${canvasEl.height} (${cssW}x${cssH} CSS), viewport ${targetW}x${targetH}, grid ${CANVAS_COLS}x${CANVAS_ROWS}, cell ${CELL_SIZE}px`);
     });
   }
 
@@ -526,10 +544,10 @@ export async function init(containerSelector = '#game-container') {
       canvasEl.width = CANVAS_W * dpr;
       canvasEl.height = CANVAS_H * dpr;
       ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-      // Stretch the complete internal grid to fill the Telegram viewport.
-      // This preserves game coordinates while avoiding a tiny phone canvas.
-      canvasEl.style.width = targetW + 'px';
-      canvasEl.style.height = targetH + 'px';
+      const cssScale = Math.min(targetW / CANVAS_W, targetH / CANVAS_H);
+      canvasEl.style.width = Math.floor(CANVAS_W * cssScale) + 'px';
+      canvasEl.style.height = Math.floor(CANVAS_H * cssScale) + 'px';
+      canvasEl.style.margin = '0 auto';
     }
   });
 
@@ -730,7 +748,7 @@ function loop(timestamp) {
   rafId = requestAnimationFrame(loop);
 
   // Run engine.step() on configured tick cadence
-  if (timestamp - lastTickTime >= TICK_MS) {
+  if (timestamp - lastTickTime >= getCurrentTickMs()) {
     lastTickTime = timestamp;
 
     if (engine) {
@@ -773,8 +791,10 @@ function loop(timestamp) {
           move = touchMove;
           touchMove = null;
         }
-        // Poll D-pad state every tick for continuous movement
-        if (!move) {
+        // AI Hunt supports held D-pad movement. Packet Hop is discrete: D-pad
+        // button touchstart/tap callbacks enqueue one hop, and held state is ignored
+        // to avoid sliding through traffic/log lanes.
+        if (!move && currentMode !== 'packetHop') {
           move = getDPadState();
         }
 
@@ -899,29 +919,33 @@ async function _submitReceipt() {
     if (verifyResult.ok && verifyResult.valid) {
       // Credits are ad-funded only — we no longer award gameplay credits.
       // The only redeemable value comes from the 20% ad revenue pool.
+      let earnedMicros = 0;
+      try {
+        const earnResult = await economyClient.submitEarnReward({
+          playerId,
+          score: receipt.score,
+          combo: receipt.combo || 0,
+          level: receipt.level,
+          tickCount: receipt.tickCount || receipt.inputs?.length || 0,
+          difficultyTier: receipt.difficultyTier || 0,
+        });
+        if (!earnResult.ok) console.error('[SignalRush] earn-reward failed:', earnResult.error);
+        else {
+          earnedMicros = earnResult.amount_earned_micros || 0;
+          console.log('[SignalRush] earn-reward credited:', earnedMicros, 'µ');
+        }
+      } catch (err) {
+        console.error('[SignalRush] earn-reward network error:', err.message);
+      }
+
       let sponsorMicros = 0;
       try {
         const rewardRes = await economyClient.getRewards(playerId);
         if (rewardRes.ok) sponsorMicros = rewardRes.available_micros || 0;
       } catch {}
 
-      // Also submit session stats for skill-based reward calculation
-      economyClient.submitEarnReward({
-        playerId,
-        score: receipt.score,
-        combo: receipt.combo || 0,
-        level: receipt.level,
-        tickCount: receipt.tickCount || receipt.inputs?.length || 0,
-        difficultyTier: receipt.difficultyTier || 0,
-      }).then(r => {
-        if (!r.ok) console.error('[SignalRush] earn-reward failed:', r.error);
-        else console.log('[SignalRush] earn-reward credited:', r.amount_earned_micros, 'µ');
-      }).catch(err => {
-        console.error('[SignalRush] earn-reward network error:', err.message);
-      });
-
       sponsorBalance = sponsorMicros;
-      lastReceiptResult = { ok: true, creditsEarned: 0, score: receipt.score, sponsorMicros };
+      lastReceiptResult = { ok: true, creditsEarned: 0, score: receipt.score, sponsorMicros, earnedMicros };
     } else {
       lastReceiptResult = { ok: false, reason: 'receipt rejected' };
     }
@@ -1775,7 +1799,7 @@ function drawGameOver(state) {
     }
 
     // Headline from interstitial creative
-    const headline = interstitial?.content?.headline || 'This round powered by';
+    const headline = sanitizeCanvasText(interstitial?.content?.headline || 'This round powered by', 42);
     ctx.font = '11px monospace';
     ctx.fillStyle = accentColor;
     ctx.textAlign = 'center';
@@ -2196,7 +2220,7 @@ function drawFroggerGameOver(state) {
     ctx.globalAlpha = 1.0;
 
     // Headline
-    const headline = interstitial?.content?.headline || 'This round powered by';
+    const headline = sanitizeCanvasText(interstitial?.content?.headline || 'This round powered by', 42);
     ctx.font = '10px monospace';
     ctx.fillStyle = accentColor;
     ctx.fillText(headline, CANVAS_W / 2, CANVAS_H / 2 - CANVAS_H * 0.11);
@@ -2204,13 +2228,13 @@ function drawFroggerGameOver(state) {
     // Brand name
     ctx.font = 'bold 15px monospace';
     ctx.fillStyle = '#ffffff';
-    ctx.fillText(activeSponsor.brand_name, CANVAS_W / 2, CANVAS_H / 2 - CANVAS_H * 0.06);
+    ctx.fillText(sanitizeCanvasText(activeSponsor.brand_name, 32), CANVAS_W / 2, CANVAS_H / 2 - CANVAS_H * 0.06);
 
     // Body text
     if (interstitial?.content?.body) {
       ctx.font = '10px monospace';
       ctx.fillStyle = 'rgba(255,255,255,0.6)';
-      ctx.fillText(interstitial.content.body, CANVAS_W / 2, CANVAS_H / 2 - CANVAS_H * 0.01);
+      ctx.fillText(sanitizeCanvasText(interstitial.content.body, 52), CANVAS_W / 2, CANVAS_H / 2 - CANVAS_H * 0.01);
     }
 
     // CTA
@@ -2218,7 +2242,7 @@ function drawFroggerGameOver(state) {
       ctx.font = 'bold 10px monospace';
       ctx.fillStyle = accentColor;
       ctx.globalAlpha = 0.7 + 0.3 * Math.abs(Math.sin(Date.now() / 1000));
-      ctx.fillText(interstitial.content.cta, CANVAS_W / 2, CANVAS_H / 2 + CANVAS_H * 0.04);
+      ctx.fillText(sanitizeCanvasText(interstitial.content.cta, 42), CANVAS_W / 2, CANVAS_H / 2 + CANVAS_H * 0.04);
       ctx.globalAlpha = 1.0;
     }
   }
@@ -2226,12 +2250,20 @@ function drawFroggerGameOver(state) {
   const fs = Math.max(13, Math.floor(CANVAS_W / 42));
   ctx.font = `${fs}px monospace`;
   ctx.fillStyle = C.hudText;
-  ctx.fillText(`Score: ${state.score}`, CANVAS_W / 2, CANVAS_H / 2 + CANVAS_H * 0.02);
-  ctx.fillText(`Level: ${state.level || 1} | Best: ${state.bestScore}`, CANVAS_W / 2, CANVAS_H / 2 + CANVAS_H * 0.09);
+  const resultY = activeSponsor ? CANVAS_H / 2 + CANVAS_H * 0.11 : CANVAS_H / 2 + CANVAS_H * 0.02;
+  ctx.fillText(`Score: ${state.score}`, CANVAS_W / 2, resultY);
+  ctx.fillText(`Level: ${state.level || 1} | Best: ${state.bestScore}`, CANVAS_W / 2, resultY + Math.max(16, CANVAS_H * 0.07));
+  if (lastReceiptResult?.ok) {
+    const rewardText = lastReceiptResult.earnedMicros > 0
+      ? `+${lastReceiptResult.earnedMicros.toLocaleString()}µ earned · ${lastReceiptResult.sponsorMicros.toLocaleString()}µ claimable`
+      : `${lastReceiptResult.sponsorMicros.toLocaleString()}µ claimable`;
+    ctx.fillStyle = C.hudAccent;
+    ctx.fillText(rewardText, CANVAS_W / 2, resultY + Math.max(32, CANVAS_H * 0.14));
+  }
 
   ctx.font = '10px monospace';
   ctx.fillStyle = 'rgba(255,255,255,0.5)';
-  ctx.fillText('Tap Play Again to retry', CANVAS_W / 2, CANVAS_H / 2 + CANVAS_H * 0.17);
+  ctx.fillText('Tap Play Again to retry', CANVAS_W / 2, CANVAS_H / 2 + CANVAS_H * 0.28);
 }
 
 // ── Cleanup ──────────────────────────────────────────────────────────────────

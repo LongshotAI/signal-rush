@@ -602,13 +602,14 @@
 
       // Update claim button
       const claimBtn = $('btn-claim');
-      if (availableMicros >= 1000) {
+      const MIN_CLAIM_MICROS = 10000;
+      if (availableMicros >= MIN_CLAIM_MICROS) {
         claimBtn.disabled = false;
         claimBtn.textContent = 'Claim ' + (availableMicros / 1000000).toFixed(4) + ' → VMCO.ai';
       } else {
         claimBtn.disabled = true;
-        const remaining = 1000 - availableMicros;
-        claimBtn.textContent = 'Need ' + remaining.toLocaleString() + ' more µ (min 1,000)';
+        const remaining = MIN_CLAIM_MICROS - availableMicros;
+        claimBtn.textContent = 'Need ' + remaining.toLocaleString() + ' more µ (min 10,000)';
       }
 
       // Fetch transaction history
@@ -700,7 +701,12 @@
     const rewardsRes = await fetch(`/players/${encodeURIComponent(currentPlayerId)}/rewards`);
     if (!rewardsRes.ok) return;
     const rewards = await rewardsRes.json();
-    const amountMicros = rewards.available_micros || 0;
+    const amountMicros = Math.floor((rewards.available_micros || 0) / 10000) * 10000;
+    if (amountMicros < 10000) {
+      resultEl.className = 'claim-result error';
+      resultEl.textContent = 'Need at least 10,000 µ to claim one VMCO credit.';
+      return;
+    }
 
     btn.disabled = true;
     btn.textContent = 'Claiming...';
@@ -729,7 +735,7 @@
       resultEl.textContent = '✗ Network error: ' + err.message;
     } finally {
       btn.disabled = false;
-      if (amountMicros >= 1000) {
+      if (amountMicros >= 10000) {
         btn.textContent = 'Claim ' + (amountMicros / 1000000).toFixed(4) + ' → VMCO.ai';
       }
     }
