@@ -9,6 +9,8 @@
   <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate" />
   <meta http-equiv="Pragma" content="no-cache" />
   <meta http-equiv="Expires" content="0" />
+  <!-- CSP: scripts must be external (no inline). Allows same-origin, Telegram SDK, and Cloudflare Insights (injected by CDN). -->
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' https://telegram.org https://static.cloudflareinsights.com; connect-src 'self' https://telegram.org; img-src 'self' data: https:; style-src 'self' 'unsafe-inline'; frame-ancestors https://telegram.org; base-uri 'self'; form-action 'self'" />
   <title>Signal Rush</title>
 
   <!-- Telegram Mini App SDK loaded dynamically by telegram-sdk.js (non-blocking) -->
@@ -137,79 +139,6 @@
 
   <div id="controls-hint"></div>
 
-  <script type="module">
-    import { init, destroy } from './game.js';
-
-    // Global error overlay — catches ANY error during init or runtime
-    function showError(title, detail) {
-      const ov = document.createElement('div');
-      ov.id = 'error-overlay';
-      ov.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.95);z-index:9999;color:#ff3355;font-family:monospace;font-size:12px;padding:16px;overflow:auto;white-space:pre-wrap;word-break:break-word;';
-      ov.textContent = title + '\n\n' + detail;
-      document.body.appendChild(ov);
-      // Also hide loading spinner so error is visible
-      const spinner = document.getElementById('loading-spinner');
-      if (spinner) spinner.style.display = 'none';
-    }
-    window.addEventListener('error', (e) => showError('JS Error: ' + e.message, e.error?.stack || ''));
-    window.addEventListener('unhandledrejection', (e) => showError('Promise Rejection:', e.reason?.stack || String(e.reason)));
-
-    // Timeout: if init hasn't resolved/rejected in 15s, show diagnostic
-    const loadTimeout = setTimeout(() => {
-      showError('Game stuck loading after 15 seconds',
-        'window.Telegram: ' + (window.Telegram ? 'exists' : 'missing') + '\n' +
-        'Telegram.WebApp: ' + (window.Telegram?.WebApp ? 'exists' : 'missing') + '\n' +
-        'userAgent: ' + navigator.userAgent.substring(0, 100) + '\n' +
-        'scripts loaded: ' + document.querySelectorAll('script').length + '\n' +
-        'game-container: ' + (document.getElementById('game-container') ? 'exists' : 'missing')
-      );
-    }, 15000);
-
-    try {
-      let engine = await init('#game-container');
-      clearTimeout(loadTimeout);
-
-      // Runtime sanity check: after 3 seconds, verify canvas is visible
-      setTimeout(() => {
-        const canvas = document.querySelector('canvas');
-        const bar = document.getElementById('mode-selector-bar');
-        const chips = bar ? bar.querySelectorAll('button') : [];
-        let diag = 'SANITY CHECK (3s after load):\n';
-        diag += 'canvas: ' + (canvas ? canvas.width + 'x' + canvas.height : 'MISSING') + '\n';
-        diag += 'canvas visible: ' + (canvas && canvas.width > 0 && canvas.offsetParent !== null ? 'YES' : 'NO') + '\n';
-        diag += 'mode chips: ' + chips.length + '\n';
-        diag += 'game-container: ' + (() => { const c = document.getElementById('game-container'); return c ? c.offsetWidth + 'x' + c.offsetHeight : 'MISSING'; })() + '\n';
-        diag += 'game-wrapper: ' + (() => { const w = document.getElementById('game-wrapper'); return w ? w.offsetWidth + 'x' + w.offsetHeight : 'MISSING'; })() + '\n';
-        diag += 'body size: ' + window.innerWidth + 'x' + window.innerHeight + '\n';
-        if ((engine) && (!canvas || canvas.width < 10 || chips.length === 0)) {
-          showError('Game loaded but UI is broken:\n' + diag, 'Check console for details.');
-        }
-        console.log('[SignalRush] ' + diag);
-      }, 3000);
-
-      window.addEventListener('keydown', (e) => {
-        if (e.code === 'KeyP' && engine) {
-          engine.step({ pause: true });
-        }
-        if (e.code === 'KeyR' && engine) {
-          engine.reset();
-        }
-      });
-
-      window.addEventListener('beforeunload', () => {
-        destroy();
-      });
-    } catch (err) {
-      console.error('[SignalRush] Init failed:', err);
-      showError('Init failed: ' + err.message, err.stack || '');
-      const container = document.querySelector('#game-container');
-      if (container) {
-        container.innerHTML = `<div style="color:#ff3355;padding:20px;text-align:center;font-family:monospace;">
-          Failed to load game: ${err.message}<br>
-          <small>${err.stack || ''}</small>
-        </div>`;
-      }
-    }
-  </script>
+  <script type="module" src="./entry.js?v=20260630"></script>
 </body>
 </html>
